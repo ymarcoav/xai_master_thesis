@@ -1,0 +1,12 @@
+name: cse_cic_ids2018
+raw_path: data/raw/CSE_CIC_IDS2018
+processed_path: data/processed/cse_cic_ids2018
+label_column: Label
+binary_label_column: null
+
+# Fill in after inspecting the raw files.
+categorical_columns: []
+drop_columns: []
+
+task:
+  type: multiclass

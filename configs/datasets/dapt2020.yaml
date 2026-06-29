@@ -1,0 +1,12 @@
+name: dapt2020
+raw_path: data/raw/dapt2020
+processed_path: data/processed/dapt2020
+label_column: label
+binary_label_column: null
+
+# Fill in after inspecting the raw files.
+categorical_columns: []
+drop_columns: []
+
+task:
+  type: multiclass

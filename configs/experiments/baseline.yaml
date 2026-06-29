@@ -1,0 +1,16 @@
+dataset: unsw_nb15
+model: random_forest
+random_state: 42
+
+preprocessing:
+  strategy: default_tabular
+
+explainability:
+  methods:
+    - shap
+
+metrics:
+  - accuracy
+  - precision_macro
+  - recall_macro
+  - f1_macro

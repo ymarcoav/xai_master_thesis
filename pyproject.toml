@@ -1,0 +1,30 @@
+[project]
+name = "xai-master-thesis"
+version = "0.1.0"
+description = "Explainable AI experiments for intrusion detection datasets."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "joblib",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "pyyaml",
+    "scikit-learn",
+    "seaborn",
+    "shap",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "scripts", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
