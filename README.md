@@ -11,3 +11,19 @@ Code for the master thesis titled "Evaluating Explainable AI Methods for Intrusi
 - `notebooks/`: exploratory analysis and thesis figures in progress.
 - `outputs/`: generated models, metrics, and plots.
 - `tests/`: focused tests for shared code.
+
+## Dataset Inspection
+
+Inspect raw dataset files before implementing preprocessing:
+
+```powershell
+python scripts/inspect_datasets.py
+```
+
+For a quick sampled check:
+
+```powershell
+python scripts/inspect_datasets.py --max-rows 1000
+```
+
+Reports are written to `outputs/metrics/dataset_inspection/`.
