@@ -11,5 +11,5 @@ class UNSWNB15Dataset(BaseDataset):
         raise NotImplementedError
 
     def clean(self, data: pd.DataFrame) -> pd.DataFrame:
-        # Add UNSW-specific label and column cleanup here.
-        return data
+        # Drop row identifiers and binary label leakage for multiclass experiments.
+        return data.drop(columns=list(self.config.drop_columns), errors="ignore")

@@ -6,7 +6,9 @@ binary_label_column: label
 
 # Fill in after inspecting the raw files.
 categorical_columns: []
-drop_columns: []
+drop_columns:
+  - id
+  - label
 
 task:
   type: multiclass

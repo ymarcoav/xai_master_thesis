@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
@@ -13,6 +13,7 @@ class DatasetConfig:
     processed_path: Path
     label_column: str
     binary_label_column: str | None = None
+    drop_columns: tuple[str, ...] = field(default_factory=tuple)
 
 
 class BaseDataset:
