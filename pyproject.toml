@@ -10,7 +10,7 @@ dependencies = [
     "numpy",
     "pandas",
     "pyyaml",
-    "scikit-learn",
+    "scikit-learn>=1.1",
     "seaborn",
     "shap",
 ]

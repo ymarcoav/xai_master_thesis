@@ -21,15 +21,13 @@ class UNSWNB15Dataset(BaseDataset):
         # Drop row identifiers and binary label leakage for multiclass experiments.
         data = data.drop(columns=list(self.config.drop_columns), errors="ignore")
 
-        # Drop exact duplicate rows, but only within a split: the official
-        # train/test files overlap by ~4k rows, which we keep so the split
-        # stays comparable to published UNSW-NB15 benchmarks.
-        data = data.drop_duplicates().reset_index(drop=True)
-
         # "-" marks "service not identified" in the raw data; make it explicit.
         data["service"] = data["service"].replace("-", "unknown")
 
         # is_ftp_login is documented as binary but contains a data entry bug (values of 2).
         data["is_ftp_login"] = data["is_ftp_login"].clip(upper=1)
 
-        return data
+        # Drop exact duplicate rows last (after the fixes above, in case they reveal new
+        # duplicates), but only within a split: the official train/test files overlap by
+        # ~4k rows, which we keep so the split stays comparable to published benchmarks.
+        return data.drop_duplicates().reset_index(drop=True)
