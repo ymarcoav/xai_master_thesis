@@ -26,6 +26,7 @@ def _base_frame() -> pd.DataFrame:
             "Flow IAT Min": [1, 2],
             "Activity": ["Normal", "Network Scan"],
             "Stage": ["Benign", "BENIGN"],
+            "source_file": ["enp0s3-monday", "enp0s3-monday"],
         }
     )
 
@@ -36,7 +37,7 @@ def test_dapt2020_clean_drops_identifier_activity_and_identity_columns() -> None
 
     cleaned = dataset.clean(data)
 
-    assert list(cleaned.columns) == ["Flow Duration", "Flow IAT Min", "Stage"]
+    assert list(cleaned.columns) == ["Flow Duration", "Flow IAT Min", "Stage", "source_file"]
 
 
 def test_dapt2020_clean_normalizes_benign_casing() -> None:
@@ -59,11 +60,13 @@ def test_dapt2020_clean_drops_rows_with_negative_duration_or_iat() -> None:
     assert (cleaned["Flow Duration"] >= 0).all()
 
 
-def test_dapt2020_clean_drops_exact_duplicate_rows() -> None:
+def test_dapt2020_clean_drops_exact_duplicate_rows_across_source_files() -> None:
     dataset = _make_dataset()
     data = _base_frame()
     data.loc[1] = data.loc[0]
+    data.loc[1, "source_file"] = "enp0s3-tuesday"  # same content, different source file
 
     cleaned = dataset.clean(data)
 
     assert len(cleaned) == 1
+    assert cleaned["source_file"].tolist() == ["enp0s3-monday"]

@@ -5,6 +5,7 @@ import pandas as pd
 from xai_thesis.datasets.base import BaseDataset
 
 _HEADER_MARKER_COLUMN = "Flow ID"
+_SOURCE_COLUMN = "source_file"
 
 
 class DAPT2020Dataset(BaseDataset):
@@ -22,12 +23,15 @@ class DAPT2020Dataset(BaseDataset):
             if _file_has_header(file_path)
         )
 
-        frames = [
-            pd.read_csv(file_path)
-            if _file_has_header(file_path)
-            else pd.read_csv(file_path, header=None, names=canonical_columns)
-            for file_path in csv_files
-        ]
+        frames = []
+        for file_path in csv_files:
+            frame = (
+                pd.read_csv(file_path)
+                if _file_has_header(file_path)
+                else pd.read_csv(file_path, header=None, names=canonical_columns)
+            )
+            frame[_SOURCE_COLUMN] = file_path.stem
+            frames.append(frame)
         return pd.concat(frames, ignore_index=True)
 
     def clean(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -45,7 +49,10 @@ class DAPT2020Dataset(BaseDataset):
         duration_columns = [column for column in data.columns if column == "Flow Duration" or "IAT" in column]
         data = data.loc[~(data[duration_columns] < 0).any(axis=1)]
 
-        return data.drop_duplicates().reset_index(drop=True)
+        # Dedupe on flow content only, ignoring the source-file tag, so a flow
+        # duplicated across two source files is still caught.
+        content_columns = [column for column in data.columns if column != _SOURCE_COLUMN]
+        return data.loc[~data.duplicated(subset=content_columns)].reset_index(drop=True)
 
 
 def _file_has_header(file_path: Path) -> bool:

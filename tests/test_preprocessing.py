@@ -1,7 +1,12 @@
 import numpy as np
 import pandas as pd
 
-from xai_thesis.preprocessing import build_preprocessing_pipeline, split_features_target
+from xai_thesis.preprocessing import (
+    build_preprocessing_pipeline,
+    split_by_official_split_column,
+    split_chronologically_by_source,
+    split_features_target,
+)
 
 
 def test_split_features_target_separates_label_column() -> None:
@@ -11,6 +16,59 @@ def test_split_features_target_separates_label_column() -> None:
 
     assert list(features.columns) == ["feature"]
     assert target.tolist() == ["benign", "attack"]
+
+
+def test_split_by_official_split_column_separates_train_and_test() -> None:
+    data = pd.DataFrame(
+        {
+            "feature": [1, 2, 3, 4],
+            "split": ["train", "train", "test", "test"],
+        }
+    )
+
+    train, test = split_by_official_split_column(data)
+
+    assert train["feature"].tolist() == [1, 2]
+    assert test["feature"].tolist() == [3, 4]
+    assert "split" not in train.columns
+    assert "split" not in test.columns
+
+
+def test_split_chronologically_by_source_keeps_every_source_in_both_splits() -> None:
+    data = pd.DataFrame(
+        {
+            "feature": list(range(10)),
+            "label": ["a"] * 5 + ["b"] * 5,
+            "source_file": ["monday"] * 5 + ["friday"] * 5,
+        }
+    )
+
+    train, test = split_chronologically_by_source(data, "source_file", "label", test_fraction=0.2)
+
+    assert len(train) == 8
+    assert len(test) == 2
+    # each source file's last rows (by original order) go to test
+    assert train["feature"].tolist() == [0, 1, 2, 3, 5, 6, 7, 8]
+    assert test["feature"].tolist() == [4, 9]
+    assert "source_file" not in train.columns
+    assert "source_file" not in test.columns
+
+
+def test_split_chronologically_by_source_keeps_class_in_both_splits_despite_time_clustering() -> None:
+    # A rare attack class occurs in one contiguous burst near the end of a file's row
+    # order; a per-source-file-only cutoff would drop it entirely from train.
+    data = pd.DataFrame(
+        {
+            "feature": list(range(10)),
+            "label": ["benign"] * 8 + ["rare_attack"] * 2,
+            "source_file": ["tuesday"] * 10,
+        }
+    )
+
+    train, test = split_chronologically_by_source(data, "source_file", "label", test_fraction=0.2)
+
+    assert "rare_attack" in train["label"].tolist()
+    assert "rare_attack" in test["label"].tolist()
 
 
 def test_build_preprocessing_pipeline_imputes_and_scales_numeric_columns() -> None:

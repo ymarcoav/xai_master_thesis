@@ -26,6 +26,7 @@ def _base_frame() -> pd.DataFrame:
             " Fwd Header Length": [20, 20, 20, 20],
             " Fwd Header Length.1": [20, 20, 20, 20],
             " Label": ["BENIGN", "BENIGN", "BENIGN", "BENIGN"],
+            "source_file": ["Monday", "Tuesday", "Wednesday", "Friday"],
         }
     )
 
@@ -76,10 +77,14 @@ def test_cic_ids2017_clean_repairs_corrupted_label_characters() -> None:
     assert "�" not in "".join(cleaned["Label"].tolist())
 
 
-def test_cic_ids2017_clean_drops_exact_duplicate_rows() -> None:
+def test_cic_ids2017_clean_drops_exact_duplicate_rows_across_source_files() -> None:
     dataset = _make_dataset()
-    data = _base_frame()  # rows 0 and 3 are exact duplicates; rows 1 and 2 are unique
+    # rows 0 (Monday) and 3 (Friday) have identical content but different source files;
+    # rows 1 and 2 are unique. Content duplicates should be dropped regardless of source file.
+    data = _base_frame()
 
     cleaned = dataset.clean(data)
 
     assert len(cleaned) == 3
+    assert "source_file" in cleaned.columns
+    assert set(cleaned["source_file"]) == {"Monday", "Tuesday", "Wednesday"}

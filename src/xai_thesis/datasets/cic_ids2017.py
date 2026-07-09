@@ -6,6 +6,7 @@ import pandas as pd
 from xai_thesis.datasets.base import BaseDataset
 
 _DUPLICATE_COLUMN = "Fwd Header Length.1"
+_SOURCE_COLUMN = "source_file"
 
 
 class CICIDS2017Dataset(BaseDataset):
@@ -13,7 +14,11 @@ class CICIDS2017Dataset(BaseDataset):
 
     def load_raw(self) -> pd.DataFrame:
         raw_path = Path(self.config.raw_path)
-        frames = [pd.read_csv(file_path) for file_path in sorted(raw_path.glob("*.csv"))]
+        frames = []
+        for file_path in sorted(raw_path.glob("*.csv")):
+            frame = pd.read_csv(file_path)
+            frame[_SOURCE_COLUMN] = file_path.stem
+            frames.append(frame)
         return pd.concat(frames, ignore_index=True)
 
     def clean(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -38,4 +43,7 @@ class CICIDS2017Dataset(BaseDataset):
         label_column = self.config.label_column
         data[label_column] = data[label_column].str.replace("�", "-", regex=False)
 
-        return data.drop_duplicates().reset_index(drop=True)
+        # Dedupe on flow content only, ignoring the source-file tag, so a flow
+        # duplicated across two source files is still caught.
+        content_columns = [column for column in data.columns if column != _SOURCE_COLUMN]
+        return data.loc[~data.duplicated(subset=content_columns)].reset_index(drop=True)
