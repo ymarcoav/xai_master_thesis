@@ -5,7 +5,10 @@ label_column: attack_cat
 binary_label_column: label
 
 # Fill in after inspecting the raw files.
-categorical_columns: []
+categorical_columns:
+  - proto
+  - service
+  - state
 drop_columns:
   - id
   - label
