@@ -4,13 +4,22 @@ from __future__ import annotations
 
 import argparse
 
-from xai_thesis.pipeline import run_experiment
+from xai_thesis.pipeline import run_experiment, tune_hyperparameters
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--experiment", required=True, help="Path to an experiment YAML config.")
+    parser.add_argument(
+        "--tune",
+        action="store_true",
+        help="Search for hyperparameters first and write them into the experiment's model_params before training.",
+    )
     args = parser.parse_args()
+
+    if args.tune:
+        tuned_params = tune_hyperparameters(args.experiment)
+        print(f"Tuned model_params: {tuned_params}")
 
     metrics = run_experiment(args.experiment)
     for name, value in metrics.items():

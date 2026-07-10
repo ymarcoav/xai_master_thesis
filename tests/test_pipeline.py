@@ -1,10 +1,11 @@
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 import yaml
 
-from xai_thesis.pipeline import preprocess_dataset, run_experiment
+from xai_thesis.pipeline import preprocess_dataset, run_experiment, tune_hyperparameters
 
 
 def _write_unsw_fixture(raw_dir: Path) -> None:
@@ -132,6 +133,55 @@ def test_run_experiment_trains_and_saves_model_and_metrics(tmp_path) -> None:
     assert set(metrics) == {"accuracy", "f1_macro"}
     assert (models_dir / "toy_experiment.joblib").exists()
     assert (metrics_dir / "toy_experiment.json").exists()
+
+
+def test_tune_hyperparameters_writes_best_params_into_experiment_yaml(tmp_path) -> None:
+    dataset_config_dir = tmp_path / "datasets"
+    dataset_config_dir.mkdir()
+    processed_dir = tmp_path / "processed" / "toy"
+    processed_dir.mkdir(parents=True)
+
+    rng = np.random.default_rng(0)
+    feature = rng.normal(size=60)
+    label = ["attack" if value > 0 else "benign" for value in feature]
+    pd.DataFrame({"feature": feature, "label": label}).to_csv(processed_dir / "train.csv", index=False)
+    pd.DataFrame({"feature": [0.1, -0.1], "label": ["attack", "benign"]}).to_csv(
+        processed_dir / "test.csv", index=False
+    )
+
+    (dataset_config_dir / "toy.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "toy",
+                "raw_path": "unused",
+                "processed_path": processed_dir.as_posix(),
+                "label_column": "label",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    experiment_path = tmp_path / "experiment.yaml"
+    experiment_path.write_text(
+        yaml.safe_dump(
+            {
+                "name": "toy_experiment",
+                "dataset": "toy",
+                "model": "random_forest",
+                "random_state": 42,
+                "preprocessing": {"strategy": "default_tabular"},
+                "metrics": ["accuracy"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    tuned_params = tune_hyperparameters(experiment_path, dataset_config_dir=dataset_config_dir, n_iter=3, cv=3)
+
+    assert set(tuned_params) == {"n_estimators", "max_depth", "min_samples_leaf", "max_features"}
+
+    updated_experiment = yaml.safe_load(experiment_path.read_text(encoding="utf-8"))
+    assert updated_experiment["model_params"] == tuned_params
 
 
 def test_run_experiment_rejects_unknown_preprocessing_strategy(tmp_path) -> None:
