@@ -28,3 +28,6 @@ src = ["src", "scripts", "tests"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# The default Windows temp base (%TEMP%\pytest-of-<user>) can end up with a
+# locked ACL from a stale run; use a project-local temp root instead.
+addopts = "--basetemp=.pytest_tmp"

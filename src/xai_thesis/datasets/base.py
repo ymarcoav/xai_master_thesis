@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from xai_thesis.utils import load_yaml
+
 
 @dataclass(frozen=True)
 class DatasetConfig:
@@ -14,6 +16,21 @@ class DatasetConfig:
     label_column: str
     binary_label_column: str | None = None
     drop_columns: tuple[str, ...] = field(default_factory=tuple)
+    categorical_columns: tuple[str, ...] = field(default_factory=tuple)
+
+
+def load_dataset_config(config_path: str | Path) -> DatasetConfig:
+    """Load a DatasetConfig from a dataset YAML file."""
+    raw = load_yaml(config_path)
+    return DatasetConfig(
+        name=raw["name"],
+        raw_path=Path(raw["raw_path"]),
+        processed_path=Path(raw["processed_path"]),
+        label_column=raw["label_column"],
+        binary_label_column=raw.get("binary_label_column"),
+        drop_columns=tuple(raw.get("drop_columns", [])),
+        categorical_columns=tuple(raw.get("categorical_columns", [])),
+    )
 
 
 class BaseDataset:

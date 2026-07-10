@@ -1,0 +1,20 @@
+name: neural_network_baseline
+dataset: unsw_nb15
+model: neural_network
+random_state: 42
+model_params:
+  max_iter: 300
+  early_stopping: true
+
+preprocessing:
+  strategy: default_tabular
+
+explainability:
+  methods:
+    - shap
+
+metrics:
+  - accuracy
+  - precision_macro
+  - recall_macro
+  - f1_macro
