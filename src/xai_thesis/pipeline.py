@@ -118,6 +118,7 @@ def tune_hyperparameters(
     n_iter: int = 10,
     cv: int = 3,
     subsample_size: int = 200_000,
+    n_jobs: int = 2,
 ) -> dict[str, Any]:
     """Search for good hyperparameters on the training split and write them into the
     experiment config's model_params, for run_experiment() to pick up on the next run.
@@ -140,6 +141,8 @@ def tune_hyperparameters(
     pipeline = _build_pipeline(experiment, dataset_config, x_search)
     n_splits = min(cv, y_search.value_counts().min())
 
+    # n_jobs is deliberately modest (not -1): spawning one worker process per core for
+    # large subsamples has triggered Windows resource-exhaustion errors (WinError 1450).
     search = RandomizedSearchCV(
         pipeline,
         param_distributions=PARAM_DISTRIBUTIONS[experiment["model"]],
@@ -147,7 +150,7 @@ def tune_hyperparameters(
         scoring="f1_macro",
         cv=StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state),
         random_state=random_state,
-        n_jobs=-1,
+        n_jobs=n_jobs,
     )
     search.fit(x_search, y_search)
 

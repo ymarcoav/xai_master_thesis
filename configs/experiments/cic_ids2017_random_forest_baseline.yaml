@@ -2,16 +2,18 @@ name: cic_ids2017_random_forest_baseline
 dataset: cic_ids2017
 model: random_forest
 random_state: 42
-
 preprocessing:
   strategy: default_tabular
-
 explainability:
   methods:
-    - shap
-
+  - shap
 metrics:
-  - accuracy
-  - precision_macro
-  - recall_macro
-  - f1_macro
+- accuracy
+- precision_macro
+- recall_macro
+- f1_macro
+model_params:
+  n_estimators: 100
+  min_samples_leaf: 1
+  max_features: sqrt
+  max_depth: null

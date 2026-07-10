@@ -4,16 +4,14 @@ model: svm
 random_state: 42
 model_params:
   max_iter: 5000
-
+  C: 100
 preprocessing:
   strategy: default_tabular
-
 explainability:
   methods:
-    - shap
-
+  - shap
 metrics:
-  - accuracy
-  - precision_macro
-  - recall_macro
-  - f1_macro
+- accuracy
+- precision_macro
+- recall_macro
+- f1_macro

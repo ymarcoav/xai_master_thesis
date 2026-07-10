@@ -5,16 +5,17 @@ random_state: 42
 model_params:
   max_iter: 300
   early_stopping: true
-
+  learning_rate_init: 0.001
+  hidden_layer_sizes:
+  - 100
+  alpha: 0.0001
 preprocessing:
   strategy: default_tabular
-
 explainability:
   methods:
-    - shap
-
+  - shap
 metrics:
-  - accuracy
-  - precision_macro
-  - recall_macro
-  - f1_macro
+- accuracy
+- precision_macro
+- recall_macro
+- f1_macro
