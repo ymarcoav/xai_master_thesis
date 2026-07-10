@@ -75,10 +75,13 @@ def run_experiment(
     x_train, y_train = split_features_target(train_df, dataset_config.label_column)
     x_test, y_test = split_features_target(test_df, dataset_config.label_column)
 
-    preprocessing = build_preprocessing_pipeline(x_train, categorical_columns=dataset_config.categorical_columns)
+    random_state = experiment.get("random_state", 42)
+    preprocessing = build_preprocessing_pipeline(
+        x_train, categorical_columns=dataset_config.categorical_columns, random_state=random_state
+    )
     model = build_model(
         experiment["model"],
-        random_state=experiment.get("random_state", 42),
+        random_state=random_state,
         **experiment.get("model_params", {}),
     )
     pipeline = Pipeline(steps=[("preprocessing", preprocessing), ("model", model)])

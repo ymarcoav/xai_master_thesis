@@ -4,7 +4,7 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, RobustScaler
+from sklearn.preprocessing import OneHotEncoder, QuantileTransformer
 
 
 def split_features_target(data: pd.DataFrame, label_column: str) -> tuple[pd.DataFrame, pd.Series]:
@@ -51,14 +51,19 @@ def build_preprocessing_pipeline(
     categorical_columns: Sequence[str],
     *,
     min_frequency: float = 0.01,
+    random_state: int = 42,
 ) -> ColumnTransformer:
     """Create the shared preprocessing pipeline for numeric and categorical features."""
     numeric_columns = [column for column in features.columns if column not in categorical_columns]
 
+    # Network-flow features (durations, IATs, byte counts) are heavily right-skewed: the
+    # typical spread (IQR) can be tiny next to a legitimate but extreme outlier, which made
+    # RobustScaler's output for those columns balloon to 10^5-10^6x other features and broke
+    # linear-model optimization. QuantileTransformer bounds the output regardless of raw skew.
     numeric_pipeline = Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="median")),
-            ("scaler", RobustScaler()),
+            ("scaler", QuantileTransformer(output_distribution="normal", random_state=random_state)),
         ]
     )
     categorical_pipeline = Pipeline(
