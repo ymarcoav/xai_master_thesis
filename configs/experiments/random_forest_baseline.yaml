@@ -2,16 +2,18 @@ name: random_forest_baseline
 dataset: unsw_nb15
 model: random_forest
 random_state: 42
-
 preprocessing:
   strategy: default_tabular
-
 explainability:
   methods:
-    - shap
-
+  - shap
 metrics:
-  - accuracy
-  - precision_macro
-  - recall_macro
-  - f1_macro
+- accuracy
+- precision_macro
+- recall_macro
+- f1_macro
+model_params:
+  n_estimators: 200
+  min_samples_leaf: 2
+  max_features: sqrt
+  max_depth: 40
