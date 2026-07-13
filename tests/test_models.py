@@ -1,5 +1,5 @@
 import pytest
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import LinearSVC
 
@@ -28,6 +28,14 @@ def test_build_model_neural_network_has_no_class_weight() -> None:
     assert isinstance(model, MLPClassifier)
     assert model.random_state == 7
     assert not hasattr(model, "class_weight")
+
+
+def test_build_model_gradient_boosting_is_balanced_and_seeded() -> None:
+    model = build_model("gradient_boosting", random_state=7)
+
+    assert isinstance(model, HistGradientBoostingClassifier)
+    assert model.random_state == 7
+    assert model.class_weight == "balanced"
 
 
 def test_build_model_forwards_extra_kwargs() -> None:

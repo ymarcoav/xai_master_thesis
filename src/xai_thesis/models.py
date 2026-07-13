@@ -2,18 +2,21 @@ from collections.abc import Callable
 from typing import Any
 
 from sklearn.base import ClassifierMixin
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import LinearSVC
 
 # MLPClassifier has no class_weight/sample_weight support, so it trains unweighted;
-# RF and the linear SVM get class_weight="balanced" given how imbalanced these datasets are.
+# the rest get class_weight="balanced" given how imbalanced these datasets are.
 _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
     "random_forest": lambda random_state, **kwargs: RandomForestClassifier(
         random_state=random_state, class_weight="balanced", **kwargs
     ),
     "svm": lambda random_state, **kwargs: LinearSVC(random_state=random_state, class_weight="balanced", **kwargs),
     "neural_network": lambda random_state, **kwargs: MLPClassifier(random_state=random_state, **kwargs),
+    "gradient_boosting": lambda random_state, **kwargs: HistGradientBoostingClassifier(
+        random_state=random_state, class_weight="balanced", **kwargs
+    ),
 }
 
 # Hyperparameter search spaces for RandomizedSearchCV, keyed by model name. Parameter names
@@ -33,6 +36,13 @@ PARAM_DISTRIBUTIONS: dict[str, dict[str, list[Any]]] = {
         "model__hidden_layer_sizes": [(50,), (100,), (100, 50), (128, 64)],
         "model__alpha": [0.0001, 0.001, 0.01, 0.1],
         "model__learning_rate_init": [0.0005, 0.001, 0.005, 0.01],
+    },
+    "gradient_boosting": {
+        "model__learning_rate": [0.01, 0.05, 0.1, 0.2],
+        "model__max_iter": [100, 200, 300],
+        "model__max_leaf_nodes": [15, 31, 63],
+        "model__max_depth": [None, 5, 10, 20],
+        "model__l2_regularization": [0.0, 0.1, 1.0],
     },
 }
 
