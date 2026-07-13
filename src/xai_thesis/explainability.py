@@ -164,15 +164,19 @@ def explain_instance_with_lime(
 
     LimeTabularExplainer requires categorical columns to already be label-encoded as
     integers (categorical_names then supplies the display strings); the pipeline itself
-    still expects the original string categories, so encoding/decoding happens transparently
-    here rather than needing the caller to worry about it.
+    still expects the original values, so encoding/decoding happens transparently here
+    rather than needing the caller to worry about it.
     """
     all_columns = list(x_train.columns)
 
-    # LIME's perturbation sampling needs nonzero variance per numeric feature - a handful of
-    # exactly-constant columns (seen in CIC-IDS2017) otherwise crash scipy's truncnorm
-    # sampling outright. They carry no explanatory signal anyway (a constant can't
-    # differentiate predictions), so hold them fixed and let LIME vary only the rest.
+    # LIME's default quantile-based discretization of continuous features crashes outright
+    # (scipy truncnorm "scale must be positive") on the kind of heavily-skewed distributions
+    # common in these datasets (e.g. CIC-IDS2017's flag counts, ~99% zero) - bin edges
+    # collapse regardless of cardinality. discretize_continuous=False sidesteps the whole
+    # discretizer and perturbs continuous features via a simple Gaussian around each
+    # feature's overall std instead, so only exactly-zero-variance columns remain an issue;
+    # those carry no explanatory signal anyway (a constant can't differentiate predictions),
+    # so they're excluded and held fixed.
     numeric_columns = x_train.select_dtypes(include="number").columns
     zero_variance_columns = [column for column in numeric_columns if x_train[column].std() == 0]
     constant_values = {column: x_train[column].iloc[0] for column in zero_variance_columns}
@@ -216,6 +220,7 @@ def explain_instance_with_lime(
         },
         mode="classification",
         random_state=random_state,
+        discretize_continuous=False,
     )
     explanation = explainer.explain_instance(
         instance_encoded.to_numpy(dtype=float), _predict_fn_on_encoded, num_features=num_features, top_labels=1
