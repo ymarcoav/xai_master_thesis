@@ -144,6 +144,24 @@ def test_explain_instance_with_lime_works_for_svm_without_predict_proba(tmp_path
     assert output_path.exists()
 
 
+def test_explain_instance_with_lime_handles_zero_variance_column(tmp_path) -> None:
+    # A column that's exactly constant across all of x_train crashes LIME's internal
+    # truncnorm perturbation sampling ("scale must be positive") unless excluded - this
+    # happens for real on CIC-IDS2017, which has several exactly-constant columns.
+    x, y = _make_dataset()
+    x = x.copy()
+    x["constant_feature"] = 1.0
+    preprocessing = build_preprocessing_pipeline(x, categorical_columns=[], random_state=42)
+    model = build_model("random_forest", random_state=42)
+    pipeline = Pipeline(steps=[("preprocessing", preprocessing), ("model", model)])
+    pipeline.fit(x, y)
+    class_names = list(pipeline.named_steps["model"].classes_)
+
+    output_path = explain_instance_with_lime(pipeline, x, x.iloc[0], class_names, tmp_path / "lime_constant.png")
+
+    assert output_path.exists()
+
+
 def test_compute_permutation_importance_writes_png_and_ranks_features(tmp_path) -> None:
     x, y = _make_dataset()
     pipeline = _fitted_pipeline("random_forest", x, y)

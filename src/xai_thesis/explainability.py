@@ -167,21 +167,29 @@ def explain_instance_with_lime(
     still expects the original string categories, so encoding/decoding happens transparently
     here rather than needing the caller to worry about it.
     """
-    columns = list(x_train.columns)
+    all_columns = list(x_train.columns)
+
+    # LIME's perturbation sampling needs nonzero variance per numeric feature - a handful of
+    # exactly-constant columns (seen in CIC-IDS2017) otherwise crash scipy's truncnorm
+    # sampling outright. They carry no explanatory signal anyway (a constant can't
+    # differentiate predictions), so hold them fixed and let LIME vary only the rest.
+    numeric_columns = x_train.select_dtypes(include="number").columns
+    zero_variance_columns = [column for column in numeric_columns if x_train[column].std() == 0]
+    constant_values = {column: x_train[column].iloc[0] for column in zero_variance_columns}
+
+    columns = [column for column in all_columns if column not in zero_variance_columns]
     categorical_indices = [columns.index(column) for column in categorical_columns]
     category_values = {column: sorted(x_train[column].astype(str).unique()) for column in categorical_columns}
     category_to_code = {
         column: {value: code for code, value in enumerate(values)} for column, values in category_values.items()
     }
-    code_to_category = {
-        column: dict(enumerate(values)) for column, values in category_values.items()
-    }
+    code_to_category = {column: dict(enumerate(values)) for column, values in category_values.items()}
 
-    x_train_encoded = x_train.copy()
+    x_train_encoded = x_train[columns].copy()
     for column in categorical_columns:
         x_train_encoded[column] = x_train_encoded[column].astype(str).map(category_to_code[column])
 
-    instance_encoded = instance.copy()
+    instance_encoded = instance[columns].copy()
     for column in categorical_columns:
         instance_encoded[column] = category_to_code[column][str(instance[column])]
 
@@ -192,7 +200,9 @@ def explain_instance_with_lime(
         x_df = pd.DataFrame(x_array, columns=columns)
         for column in categorical_columns:
             x_df[column] = x_df[column].round().astype(int).map(code_to_category[column])
-        transformed = pipeline.named_steps["preprocessing"].transform(x_df)
+        for column, value in constant_values.items():
+            x_df[column] = value
+        transformed = pipeline.named_steps["preprocessing"].transform(x_df[all_columns])
         return predict_fn(transformed)
 
     explainer = LimeTabularExplainer(
@@ -200,7 +210,10 @@ def explain_instance_with_lime(
         feature_names=columns,
         class_names=class_names,
         categorical_features=categorical_indices,
-        categorical_names={index: category_values[column] for index, column in zip(categorical_indices, categorical_columns, strict=True)},
+        categorical_names={
+            index: category_values[column]
+            for index, column in zip(categorical_indices, categorical_columns, strict=True)
+        },
         mode="classification",
         random_state=random_state,
     )
