@@ -12,6 +12,16 @@ from sklearn.pipeline import Pipeline
 from xai_thesis.datasets import DATASET_REGISTRY
 from xai_thesis.datasets.base import DatasetConfig, load_dataset_config
 from xai_thesis.evaluation import evaluate_classifier, plot_confusion_matrix, plot_label_distribution
+from xai_thesis.explainability import (
+    compute_permutation_importance,
+    compute_shap_values,
+    explain_instance_with_lime,
+    plot_partial_dependence,
+    plot_shap_bar,
+    plot_shap_beeswarm,
+    plot_shap_waterfall,
+    select_curated_instances,
+)
 from xai_thesis.models import PARAM_DISTRIBUTIONS, build_model, train_model
 from xai_thesis.preprocessing import (
     build_preprocessing_pipeline,
@@ -195,3 +205,116 @@ def generate_label_distribution(
 
     output_path = Path(plots_dir) / f"{dataset_config.name}_label_distribution.png"
     return plot_label_distribution(labels, output_path, title=f"{dataset_config.name} label distribution")
+
+
+# (target_class, confused_with_class) per dataset, informed by the confusion-matrix analysis:
+# in each case, target_class is a class that gets substantially confused with confused_with_class
+# across every model we trained, not just one - e.g. DAPT2020's Reconnaissance is misclassified as
+# Benign by every model (10-75% of the time depending on model). Ties local explanations back to
+# a concrete, already-established error pattern instead of an arbitrary/random instance choice.
+_CLASS_OF_INTEREST: dict[str, tuple[str, str]] = {
+    "unsw_nb15": ("Fuzzers", "Normal"),
+    "cic_ids2017": ("Infiltration", "BENIGN"),
+    "dapt2020": ("Reconnaissance", "Benign"),
+}
+
+
+def generate_explanations(
+    experiment_config_path: str | Path,
+    *,
+    dataset_config_dir: str | Path = "configs/datasets",
+    models_dir: str | Path = "outputs/models",
+    plots_dir: str | Path = "outputs/plots",
+    sample_size: int = 200,
+    pdp_top_n: int = 5,
+) -> dict[str, Path]:
+    """Generate SHAP, LIME, permutation importance, and partial dependence explanations for
+    an already-trained experiment, saving plots under plots_dir/<experiment_name>/.
+    """
+    experiment, dataset_config, x_train, _, x_test, y_test = _load_experiment_and_data(
+        experiment_config_path, dataset_config_dir
+    )
+    random_state = experiment.get("random_state", 42)
+    experiment_name = experiment["name"]
+    model_name = experiment["model"]
+
+    if dataset_config.name not in _CLASS_OF_INTEREST:
+        raise NotImplementedError(f"No class-of-interest mapping configured for dataset: {dataset_config.name}")
+    target_class, confused_with_class = _CLASS_OF_INTEREST[dataset_config.name]
+
+    pipeline = joblib.load(Path(models_dir) / f"{experiment_name}.joblib")
+    output_dir = ensure_directory(Path(plots_dir) / experiment_name)
+    class_names = list(pipeline.named_steps["model"].classes_)
+
+    if len(x_test) > sample_size:
+        sample_x, _, sample_y, _ = train_test_split(
+            x_test, y_test, train_size=sample_size, stratify=y_test, random_state=random_state
+        )
+    else:
+        sample_x, sample_y = x_test, y_test
+    background_x = x_train.sample(n=min(100, len(x_train)), random_state=random_state)
+
+    paths: dict[str, Path] = {}
+
+    shap_values, base_values, x_transformed, feature_names = compute_shap_values(
+        pipeline, model_name, sample_x, background_x
+    )
+    paths["shap_bar"] = plot_shap_bar(
+        shap_values, x_transformed, feature_names, class_names, output_dir / "shap_bar.png"
+    )
+    if target_class in class_names:
+        target_index = class_names.index(target_class)
+        paths["shap_beeswarm"] = plot_shap_beeswarm(
+            shap_values, x_transformed, feature_names, target_index, output_dir / "shap_beeswarm.png"
+        )
+
+    pfi_path, top_features = compute_permutation_importance(
+        pipeline, sample_x, sample_y, output_dir / "permutation_importance.png", random_state=random_state
+    )
+    paths["permutation_importance"] = pfi_path
+
+    if target_class in class_names:
+        # sklearn's PDP computes numeric deciles for its gridlines, which breaks outright
+        # on categorical (string) columns; those would need a different plot style we
+        # haven't built, so just restrict to numeric features here.
+        numeric_top_features = [
+            feature for feature in top_features if feature not in dataset_config.categorical_columns
+        ]
+        paths["partial_dependence"] = plot_partial_dependence(
+            pipeline, sample_x, numeric_top_features[:pdp_top_n], target_class, output_dir / "partial_dependence.png"
+        )
+
+    instances = select_curated_instances(
+        pipeline, x_test, y_test, target_class, confused_with_class, random_state=random_state
+    )
+    if instances:
+        instance_kinds = list(instances.keys())
+        instance_indices = list(instances.values())
+        instances_x = x_test.loc[instance_indices]
+        instance_shap_values, instance_base_values, instances_transformed, _ = compute_shap_values(
+            pipeline, model_name, instances_x, background_x
+        )
+        predicted_classes = pipeline.predict(instances_x)
+
+        for row_index, (kind, predicted_class) in enumerate(zip(instance_kinds, predicted_classes, strict=True)):
+            class_index = class_names.index(predicted_class)
+            paths[f"shap_waterfall_{kind}"] = plot_shap_waterfall(
+                instance_shap_values,
+                instance_base_values,
+                instances_transformed[row_index],
+                feature_names,
+                row_index,
+                class_index,
+                output_dir / f"shap_waterfall_{kind}.png",
+            )
+            paths[f"lime_{kind}"] = explain_instance_with_lime(
+                pipeline,
+                x_train,
+                x_test.loc[instance_indices[row_index]],
+                class_names,
+                output_dir / f"lime_{kind}.png",
+                categorical_columns=dataset_config.categorical_columns,
+                random_state=random_state,
+            )
+
+    return paths

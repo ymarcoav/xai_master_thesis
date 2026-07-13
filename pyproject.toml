@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "joblib",
+    "lime",
     "matplotlib",
     "numpy",
     "pandas",

@@ -22,6 +22,13 @@ def test_build_model_svm_is_balanced_and_seeded() -> None:
     assert model.class_weight == "balanced"
 
 
+def test_build_model_svm_forwards_kwargs() -> None:
+    model = build_model("svm", random_state=7, C=10, max_iter=5000)
+
+    assert model.C == 10
+    assert model.max_iter == 5000
+
+
 def test_build_model_neural_network_has_no_class_weight() -> None:
     model = build_model("neural_network", random_state=7)
 

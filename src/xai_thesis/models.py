@@ -8,6 +8,14 @@ from sklearn.svm import LinearSVC
 
 # MLPClassifier has no class_weight/sample_weight support, so it trains unweighted;
 # the rest get class_weight="balanced" given how imbalanced these datasets are.
+#
+# svm (LinearSVC) has no predict_proba, which some explainability techniques want. We
+# deliberately don't wrap it in CalibratedClassifierCV here: calibrating a multiclass
+# one-vs-rest decision function per class and renormalizing doesn't preserve the original
+# argmax ranking under severe class imbalance, which measurably degraded macro F1 in
+# testing (e.g. 0.43->0.33 on UNSW-NB15, same C value). Any probability estimate needed
+# for explainability is produced locally there, on a calibrated copy, never as the model
+# of record here.
 _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
     "random_forest": lambda random_state, **kwargs: RandomForestClassifier(
         random_state=random_state, class_weight="balanced", **kwargs

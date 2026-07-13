@@ -1,9 +1,35 @@
-"""Generate explainability artifacts for a trained model."""
+"""Generate explainability artifacts (SHAP, LIME, PFI, PDP) for a trained model."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+from xai_thesis.pipeline import generate_explanations
 
 
 def main() -> None:
-    # Load model and processed data, then generate plots/explanations.
-    raise NotImplementedError
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--experiment",
+        help="Path to an experiment YAML config. If omitted, all configs in --config-dir are explained.",
+    )
+    parser.add_argument(
+        "--config-dir",
+        default="configs/experiments",
+        help="Directory containing experiment YAML configs.",
+    )
+    args = parser.parse_args()
+
+    if args.experiment:
+        config_paths = [Path(args.experiment)]
+    else:
+        config_paths = sorted(Path(args.config_dir).glob("*.yaml"))
+
+    for config_path in config_paths:
+        paths = generate_explanations(config_path)
+        for kind, path in paths.items():
+            print(f"Wrote {kind}: {path}")
 
 
 if __name__ == "__main__":

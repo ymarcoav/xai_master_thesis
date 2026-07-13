@@ -7,6 +7,7 @@ import yaml
 
 from xai_thesis.pipeline import (
     generate_confusion_matrix,
+    generate_explanations,
     generate_label_distribution,
     preprocess_dataset,
     run_experiment,
@@ -277,6 +278,59 @@ def test_tune_hyperparameters_writes_best_params_into_experiment_yaml(tmp_path) 
     assert updated_experiment["model_params"] == tuned_params
 
 
+def test_tune_hyperparameters_svm_round_trip_retrains_successfully(tmp_path) -> None:
+    dataset_config_dir = tmp_path / "datasets"
+    dataset_config_dir.mkdir()
+    processed_dir = tmp_path / "processed" / "toy"
+    processed_dir.mkdir(parents=True)
+
+    rng = np.random.default_rng(0)
+    feature = rng.normal(size=60)
+    label = ["attack" if value > 0 else "benign" for value in feature]
+    pd.DataFrame({"feature": feature, "label": label}).to_csv(processed_dir / "train.csv", index=False)
+    pd.DataFrame({"feature": [0.1, -0.1], "label": ["attack", "benign"]}).to_csv(
+        processed_dir / "test.csv", index=False
+    )
+
+    (dataset_config_dir / "toy.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "toy",
+                "raw_path": "unused",
+                "processed_path": processed_dir.as_posix(),
+                "label_column": "label",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    experiment_path = tmp_path / "experiment.yaml"
+    experiment_path.write_text(
+        yaml.safe_dump(
+            {
+                "name": "toy_experiment",
+                "dataset": "toy",
+                "model": "svm",
+                "random_state": 42,
+                "preprocessing": {"strategy": "default_tabular"},
+                "metrics": ["accuracy"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    tuned_params = tune_hyperparameters(experiment_path, dataset_config_dir=dataset_config_dir, n_iter=3, cv=3)
+
+    assert set(tuned_params) == {"C"}
+
+    run_experiment(
+        experiment_path,
+        dataset_config_dir=dataset_config_dir,
+        models_dir=tmp_path / "models",
+        metrics_dir=tmp_path / "metrics",
+    )
+
+
 def test_run_experiment_rejects_unknown_preprocessing_strategy(tmp_path) -> None:
     experiment_path = tmp_path / "experiment.yaml"
     experiment_path.write_text(
@@ -293,3 +347,128 @@ def test_run_experiment_rejects_unknown_preprocessing_strategy(tmp_path) -> None
 
     with pytest.raises(NotImplementedError):
         run_experiment(experiment_path)
+
+
+def test_generate_explanations_rejects_dataset_without_class_of_interest_mapping(tmp_path) -> None:
+    dataset_config_dir = tmp_path / "datasets"
+    dataset_config_dir.mkdir()
+    processed_dir = tmp_path / "processed" / "toy"
+    processed_dir.mkdir(parents=True)
+
+    pd.DataFrame({"feature": [0.0, 1.0], "label": ["benign", "attack"]}).to_csv(
+        processed_dir / "train.csv", index=False
+    )
+    pd.DataFrame({"feature": [0.1, 0.9], "label": ["benign", "attack"]}).to_csv(
+        processed_dir / "test.csv", index=False
+    )
+
+    (dataset_config_dir / "toy.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "toy",
+                "raw_path": "unused",
+                "processed_path": processed_dir.as_posix(),
+                "label_column": "label",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    experiment_path = tmp_path / "experiment.yaml"
+    experiment_path.write_text(
+        yaml.safe_dump(
+            {
+                "name": "toy_experiment",
+                "dataset": "toy",
+                "model": "random_forest",
+                "preprocessing": {"strategy": "default_tabular"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(NotImplementedError):
+        generate_explanations(experiment_path, dataset_config_dir=dataset_config_dir)
+
+
+def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
+    dataset_config_dir = tmp_path / "datasets"
+    dataset_config_dir.mkdir()
+    processed_dir = tmp_path / "processed" / "dapt2020"
+    processed_dir.mkdir(parents=True)
+
+    # Reconnaissance/Benign overlap deliberately, so the model both classifies some
+    # Reconnaissance instances correctly and confuses others with Benign - exercising both
+    # the "correct" and "misclassified" curated-instance paths (see _CLASS_OF_INTEREST).
+    # protocol_type is categorical and strongly predictive, so it ranks high in permutation
+    # importance - a regression check that PDP correctly excludes categorical columns from
+    # its numeric-only feature selection (sklearn's PDP errors outright on string columns).
+    rng = np.random.default_rng(0)
+    n = 60
+    protocol_train = rng.choice(["tcp", "udp"], n)
+    stage_train = np.where(protocol_train == "tcp", "Reconnaissance", "Benign")
+    noisy_mask = rng.random(n) < 0.2
+    stage_train[noisy_mask] = rng.choice(["Benign", "Reconnaissance", "Establish Foothold"], noisy_mask.sum())
+    train_df = pd.DataFrame(
+        {
+            "feature_a": rng.normal(0, 1.5, n),
+            "feature_b": rng.normal(0, 1.5, n),
+            "protocol_type": protocol_train,
+            "Stage": stage_train,
+        }
+    )
+    protocol_test = rng.choice(["tcp", "udp"], 20)
+    test_df = pd.DataFrame(
+        {
+            "feature_a": rng.normal(0, 1.5, 20),
+            "feature_b": rng.normal(0, 1.5, 20),
+            "protocol_type": protocol_test,
+            "Stage": np.where(protocol_test == "tcp", "Reconnaissance", "Benign"),
+        }
+    )
+    train_df.to_csv(processed_dir / "train.csv", index=False)
+    test_df.to_csv(processed_dir / "test.csv", index=False)
+
+    (dataset_config_dir / "dapt2020.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "dapt2020",
+                "raw_path": "unused",
+                "processed_path": processed_dir.as_posix(),
+                "label_column": "Stage",
+                "categorical_columns": ["protocol_type"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    experiment_path = tmp_path / "experiment.yaml"
+    experiment_path.write_text(
+        yaml.safe_dump(
+            {
+                "name": "dapt2020_test_experiment",
+                "dataset": "dapt2020",
+                "model": "random_forest",
+                "random_state": 42,
+                "model_params": {"n_estimators": 10},
+                "preprocessing": {"strategy": "default_tabular"},
+                "metrics": ["accuracy"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    models_dir = tmp_path / "models"
+    metrics_dir = tmp_path / "metrics"
+    plots_dir = tmp_path / "plots"
+
+    run_experiment(
+        experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=metrics_dir
+    )
+    paths = generate_explanations(
+        experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, plots_dir=plots_dir
+    )
+
+    assert {"shap_bar", "shap_beeswarm", "permutation_importance", "partial_dependence"} <= set(paths)
+    for path in paths.values():
+        assert path.exists()
