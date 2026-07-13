@@ -2,16 +2,19 @@ name: unsw_nb15_gradient_boosting_baseline
 dataset: unsw_nb15
 model: gradient_boosting
 random_state: 42
-
 preprocessing:
   strategy: default_tabular
-
 explainability:
   methods:
-    - shap
-
+  - shap
 metrics:
-  - accuracy
-  - precision_macro
-  - recall_macro
-  - f1_macro
+- accuracy
+- precision_macro
+- recall_macro
+- f1_macro
+model_params:
+  max_leaf_nodes: 15
+  max_iter: 100
+  max_depth: 10
+  learning_rate: 0.2
+  l2_regularization: 1.0

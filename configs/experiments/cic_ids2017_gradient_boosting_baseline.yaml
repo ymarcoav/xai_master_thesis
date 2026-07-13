@@ -2,16 +2,19 @@ name: cic_ids2017_gradient_boosting_baseline
 dataset: cic_ids2017
 model: gradient_boosting
 random_state: 42
-
 preprocessing:
   strategy: default_tabular
-
 explainability:
   methods:
-    - shap
-
+  - shap
 metrics:
-  - accuracy
-  - precision_macro
-  - recall_macro
-  - f1_macro
+- accuracy
+- precision_macro
+- recall_macro
+- f1_macro
+model_params:
+  max_leaf_nodes: 63
+  max_iter: 200
+  max_depth: 10
+  learning_rate: 0.2
+  l2_regularization: 0.1

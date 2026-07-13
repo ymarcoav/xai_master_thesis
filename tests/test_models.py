@@ -36,6 +36,7 @@ def test_build_model_gradient_boosting_is_balanced_and_seeded() -> None:
     assert isinstance(model, HistGradientBoostingClassifier)
     assert model.random_state == 7
     assert model.class_weight == "balanced"
+    assert model.early_stopping is False
 
 
 def test_build_model_forwards_extra_kwargs() -> None:

@@ -14,8 +14,12 @@ _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
     ),
     "svm": lambda random_state, **kwargs: LinearSVC(random_state=random_state, class_weight="balanced", **kwargs),
     "neural_network": lambda random_state, **kwargs: MLPClassifier(random_state=random_state, **kwargs),
+    # early_stopping defaults to "auto" in sklearn, which does its own internal
+    # stratified train/validation split; combined with hyperparameter-search subsampling
+    # that can leave an already-rare class down to 1 member in a fold, which fails to
+    # stratify. max_iter is already tuned directly, so early stopping is redundant here.
     "gradient_boosting": lambda random_state, **kwargs: HistGradientBoostingClassifier(
-        random_state=random_state, class_weight="balanced", **kwargs
+        random_state=random_state, class_weight="balanced", early_stopping=False, **kwargs
     ),
 }
 
