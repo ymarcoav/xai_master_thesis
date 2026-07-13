@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 import yaml
 
-from xai_thesis.pipeline import preprocess_dataset, run_experiment, tune_hyperparameters
+from xai_thesis.pipeline import generate_confusion_matrix, preprocess_dataset, run_experiment, tune_hyperparameters
 
 
 def _write_unsw_fixture(raw_dir: Path) -> None:
@@ -133,6 +133,65 @@ def test_run_experiment_trains_and_saves_model_and_metrics(tmp_path) -> None:
     assert set(metrics) == {"accuracy", "f1_macro"}
     assert (models_dir / "toy_experiment.joblib").exists()
     assert (metrics_dir / "toy_experiment.json").exists()
+
+
+def test_generate_confusion_matrix_writes_png_for_trained_experiment(tmp_path) -> None:
+    dataset_config_dir = tmp_path / "datasets"
+    dataset_config_dir.mkdir()
+    processed_dir = tmp_path / "processed" / "toy"
+    processed_dir.mkdir(parents=True)
+
+    train_df = pd.DataFrame(
+        {
+            "feature": [0.0, 1.0, 0.0, 1.0, 0.5, 0.6],
+            "label": ["benign", "attack", "benign", "attack", "benign", "attack"],
+        }
+    )
+    test_df = pd.DataFrame({"feature": [0.1, 0.9], "label": ["benign", "attack"]})
+    train_df.to_csv(processed_dir / "train.csv", index=False)
+    test_df.to_csv(processed_dir / "test.csv", index=False)
+
+    (dataset_config_dir / "toy.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "toy",
+                "raw_path": "unused",
+                "processed_path": processed_dir.as_posix(),
+                "label_column": "label",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    experiment_path = tmp_path / "experiment.yaml"
+    experiment_path.write_text(
+        yaml.safe_dump(
+            {
+                "name": "toy_experiment",
+                "dataset": "toy",
+                "model": "random_forest",
+                "random_state": 42,
+                "model_params": {"n_estimators": 5},
+                "preprocessing": {"strategy": "default_tabular"},
+                "metrics": ["accuracy"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    models_dir = tmp_path / "models"
+    metrics_dir = tmp_path / "metrics"
+    plots_dir = tmp_path / "plots"
+
+    run_experiment(
+        experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=metrics_dir
+    )
+    output_path = generate_confusion_matrix(
+        experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, plots_dir=plots_dir
+    )
+
+    assert output_path == plots_dir / "toy_experiment_confusion_matrix.png"
+    assert output_path.exists()
 
 
 def test_tune_hyperparameters_writes_best_params_into_experiment_yaml(tmp_path) -> None:

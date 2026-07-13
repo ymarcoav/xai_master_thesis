@@ -11,7 +11,7 @@ from sklearn.pipeline import Pipeline
 
 from xai_thesis.datasets import DATASET_REGISTRY
 from xai_thesis.datasets.base import DatasetConfig, load_dataset_config
-from xai_thesis.evaluation import evaluate_classifier
+from xai_thesis.evaluation import evaluate_classifier, plot_confusion_matrix
 from xai_thesis.models import PARAM_DISTRIBUTIONS, build_model, train_model
 from xai_thesis.preprocessing import (
     build_preprocessing_pipeline,
@@ -160,3 +160,22 @@ def tune_hyperparameters(
     dump_yaml(experiment, experiment_config_path)
 
     return tuned_params
+
+
+def generate_confusion_matrix(
+    experiment_config_path: str | Path,
+    *,
+    dataset_config_dir: str | Path = "configs/datasets",
+    models_dir: str | Path = "outputs/models",
+    plots_dir: str | Path = "outputs/plots",
+    normalize: bool = True,
+) -> Path:
+    """Plot a confusion matrix for an already-trained experiment's test predictions."""
+    experiment, _, _, _, x_test, y_test = _load_experiment_and_data(experiment_config_path, dataset_config_dir)
+
+    experiment_name = experiment["name"]
+    model = joblib.load(Path(models_dir) / f"{experiment_name}.joblib")
+    predictions = model.predict(x_test)
+
+    output_path = Path(plots_dir) / f"{experiment_name}_confusion_matrix.png"
+    return plot_confusion_matrix(y_test, predictions, output_path, normalize=normalize)
