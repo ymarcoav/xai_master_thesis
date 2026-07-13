@@ -11,7 +11,7 @@ from sklearn.pipeline import Pipeline
 
 from xai_thesis.datasets import DATASET_REGISTRY
 from xai_thesis.datasets.base import DatasetConfig, load_dataset_config
-from xai_thesis.evaluation import evaluate_classifier, plot_confusion_matrix
+from xai_thesis.evaluation import evaluate_classifier, plot_confusion_matrix, plot_label_distribution
 from xai_thesis.models import PARAM_DISTRIBUTIONS, build_model, train_model
 from xai_thesis.preprocessing import (
     build_preprocessing_pipeline,
@@ -179,3 +179,19 @@ def generate_confusion_matrix(
 
     output_path = Path(plots_dir) / f"{experiment_name}_confusion_matrix.png"
     return plot_confusion_matrix(y_test, predictions, output_path, normalize=normalize)
+
+
+def generate_label_distribution(
+    dataset_config_path: str | Path,
+    *,
+    plots_dir: str | Path = "outputs/plots",
+) -> Path:
+    """Plot the combined train+test label distribution for a processed dataset."""
+    dataset_config = load_dataset_config(dataset_config_path)
+
+    train_df = pd.read_csv(Path(dataset_config.processed_path) / "train.csv")
+    test_df = pd.read_csv(Path(dataset_config.processed_path) / "test.csv")
+    labels = pd.concat([train_df[dataset_config.label_column], test_df[dataset_config.label_column]])
+
+    output_path = Path(plots_dir) / f"{dataset_config.name}_label_distribution.png"
+    return plot_label_distribution(labels, output_path, title=f"{dataset_config.name} label distribution")

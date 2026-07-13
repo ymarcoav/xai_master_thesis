@@ -74,3 +74,32 @@ def plot_confusion_matrix(
     plt.close(fig)
 
     return output_path
+
+
+def plot_label_distribution(labels, output_path: str | Path, *, title: str | None = None) -> Path:
+    """Plot a class count bar chart and save it as a PNG.
+
+    Log-scaled and sorted descending: these datasets' class counts span multiple orders
+    of magnitude (single digits to millions), which a linear scale would render as a
+    single visible bar with everything else invisible at zero.
+    """
+    counts = labels.value_counts().sort_values(ascending=True)
+
+    figure_height = max(3, len(counts) * 0.5)
+    fig, ax = plt.subplots(figsize=(8, figure_height))
+    bars = ax.barh(counts.index.astype(str), counts.to_numpy(), color="#4C72B0")
+    ax.set_xscale("log")
+    ax.set_xlabel("Count (log scale)")
+    ax.set_ylabel("Class")
+    if title:
+        ax.set_title(title)
+    ax.bar_label(bars, labels=[f"{count:,}" for count in counts], padding=3, fontsize=9)
+    ax.margins(x=0.15)
+    fig.tight_layout()
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+
+    return output_path

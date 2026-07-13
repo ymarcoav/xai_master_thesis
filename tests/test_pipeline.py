@@ -5,7 +5,13 @@ import pandas as pd
 import pytest
 import yaml
 
-from xai_thesis.pipeline import generate_confusion_matrix, preprocess_dataset, run_experiment, tune_hyperparameters
+from xai_thesis.pipeline import (
+    generate_confusion_matrix,
+    generate_label_distribution,
+    preprocess_dataset,
+    run_experiment,
+    tune_hyperparameters,
+)
 
 
 def _write_unsw_fixture(raw_dir: Path) -> None:
@@ -74,6 +80,34 @@ def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
     assert len(test_df) == 2
     assert "unknown" in train_df["service"].tolist()  # "-" sentinel normalized
     assert train_df["is_ftp_login"].max() == 1  # clipped from 2
+
+
+def test_generate_label_distribution_writes_png(tmp_path) -> None:
+    processed_dir = tmp_path / "processed" / "toy"
+    processed_dir.mkdir(parents=True)
+    pd.DataFrame({"feature": [0.0, 1.0, 0.0], "label": ["benign", "attack", "benign"]}).to_csv(
+        processed_dir / "train.csv", index=False
+    )
+    pd.DataFrame({"feature": [0.2], "label": ["benign"]}).to_csv(processed_dir / "test.csv", index=False)
+
+    dataset_config_path = tmp_path / "toy.yaml"
+    dataset_config_path.write_text(
+        yaml.safe_dump(
+            {
+                "name": "toy",
+                "raw_path": "unused",
+                "processed_path": processed_dir.as_posix(),
+                "label_column": "label",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    plots_dir = tmp_path / "plots"
+    output_path = generate_label_distribution(dataset_config_path, plots_dir=plots_dir)
+
+    assert output_path == plots_dir / "toy_label_distribution.png"
+    assert output_path.exists()
 
 
 def test_run_experiment_trains_and_saves_model_and_metrics(tmp_path) -> None:
