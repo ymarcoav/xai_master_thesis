@@ -1,4 +1,4 @@
-name: random_forest_baseline
+name: unsw_nb15_random_forest_baseline
 dataset: unsw_nb15
 model: random_forest
 random_state: 42

@@ -1,4 +1,4 @@
-name: svm_baseline
+name: unsw_nb15_svm_baseline
 dataset: unsw_nb15
 model: svm
 random_state: 42

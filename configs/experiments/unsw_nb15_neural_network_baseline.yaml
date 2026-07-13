@@ -1,4 +1,4 @@
-name: neural_network_baseline
+name: unsw_nb15_neural_network_baseline
 dataset: unsw_nb15
 model: neural_network
 random_state: 42
