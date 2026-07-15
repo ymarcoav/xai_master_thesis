@@ -11,3 +11,12 @@ drop_columns:
   - Src IP
   - Dst IP
   - Timestamp
+  # Src Port is mostly ephemeral noise with a clear testbed-specific identity leak
+  # (Lateral Movement dominated by two fixed ports). Dst Port's attack-stage signal is
+  # dominated by a 9000-9003 band that recurs across stages - almost certainly this
+  # testbed's own C2/attack framework's fixed ports rather than a generalizable protocol
+  # signal (contrast with CIC-IDS2017's Destination Port, which maps onto real IANA
+  # well-known ports like 21/22/80 and is kept). Found via the SHAP/PFI explainability
+  # analysis surfacing suspicious port dominance.
+  - Src Port
+  - Dst Port
