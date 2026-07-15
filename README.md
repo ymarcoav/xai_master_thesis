@@ -7,7 +7,7 @@ Code for the master thesis titled "Evaluating Explainable AI Methods for Intrusi
 - `configs/datasets/`: one YAML per dataset (raw/processed paths, label column, columns to drop, categorical columns).
 - `configs/experiments/`: one YAML per trained model (dataset, model type, hyperparameters, metrics to report).
 - `data/`: raw and processed datasets. Data files are ignored by Git.
-- `src/xai_thesis/`: reusable project code (dataset adapters, preprocessing, models, evaluation, pipeline orchestration).
+- `src/xai_thesis/`: reusable project code (dataset adapters, preprocessing, models, evaluation, explainability, pipeline orchestration).
 - `scripts/`: command-line entry points for inspection, preprocessing, training, and analysis.
 - `notebooks/`: exploratory analysis and thesis figures in progress.
 - `outputs/`: generated models (`models/`), metrics (`metrics/`), and plots (`plots/`).
@@ -93,5 +93,29 @@ Plots are written to `outputs/plots/`.
 
 ## Explainability
 
-Not yet implemented (`scripts/explain.py`, `src/xai_thesis/explainability.py` are stubs) — pending a
-decision on which explainability methods and plots to use.
+Four techniques are implemented in `src/xai_thesis/explainability.py`, generated per trained experiment
+(or all of them) via:
+
+```powershell
+python scripts/explain.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml
+python scripts/explain.py  # all experiments
+```
+
+- **SHAP**: `TreeExplainer` for `random_forest`/`gradient_boosting`, `LinearExplainer` for `svm`, and a
+  permutation-based `Explainer` for `neural_network` (no fast structural explainer exists for sklearn
+  MLPs). Produces a global bar plot (mean |SHAP value| per feature, stacked by class), a global beeswarm
+  for the dataset's class of interest, and local waterfall plots for two curated test instances.
+- **LIME** (`LimeTabularExplainer`): local explanations for the same two curated instances, so SHAP and
+  LIME can be compared directly on identical cases.
+- **Permutation feature importance** (`sklearn.inspection.permutation_importance`): run on the full
+  pipeline, so importances are reported in terms of the original feature names, not the one-hot-expanded
+  ones.
+- **Partial dependence plots** (`sklearn.inspection.PartialDependenceDisplay`): for the top numeric
+  features by permutation importance.
+
+The two curated instances per experiment (one correctly classified, one misclassified) are chosen from a
+`(target_class, confused_with_class)` pair per dataset — not randomly — based on the cross-model confusion
+patterns found via `scripts/confusion_matrix.py` (e.g. DAPT2020's `Reconnaissance` is confused with
+`Benign` by every model trained so far). See `_CLASS_OF_INTEREST` in `src/xai_thesis/pipeline.py`.
+
+Plots are written to `outputs/plots/<experiment_name>/`.
