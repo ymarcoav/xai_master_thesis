@@ -2,7 +2,6 @@ name: unsw_nb15
 raw_path: data/raw/UNSW_NB15
 processed_path: data/processed/unsw_nb15
 label_column: attack_cat
-binary_label_column: label
 
 # Fill in after inspecting the raw files.
 categorical_columns:
@@ -12,6 +11,3 @@ categorical_columns:
 drop_columns:
   - id
   - label
-
-task:
-  type: multiclass

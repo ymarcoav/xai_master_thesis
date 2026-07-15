@@ -2,11 +2,7 @@ name: cic_ids2017
 raw_path: data/raw/CIC_IDS2017
 processed_path: data/processed/cic_ids2017
 label_column: Label
-binary_label_column: null
 
 # Fill in after inspecting the raw files.
 categorical_columns: []
 drop_columns: []
-
-task:
-  type: multiclass

@@ -2,7 +2,6 @@ name: dapt2020
 raw_path: data/raw/dapt2020
 processed_path: data/processed/dapt2020
 label_column: Stage
-binary_label_column: null
 
 # Fill in after inspecting the raw files.
 categorical_columns: []
@@ -12,6 +11,3 @@ drop_columns:
   - Src IP
   - Dst IP
   - Timestamp
-
-task:
-  type: multiclass

@@ -10,7 +10,6 @@ def _make_dataset() -> UNSWNB15Dataset:
         raw_path="unused",
         processed_path="unused",
         label_column="attack_cat",
-        binary_label_column="label",
         drop_columns=("id", "label"),
     )
     return UNSWNB15Dataset(config)

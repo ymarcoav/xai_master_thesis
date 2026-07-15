@@ -14,7 +14,6 @@ class DatasetConfig:
     raw_path: Path
     processed_path: Path
     label_column: str
-    binary_label_column: str | None = None
     drop_columns: tuple[str, ...] = field(default_factory=tuple)
     categorical_columns: tuple[str, ...] = field(default_factory=tuple)
 
@@ -27,7 +26,6 @@ def load_dataset_config(config_path: str | Path) -> DatasetConfig:
         raw_path=Path(raw["raw_path"]),
         processed_path=Path(raw["processed_path"]),
         label_column=raw["label_column"],
-        binary_label_column=raw.get("binary_label_column"),
         drop_columns=tuple(raw.get("drop_columns", [])),
         categorical_columns=tuple(raw.get("categorical_columns", [])),
     )

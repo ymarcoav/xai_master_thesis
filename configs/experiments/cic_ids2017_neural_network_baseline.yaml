@@ -12,9 +12,6 @@ model_params:
   alpha: 0.0001
 preprocessing:
   strategy: default_tabular
-explainability:
-  methods:
-  - shap
 metrics:
 - accuracy
 - precision_macro

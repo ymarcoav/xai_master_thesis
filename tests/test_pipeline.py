@@ -58,7 +58,6 @@ def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
                 "raw_path": raw_dir.as_posix(),
                 "processed_path": processed_dir.as_posix(),
                 "label_column": "attack_cat",
-                "binary_label_column": "label",
                 "drop_columns": ["id", "label"],
                 "categorical_columns": ["proto", "service", "state"],
             }
