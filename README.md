@@ -25,6 +25,18 @@ Three intrusion detection datasets are supported: UNSW-NB15, CIC-IDS2017, and DA
 dataset adapter in `src/xai_thesis/datasets/` implementing dataset-specific cleanup (e.g. deduplication,
 fixing known data-quality issues, dropping identifier/leakage columns) behind a shared interface.
 
+Two of these cleaning steps were themselves informed by the explainability analysis, not decided upfront:
+
+- **DAPT2020** drops `Src Port`/`Dst Port` alongside its IP/timestamp columns: SHAP and permutation
+  importance surfaced suspicious port dominance (e.g. `Lateral Movement` driven by two fixed ports), which
+  turned out to be a testbed-specific identity leak rather than a generalizable signal.
+- **CIC-IDS2017** consolidates `Web Attack - Brute Force`/`XSS`/`Sql Injection` into one `Web Attack`
+  label: these subtypes are near-indistinguishable at the flow level (43% mutual confusion, 5-6/10 shared
+  top SHAP features across all 4 models), consistent with prior literature on this dataset.
+
+In both cases, retraining after the fix produced measurably more coherent explanations (SHAP-vs-permutation-importance
+agreement improved), not just better metrics.
+
 ### Dataset inspection
 
 Inspect raw dataset files before implementing preprocessing:
@@ -71,6 +83,12 @@ python scripts/train.py --experiment configs/experiments/unsw_nb15_random_forest
 
 Trained pipelines (preprocessing + model) are saved to `outputs/models/<experiment_name>.joblib`,
 and metrics to `outputs/metrics/<experiment_name>.json`.
+
+All three datasets are severely class-imbalanced. `random_forest`, `svm`, and `gradient_boosting` use
+`class_weight="balanced"`; `neural_network` (`MLPClassifier`) has no `class_weight`/`sample_weight` support
+in scikit-learn, so its training data is resampled instead (`balance_classes` in `preprocessing.py`
+oversamples rare classes and undersamples common ones to the median class count, applied only to the
+training fold, both during hyperparameter search and the final fit).
 
 ## Analysis
 
