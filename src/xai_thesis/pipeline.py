@@ -29,6 +29,7 @@ from xai_thesis.preprocessing import (
     split_by_official_split_column,
     split_chronologically_by_source,
     split_features_target,
+    stratified_subsample,
 )
 from xai_thesis.utils import dump_yaml, ensure_directory, load_yaml
 
@@ -150,8 +151,8 @@ def tune_hyperparameters(
     random_state = experiment.get("random_state", 42)
 
     if len(x_train) > subsample_size:
-        x_search, _, y_search, _ = train_test_split(
-            x_train, y_train, train_size=subsample_size, stratify=y_train, random_state=random_state
+        x_search, y_search = stratified_subsample(
+            x_train, y_train, subsample_size, min_per_class=cv, random_state=random_state
         )
     else:
         x_search, y_search = x_train, y_train

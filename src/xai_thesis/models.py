@@ -55,7 +55,13 @@ PARAM_DISTRIBUTIONS: dict[str, dict[str, list[Any]]] = {
         "model__max_iter": [100, 200, 300],
         "model__max_leaf_nodes": [15, 31, 63],
         "model__max_depth": [None, 5, 10, 20],
-        "model__l2_regularization": [0.0, 0.1, 1.0],
+        # l2_regularization=0.0 is excluded: HistGradientBoostingClassifier's leaf value is
+        # sum(gradient)/(sum(hessian) + l2_regularization), and class_weight="balanced"
+        # produces extreme per-sample weights under this project's severe class imbalance
+        # (e.g. a ~334,000x weight ratio between CIC-IDS2017's Heartbleed and BENIGN
+        # classes) - with zero regularization that combination produced a model with 3.7%
+        # accuracy (vs. 99.5% with l2_regularization=0.1, identical everything else).
+        "model__l2_regularization": [0.1, 0.5, 1.0],
     },
 }
 

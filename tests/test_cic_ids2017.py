@@ -73,8 +73,19 @@ def test_cic_ids2017_clean_repairs_corrupted_label_characters() -> None:
 
     cleaned = dataset.clean(data)
 
-    assert "Web Attack - Brute Force" in cleaned["Label"].tolist()
     assert "�" not in "".join(cleaned["Label"].tolist())
+
+
+def test_cic_ids2017_clean_consolidates_web_attack_subtypes() -> None:
+    dataset = _make_dataset()
+    data = _base_frame()
+    data[" Label"] = ["Web Attack - Brute Force", "Web Attack - XSS", "Web Attack - Sql Injection", "BENIGN"]
+
+    cleaned = dataset.clean(data)
+
+    labels = cleaned["Label"].tolist()
+    assert labels.count("Web Attack") == 3
+    assert "BENIGN" in labels
 
 
 def test_cic_ids2017_clean_drops_exact_duplicate_rows_across_source_files() -> None:

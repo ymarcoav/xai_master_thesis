@@ -5,10 +5,11 @@ random_state: 42
 model_params:
   max_iter: 300
   early_stopping: true
-  learning_rate_init: 0.001
+  learning_rate_init: 0.005
   hidden_layer_sizes:
   - 100
-  alpha: 0.0001
+  - 50
+  alpha: 0.1
 preprocessing:
   strategy: default_tabular
 metrics:

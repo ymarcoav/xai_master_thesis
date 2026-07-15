@@ -87,6 +87,37 @@ def balance_classes(
     return x_balanced, y_balanced
 
 
+def stratified_subsample(
+    features: pd.DataFrame,
+    target: pd.Series,
+    target_size: int,
+    *,
+    min_per_class: int = 1,
+    random_state: int = 42,
+) -> tuple[pd.DataFrame, pd.Series]:
+    """Subsample down to roughly target_size rows, proportionally per class, while
+    guaranteeing every class keeps at least min_per_class rows (or all of them, if it has
+    fewer). Plain proportional stratified sampling can whittle an already-rare class (e.g. 5
+    total rows) down below what a downstream cv-fold split needs; this puts a floor under it.
+    """
+    counts = target.value_counts()
+    proportions = counts / counts.sum()
+
+    resampled_features = []
+    resampled_target = []
+    for label, count in counts.items():
+        desired = max(min_per_class, round(proportions[label] * target_size))
+        n_samples = min(count, desired)
+        mask = target == label
+        x_sampled, y_sampled = resample(
+            features.loc[mask], target.loc[mask], n_samples=n_samples, replace=False, random_state=random_state
+        )
+        resampled_features.append(x_sampled)
+        resampled_target.append(y_sampled)
+
+    return pd.concat(resampled_features), pd.concat(resampled_target)
+
+
 def build_preprocessing_pipeline(
     features: pd.DataFrame,
     categorical_columns: Sequence[str],

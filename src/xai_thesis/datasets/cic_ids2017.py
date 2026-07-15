@@ -43,6 +43,13 @@ class CICIDS2017Dataset(BaseDataset):
         label_column = self.config.label_column
         data[label_column] = data[label_column].str.replace("�", "-", regex=False)
 
+        # Brute Force / XSS / Sql Injection produce practically identical short-lived
+        # HTTP flows at the network level (Ferreira & Bosman 2021, arXiv:2109.11224) - this
+        # project's own SHAP/confusion analysis confirms it (43% mutual confusion, 5-6/10
+        # shared top SHAP features across all 4 models), so they're consolidated into one
+        # Web Attack class rather than left as unrecoverable-from-features subtypes.
+        data.loc[data[label_column].str.startswith("Web Attack"), label_column] = "Web Attack"
+
         # Dedupe on flow content only, ignoring the source-file tag, so a flow
         # duplicated across two source files is still caught.
         content_columns = [column for column in data.columns if column != _SOURCE_COLUMN]

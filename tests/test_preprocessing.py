@@ -7,6 +7,7 @@ from xai_thesis.preprocessing import (
     split_by_official_split_column,
     split_chronologically_by_source,
     split_features_target,
+    stratified_subsample,
 )
 
 
@@ -97,6 +98,29 @@ def test_balance_classes_keeps_features_and_labels_aligned() -> None:
 
     for feature_value, label in zip(x_balanced["feature"], y_balanced, strict=True):
         assert label_for_feature[feature_value] == label
+
+
+def test_stratified_subsample_keeps_a_floor_for_rare_classes() -> None:
+    # A stratified 10%-ish subsample would proportionally reduce a 10-row rare class to
+    # ~1 row, too few for a downstream 3-fold split; min_per_class should override that.
+    features = pd.DataFrame({"feature": list(range(1000))})
+    target = pd.Series(["common"] * 990 + ["rare"] * 10, name="label")
+
+    x_sampled, y_sampled = stratified_subsample(features, target, target_size=100, min_per_class=3)
+
+    counts = y_sampled.value_counts()
+    assert counts["rare"] == 3
+    assert counts["common"] == 99
+    assert len(x_sampled) == len(y_sampled)
+
+
+def test_stratified_subsample_keeps_every_row_of_a_class_smaller_than_the_floor() -> None:
+    features = pd.DataFrame({"feature": list(range(1002))})
+    target = pd.Series(["common"] * 1000 + ["tiny"] * 2, name="label")
+
+    x_sampled, y_sampled = stratified_subsample(features, target, target_size=100, min_per_class=5)
+
+    assert y_sampled.value_counts()["tiny"] == 2  # only 2 exist, floor of 5 can't exceed that
 
 
 def test_build_preprocessing_pipeline_imputes_and_scales_numeric_columns() -> None:
