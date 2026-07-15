@@ -24,12 +24,17 @@ from xai_thesis.explainability import (
 )
 from xai_thesis.models import PARAM_DISTRIBUTIONS, build_model, train_model
 from xai_thesis.preprocessing import (
+    balance_classes,
     build_preprocessing_pipeline,
     split_by_official_split_column,
     split_chronologically_by_source,
     split_features_target,
 )
 from xai_thesis.utils import dump_yaml, ensure_directory, load_yaml
+
+# MLPClassifier has no class_weight/sample_weight support, unlike the other models here
+# (see models.py), so it needs its own training-time rebalancing via resampling instead.
+_MODELS_REQUIRING_RESAMPLING = {"neural_network"}
 
 _METRIC_EXTRACTORS = {
     "accuracy": lambda report: report["accuracy"],
@@ -106,6 +111,9 @@ def run_experiment(
         experiment_config_path, dataset_config_dir
     )
 
+    if experiment["model"] in _MODELS_REQUIRING_RESAMPLING:
+        x_train, y_train = balance_classes(x_train, y_train, random_state=experiment.get("random_state", 42))
+
     pipeline = _build_pipeline(experiment, dataset_config, x_train)
     train_model(pipeline, x_train, y_train)
 
@@ -147,6 +155,9 @@ def tune_hyperparameters(
         )
     else:
         x_search, y_search = x_train, y_train
+
+    if experiment["model"] in _MODELS_REQUIRING_RESAMPLING:
+        x_search, y_search = balance_classes(x_search, y_search, random_state=random_state)
 
     pipeline = _build_pipeline(experiment, dataset_config, x_search)
     n_splits = min(cv, y_search.value_counts().min())

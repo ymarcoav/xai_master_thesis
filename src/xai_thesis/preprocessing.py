@@ -5,6 +5,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, QuantileTransformer
+from sklearn.utils import resample
 
 
 def split_features_target(data: pd.DataFrame, label_column: str) -> tuple[pd.DataFrame, pd.Series]:
@@ -44,6 +45,46 @@ def split_chronologically_by_source(
     train = pd.concat(train_parts).drop(columns=[source_column]).reset_index(drop=True)
     test = pd.concat(test_parts).drop(columns=[source_column]).reset_index(drop=True)
     return train, test
+
+
+def balance_classes(
+    features: pd.DataFrame, target: pd.Series, *, random_state: int = 42
+) -> tuple[pd.DataFrame, pd.Series]:
+    """Resample every class to the median class count (training-time rebalancing).
+
+    Some models (e.g. MLPClassifier) have no class_weight/sample_weight support, so they
+    can't be rebalanced the way the rest of this project's models are. This is the resampling
+    equivalent for those: classes below the median are oversampled with replacement, classes
+    above it are undersampled, so no class is duplicated all the way up to the majority
+    class's size (risky when the rarest classes have only a handful of rows) nor left as
+    imbalanced as the raw data.
+    """
+    counts = target.value_counts()
+    target_count = int(counts.median())
+
+    resampled_features = []
+    resampled_target = []
+    for label, count in counts.items():
+        mask = target == label
+        x_resampled, y_resampled = resample(
+            features.loc[mask],
+            target.loc[mask],
+            n_samples=target_count,
+            replace=count < target_count,
+            random_state=random_state,
+        )
+        resampled_features.append(x_resampled.reset_index(drop=True))
+        resampled_target.append(y_resampled.reset_index(drop=True))
+
+    # ignore_index + reset_index throughout: oversampling with replacement duplicates original
+    # row indices, so without this a later .loc lookup on a shuffled index would match every
+    # duplicate of a given label instead of the single intended row.
+    x_combined = pd.concat(resampled_features, ignore_index=True)
+    y_combined = pd.concat(resampled_target, ignore_index=True)
+    shuffled_positions = x_combined.sample(frac=1, random_state=random_state).index
+    x_balanced = x_combined.loc[shuffled_positions].reset_index(drop=True)
+    y_balanced = y_combined.loc[shuffled_positions].reset_index(drop=True)
+    return x_balanced, y_balanced
 
 
 def build_preprocessing_pipeline(

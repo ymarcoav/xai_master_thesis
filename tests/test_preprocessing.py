@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from xai_thesis.preprocessing import (
+    balance_classes,
     build_preprocessing_pipeline,
     split_by_official_split_column,
     split_chronologically_by_source,
@@ -69,6 +70,33 @@ def test_split_chronologically_by_source_keeps_class_in_both_splits_despite_time
 
     assert "rare_attack" in train["label"].tolist()
     assert "rare_attack" in test["label"].tolist()
+
+
+def test_balance_classes_resamples_every_class_to_the_median_count() -> None:
+    features = pd.DataFrame({"feature": list(range(23))})
+    target = pd.Series(["rare"] * 2 + ["mid"] * 6 + ["common"] * 15, name="label")
+
+    x_balanced, y_balanced = balance_classes(features, target)
+
+    counts = y_balanced.value_counts()
+    assert counts["mid"] == 6  # the median class count is left untouched
+    assert counts["rare"] == 6  # oversampled up from 2
+    assert counts["common"] == 6  # undersampled down from 15
+    assert len(x_balanced) == len(y_balanced) == 18
+    assert y_balanced.name == "label"
+
+
+def test_balance_classes_keeps_features_and_labels_aligned() -> None:
+    # feature value equals index so misalignment between the resampled features and
+    # labels (e.g. from a stale/duplicate pandas index after oversampling) is detectable.
+    features = pd.DataFrame({"feature": [0, 1, 2, 3, 4]})
+    target = pd.Series(["a", "a", "a", "b", "b"], name="label")
+    label_for_feature = {0: "a", 1: "a", 2: "a", 3: "b", 4: "b"}
+
+    x_balanced, y_balanced = balance_classes(features, target)
+
+    for feature_value, label in zip(x_balanced["feature"], y_balanced, strict=True):
+        assert label_for_feature[feature_value] == label
 
 
 def test_build_preprocessing_pipeline_imputes_and_scales_numeric_columns() -> None:

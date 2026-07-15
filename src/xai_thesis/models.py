@@ -6,8 +6,9 @@ from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassif
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import LinearSVC
 
-# MLPClassifier has no class_weight/sample_weight support, so it trains unweighted;
-# the rest get class_weight="balanced" given how imbalanced these datasets are.
+# MLPClassifier has no class_weight/sample_weight support, so it can't be rebalanced here
+# like the rest; instead, pipeline.py resamples its training data (balance_classes) before
+# fit. The other three get class_weight="balanced" given how imbalanced these datasets are.
 #
 # svm (LinearSVC) has no predict_proba, which some explainability techniques want. We
 # deliberately don't wrap it in CalibratedClassifierCV here: calibrating a multiclass
