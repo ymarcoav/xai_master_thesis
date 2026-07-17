@@ -58,7 +58,7 @@ def test_clean_feature_names_strips_column_transformer_prefix() -> None:
 
 def test_predict_proba_fn_uses_native_predict_proba_when_available() -> None:
     x, y = _make_dataset()
-    pipeline = _fitted_pipeline("random_forest", x, y)
+    pipeline = _fitted_pipeline("gradient_boosting", x, y)
     model = pipeline.named_steps["model"]
 
     fn = predict_proba_fn(model)
@@ -81,7 +81,7 @@ def test_predict_proba_fn_softmax_fallback_preserves_argmax_for_svm() -> None:
     assert (proxy_predictions == model.predict(x_transformed)).all()
 
 
-@pytest.mark.parametrize("model_name", ["random_forest", "gradient_boosting", "svm", "neural_network"])
+@pytest.mark.parametrize("model_name", ["gradient_boosting", "svm", "neural_network"])
 def test_compute_shap_values_has_consistent_shape_across_model_types(model_name: str) -> None:
     x, y = _make_dataset()
     pipeline = _fitted_pipeline(model_name, x, y)
@@ -98,8 +98,8 @@ def test_compute_shap_values_has_consistent_shape_across_model_types(model_name:
 
 def test_plot_shap_bar_and_beeswarm_write_png(tmp_path) -> None:
     x, y = _make_dataset()
-    pipeline = _fitted_pipeline("random_forest", x, y)
-    shap_values, _, x_transformed, feature_names = compute_shap_values(pipeline, "random_forest", x, x.iloc[:30])
+    pipeline = _fitted_pipeline("gradient_boosting", x, y)
+    shap_values, _, x_transformed, feature_names = compute_shap_values(pipeline, "gradient_boosting", x, x.iloc[:30])
     class_names = list(pipeline.named_steps["model"].classes_)
 
     bar_path = plot_shap_bar(shap_values, x_transformed, feature_names, class_names, tmp_path / "bar.png")
@@ -111,9 +111,9 @@ def test_plot_shap_bar_and_beeswarm_write_png(tmp_path) -> None:
 
 def test_plot_shap_waterfall_writes_png(tmp_path) -> None:
     x, y = _make_dataset()
-    pipeline = _fitted_pipeline("random_forest", x, y)
+    pipeline = _fitted_pipeline("gradient_boosting", x, y)
     shap_values, base_values, x_transformed, feature_names = compute_shap_values(
-        pipeline, "random_forest", x.iloc[:5], x.iloc[5:30]
+        pipeline, "gradient_boosting", x.iloc[:5], x.iloc[5:30]
     )
 
     output_path = plot_shap_waterfall(
@@ -125,7 +125,7 @@ def test_plot_shap_waterfall_writes_png(tmp_path) -> None:
 
 def test_explain_instance_with_lime_writes_png(tmp_path) -> None:
     x, y = _make_dataset()
-    pipeline = _fitted_pipeline("random_forest", x, y)
+    pipeline = _fitted_pipeline("gradient_boosting", x, y)
     class_names = list(pipeline.named_steps["model"].classes_)
 
     output_path = explain_instance_with_lime(pipeline, x, x.iloc[0], class_names, tmp_path / "lime.png")
@@ -152,7 +152,7 @@ def test_explain_instance_with_lime_handles_zero_variance_column(tmp_path) -> No
     x = x.copy()
     x["constant_feature"] = 1.0
     preprocessing = build_preprocessing_pipeline(x, categorical_columns=[], random_state=42)
-    model = build_model("random_forest", random_state=42)
+    model = build_model("gradient_boosting", random_state=42)
     pipeline = Pipeline(steps=[("preprocessing", preprocessing), ("model", model)])
     pipeline.fit(x, y)
     class_names = list(pipeline.named_steps["model"].classes_)
@@ -164,7 +164,7 @@ def test_explain_instance_with_lime_handles_zero_variance_column(tmp_path) -> No
 
 def test_compute_permutation_importance_writes_png_and_ranks_features(tmp_path) -> None:
     x, y = _make_dataset()
-    pipeline = _fitted_pipeline("random_forest", x, y)
+    pipeline = _fitted_pipeline("gradient_boosting", x, y)
 
     output_path, top_features = compute_permutation_importance(pipeline, x, y, tmp_path / "pfi.png", n_repeats=3)
 
@@ -174,7 +174,7 @@ def test_compute_permutation_importance_writes_png_and_ranks_features(tmp_path) 
 
 def test_plot_partial_dependence_writes_png(tmp_path) -> None:
     x, y = _make_dataset()
-    pipeline = _fitted_pipeline("random_forest", x, y)
+    pipeline = _fitted_pipeline("gradient_boosting", x, y)
 
     output_path = plot_partial_dependence(pipeline, x, ["feature_a"], "class_0", tmp_path / "pdp.png")
 
@@ -193,7 +193,7 @@ def test_plot_partial_dependence_works_for_svm_via_decision_function(tmp_path) -
 
 def test_select_curated_instances_finds_correct_and_misclassified() -> None:
     x, y = _make_dataset()
-    pipeline = _fitted_pipeline("random_forest", x, y)
+    pipeline = _fitted_pipeline("gradient_boosting", x, y)
 
     instances = select_curated_instances(pipeline, x, y, "class_0", "class_1", random_state=42)
 
@@ -204,7 +204,7 @@ def test_select_curated_instances_finds_correct_and_misclassified() -> None:
 
 def test_select_curated_instances_returns_empty_when_no_misclassifications_exist() -> None:
     x, y = _make_dataset()
-    pipeline = _fitted_pipeline("random_forest", x, y)
+    pipeline = _fitted_pipeline("gradient_boosting", x, y)
 
     # class_0 and class_2 are far apart (centers 0 and 6) so a well-separated model
     # should never confuse them; the "misclassified" key should simply be absent.

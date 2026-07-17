@@ -68,27 +68,32 @@ split chronologically per source file and label, so every class stays represente
 ## Training
 
 Each experiment config in `configs/experiments/` names a dataset and a model
-(`random_forest`, `svm`, `neural_network`, or `gradient_boosting`). Train one:
+(`svm`, `neural_network`, or `gradient_boosting`). Train one:
 
 ```powershell
-python scripts/train.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml
+python scripts/train.py --experiment configs/experiments/unsw_nb15_gradient_boosting_baseline.yaml
 ```
 
 Add `--tune` to search for hyperparameters first (`RandomizedSearchCV`, stratified CV) and write the
 best ones back into the experiment's `model_params` before training on the full training set:
 
 ```powershell
-python scripts/train.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml --tune
+python scripts/train.py --experiment configs/experiments/unsw_nb15_gradient_boosting_baseline.yaml --tune
 ```
 
 Trained pipelines (preprocessing + model) are saved to `outputs/models/<experiment_name>.joblib`,
 and metrics to `outputs/metrics/<experiment_name>.json`.
 
-All three datasets are severely class-imbalanced. `random_forest`, `svm`, and `gradient_boosting` use
+All three datasets are severely class-imbalanced. `svm` and `gradient_boosting` use
 `class_weight="balanced"`; `neural_network` (`MLPClassifier`) has no `class_weight`/`sample_weight` support
 in scikit-learn, so its training data is resampled instead (`balance_classes` in `preprocessing.py`
 oversamples rare classes and undersamples common ones to the median class count, applied only to the
 training fold, both during hyperparameter search and the final fit).
+
+`random_forest` was dropped from the model catalog: it shares `gradient_boosting`'s tree-ensemble
+family and `TreeExplainer`, consistently showed the highest cross-model SHAP agreement with it of any
+model pair, and underperformed it on 2 of 3 datasets (tying on the third) - little unique signal for
+the added combinatorial cost in the explainability/interview stages.
 
 ## Analysis
 
@@ -96,7 +101,7 @@ Confusion matrix (row-normalized by default, since class counts are severely imb
 trained experiment, or all experiments in `configs/experiments/`:
 
 ```powershell
-python scripts/confusion_matrix.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml
+python scripts/confusion_matrix.py --experiment configs/experiments/unsw_nb15_gradient_boosting_baseline.yaml
 python scripts/confusion_matrix.py  # all experiments
 ```
 
@@ -115,11 +120,11 @@ Four techniques are implemented in `src/xai_thesis/explainability.py`, generated
 (or all of them) via:
 
 ```powershell
-python scripts/explain.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml
+python scripts/explain.py --experiment configs/experiments/unsw_nb15_gradient_boosting_baseline.yaml
 python scripts/explain.py  # all experiments
 ```
 
-- **SHAP**: `TreeExplainer` for `random_forest`/`gradient_boosting`, `LinearExplainer` for `svm`, and a
+- **SHAP**: `TreeExplainer` for `gradient_boosting`, `LinearExplainer` for `svm`, and a
   permutation-based `Explainer` for `neural_network` (no fast structural explainer exists for sklearn
   MLPs). Produces a global bar plot (mean |SHAP value| per feature, stacked by class), a global beeswarm
   for the dataset's class of interest, and local waterfall plots for two curated test instances.

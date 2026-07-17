@@ -2,13 +2,13 @@ from collections.abc import Callable
 from typing import Any
 
 from sklearn.base import ClassifierMixin
-from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import LinearSVC
 
 # MLPClassifier has no class_weight/sample_weight support, so it can't be rebalanced here
 # like the rest; instead, pipeline.py resamples its training data (balance_classes) before
-# fit. The other three get class_weight="balanced" given how imbalanced these datasets are.
+# fit. The other two get class_weight="balanced" given how imbalanced these datasets are.
 #
 # svm (LinearSVC) has no predict_proba, which some explainability techniques want. We
 # deliberately don't wrap it in CalibratedClassifierCV here: calibrating a multiclass
@@ -17,10 +17,13 @@ from sklearn.svm import LinearSVC
 # testing (e.g. 0.43->0.33 on UNSW-NB15, same C value). Any probability estimate needed
 # for explainability is produced locally there, on a calibrated copy, never as the model
 # of record here.
+#
+# random_forest was dropped from the catalog: it shares gradient_boosting's tree-ensemble
+# family and TreeExplainer (near-highest cross-model SHAP agreement of any pair in this
+# project), while consistently underperforming it on 2 of 3 datasets and only tying on the
+# third - little unique signal lost, and it simplifies the model x technique combinatorics
+# for the expert-interview stimulus set.
 _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
-    "random_forest": lambda random_state, **kwargs: RandomForestClassifier(
-        random_state=random_state, class_weight="balanced", **kwargs
-    ),
     "svm": lambda random_state, **kwargs: LinearSVC(random_state=random_state, class_weight="balanced", **kwargs),
     "neural_network": lambda random_state, **kwargs: MLPClassifier(random_state=random_state, **kwargs),
     # early_stopping defaults to "auto" in sklearn, which does its own internal
@@ -36,12 +39,6 @@ _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
 # are prefixed "model__" to match the ("model", ...) step name in the sklearn Pipeline that
 # wraps preprocessing + model together (see pipeline.py).
 PARAM_DISTRIBUTIONS: dict[str, dict[str, list[Any]]] = {
-    "random_forest": {
-        "model__n_estimators": [100, 200, 300, 500],
-        "model__max_depth": [None, 10, 20, 40],
-        "model__min_samples_leaf": [1, 2, 5],
-        "model__max_features": ["sqrt", "log2"],
-    },
     "svm": {
         "model__C": [0.001, 0.01, 0.1, 1, 10, 100],
     },

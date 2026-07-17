@@ -1,17 +1,9 @@
 import pytest
-from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import LinearSVC
 
 from xai_thesis.models import build_model, train_model
-
-
-def test_build_model_random_forest_is_balanced_and_seeded() -> None:
-    model = build_model("random_forest", random_state=7)
-
-    assert isinstance(model, RandomForestClassifier)
-    assert model.random_state == 7
-    assert model.class_weight == "balanced"
 
 
 def test_build_model_svm_is_balanced_and_seeded() -> None:
@@ -47,9 +39,9 @@ def test_build_model_gradient_boosting_is_balanced_and_seeded() -> None:
 
 
 def test_build_model_forwards_extra_kwargs() -> None:
-    model = build_model("random_forest", random_state=7, n_estimators=50)
+    model = build_model("gradient_boosting", random_state=7, max_iter=50)
 
-    assert model.n_estimators == 50
+    assert model.max_iter == 50
 
 
 def test_build_model_raises_for_unknown_model() -> None:
@@ -58,7 +50,7 @@ def test_build_model_raises_for_unknown_model() -> None:
 
 
 def test_train_model_fits_and_returns_the_model() -> None:
-    model = build_model("random_forest", random_state=7, n_estimators=5)
+    model = build_model("gradient_boosting", random_state=7, max_iter=5)
     x_train = [[0, 0], [1, 1], [0, 1], [1, 0]]
     y_train = ["benign", "attack", "benign", "attack"]
 

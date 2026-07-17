@@ -144,9 +144,9 @@ def test_run_experiment_trains_and_saves_model_and_metrics(tmp_path) -> None:
             {
                 "name": "toy_experiment",
                 "dataset": "toy",
-                "model": "random_forest",
+                "model": "gradient_boosting",
                 "random_state": 42,
-                "model_params": {"n_estimators": 5},
+                "model_params": {"max_iter": 5},
                 "preprocessing": {"strategy": "default_tabular"},
                 "metrics": ["accuracy", "f1_macro"],
             }
@@ -203,9 +203,9 @@ def test_generate_confusion_matrix_writes_png_for_trained_experiment(tmp_path) -
             {
                 "name": "toy_experiment",
                 "dataset": "toy",
-                "model": "random_forest",
+                "model": "gradient_boosting",
                 "random_state": 42,
-                "model_params": {"n_estimators": 5},
+                "model_params": {"max_iter": 5},
                 "preprocessing": {"strategy": "default_tabular"},
                 "metrics": ["accuracy"],
             }
@@ -260,7 +260,7 @@ def test_tune_hyperparameters_writes_best_params_into_experiment_yaml(tmp_path) 
             {
                 "name": "toy_experiment",
                 "dataset": "toy",
-                "model": "random_forest",
+                "model": "gradient_boosting",
                 "random_state": 42,
                 "preprocessing": {"strategy": "default_tabular"},
                 "metrics": ["accuracy"],
@@ -271,7 +271,7 @@ def test_tune_hyperparameters_writes_best_params_into_experiment_yaml(tmp_path) 
 
     tuned_params = tune_hyperparameters(experiment_path, dataset_config_dir=dataset_config_dir, n_iter=3, cv=3)
 
-    assert set(tuned_params) == {"n_estimators", "max_depth", "min_samples_leaf", "max_features"}
+    assert set(tuned_params) == {"learning_rate", "max_iter", "max_leaf_nodes", "max_depth", "l2_regularization"}
 
     updated_experiment = yaml.safe_load(experiment_path.read_text(encoding="utf-8"))
     assert updated_experiment["model_params"] == tuned_params
@@ -337,7 +337,7 @@ def test_run_experiment_rejects_unknown_preprocessing_strategy(tmp_path) -> None
             {
                 "name": "toy_experiment",
                 "dataset": "toy",
-                "model": "random_forest",
+                "model": "gradient_boosting",
                 "preprocessing": {"strategy": "fancy"},
             }
         ),
@@ -379,7 +379,7 @@ def test_generate_explanations_rejects_dataset_without_class_of_interest_mapping
             {
                 "name": "toy_experiment",
                 "dataset": "toy",
-                "model": "random_forest",
+                "model": "gradient_boosting",
                 "preprocessing": {"strategy": "default_tabular"},
             }
         ),
@@ -447,9 +447,9 @@ def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
             {
                 "name": "dapt2020_test_experiment",
                 "dataset": "dapt2020",
-                "model": "random_forest",
+                "model": "gradient_boosting",
                 "random_state": 42,
-                "model_params": {"n_estimators": 10},
+                "model_params": {"max_iter": 10},
                 "preprocessing": {"strategy": "default_tabular"},
                 "metrics": ["accuracy"],
             }
