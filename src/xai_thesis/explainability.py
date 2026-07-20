@@ -56,17 +56,26 @@ def compute_shap_values(
     model_name: str,
     x_data: pd.DataFrame,
     background_data: pd.DataFrame,
+    *,
+    categorical_columns: Sequence[str] = (),
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str]]:
     """Compute SHAP values for x_data using the fastest suitable explainer.
 
-    Operates on the *transformed* feature space (post-preprocessing): TreeExplainer and
-    LinearExplainer need direct access to the fitted model, which only ever sees transformed
-    features. Returns (shap_values, base_values, x_transformed, feature_names):
-      - shap_values: shape (n_samples, n_features, n_classes)
+    TreeExplainer and LinearExplainer need direct access to the fitted model, which only ever
+    sees the transformed (quantile-scaled, one-hot-encoded) feature space, so the underlying
+    Shapley values are computed there. For display, one-hot dummy columns' attributions are
+    summed back into their parent categorical feature, and the transformed numeric/categorical
+    values are swapped for the original, untransformed ones - unlike LIME/permutation
+    importance/PDP, which already operate on the original feature space directly by wrapping
+    the whole pipeline rather than the bare model. Returns (shap_values, base_values,
+    display_data, feature_names):
+      - shap_values: shape (n_samples, n_original_features, n_classes), already collapsed
       - base_values: shape (n_samples, n_classes). TreeExplainer/LinearExplainer give one
         constant expected_value per class (broadcast across samples here for a uniform
         shape); the permutation explainer (no .expected_value attribute) already returns
         base values per instance directly.
+      - display_data: shape (n_samples, n_original_features), original units/categories,
+        object-dtype since numeric and categorical columns are mixed
     """
     preprocessing = pipeline.named_steps["preprocessing"]
     model = pipeline.named_steps["model"]
@@ -93,7 +102,46 @@ def compute_shap_values(
         shap_values = np.asarray(explanation.values)
         base_values = np.asarray(explanation.base_values)
 
-    return shap_values, base_values, x_transformed, feature_names
+    shap_values, display_data, feature_names = _collapse_to_original_features(
+        shap_values, feature_names, x_data, categorical_columns
+    )
+    return shap_values, base_values, display_data, feature_names
+
+
+def _collapse_to_original_features(
+    shap_values: np.ndarray,
+    transformed_feature_names: list[str],
+    x_data: pd.DataFrame,
+    categorical_columns: Sequence[str],
+) -> tuple[np.ndarray, np.ndarray, list[str]]:
+    """Sum one-hot dummy columns' SHAP values back into their parent categorical feature, and
+    replace the (transformed-space) display values with the original, untransformed ones.
+
+    Numeric features map 1:1 onto a transformed column, so their SHAP values pass through
+    unchanged; only their displayed value changes (original units instead of quantile-scaled).
+    """
+    # Longest-name-first so a categorical column name that happens to prefix another (e.g. a
+    # column "a" and a column "a_b") doesn't grab the wrong dummy block.
+    sorted_categorical = sorted(categorical_columns, key=len, reverse=True)
+
+    def _owner(name: str) -> str:
+        if name not in categorical_columns and name in x_data.columns:
+            return name
+        for column in sorted_categorical:
+            if name == column or name.startswith(f"{column}_"):
+                return column
+        raise ValueError(f"Could not map transformed feature {name!r} back to an original column")
+
+    owners = [_owner(name) for name in transformed_feature_names]
+    original_columns = list(dict.fromkeys(owners))  # first-seen order, de-duplicated
+
+    n_samples, _, n_classes = shap_values.shape
+    collapsed_shap = np.zeros((n_samples, len(original_columns), n_classes))
+    for transformed_index, owner in enumerate(owners):
+        collapsed_shap[:, original_columns.index(owner), :] += shap_values[:, transformed_index, :]
+
+    display_data = x_data[original_columns].to_numpy(dtype=object)
+    return collapsed_shap, display_data, original_columns
 
 
 def plot_shap_bar(

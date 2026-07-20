@@ -269,7 +269,7 @@ def generate_explanations(
     paths: dict[str, Path] = {}
 
     shap_values, base_values, x_transformed, feature_names = compute_shap_values(
-        pipeline, model_name, sample_x, background_x
+        pipeline, model_name, sample_x, background_x, categorical_columns=dataset_config.categorical_columns
     )
     paths["shap_bar"] = plot_shap_bar(
         shap_values, x_transformed, feature_names, class_names, output_dir / "shap_bar.png"
@@ -304,7 +304,7 @@ def generate_explanations(
         instance_indices = list(instances.values())
         instances_x = x_test.loc[instance_indices]
         instance_shap_values, instance_base_values, instances_transformed, _ = compute_shap_values(
-            pipeline, model_name, instances_x, background_x
+            pipeline, model_name, instances_x, background_x, categorical_columns=dataset_config.categorical_columns
         )
         predicted_classes = pipeline.predict(instances_x)
 

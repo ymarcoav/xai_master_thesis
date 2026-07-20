@@ -40,12 +40,20 @@ def _make_dataset(n_per_class: int = 40, random_state: int = 42):
     return x, y
 
 
-def _fitted_pipeline(model_name: str, x, y, random_state: int = 42) -> Pipeline:
-    preprocessing = build_preprocessing_pipeline(x, categorical_columns=[], random_state=random_state)
+def _fitted_pipeline(model_name: str, x, y, random_state: int = 42, categorical_columns=()) -> Pipeline:
+    preprocessing = build_preprocessing_pipeline(x, categorical_columns=categorical_columns, random_state=random_state)
     model = build_model(model_name, random_state=random_state)
     pipeline = Pipeline(steps=[("preprocessing", preprocessing), ("model", model)])
     pipeline.fit(x, y)
     return pipeline
+
+
+def _make_dataset_with_categorical(n_per_class: int = 40, random_state: int = 42):
+    x, y = _make_dataset(n_per_class, random_state)
+    rng = np.random.default_rng(random_state)
+    x = x.copy()
+    x["protocol"] = rng.choice(["tcp", "udp"], size=len(x))
+    return x, y
 
 
 def test_clean_feature_names_strips_column_transformer_prefix() -> None:
@@ -94,6 +102,25 @@ def test_compute_shap_values_has_consistent_shape_across_model_types(model_name:
     assert base_values.shape == (10, 3)
     assert x_transformed.shape[0] == 10
     assert feature_names == ["feature_a", "feature_b"]
+
+
+def test_compute_shap_values_collapses_one_hot_columns_and_restores_original_values() -> None:
+    x, y = _make_dataset_with_categorical()
+    pipeline = _fitted_pipeline("gradient_boosting", x, y, categorical_columns=["protocol"])
+
+    shap_values, _, display_data, feature_names = compute_shap_values(
+        pipeline, "gradient_boosting", x.iloc[:10], x.iloc[10:30], categorical_columns=["protocol"]
+    )
+
+    # One-hot expansion of "protocol" (2 categories) must be collapsed back to a single
+    # feature, not left as two ("protocol_tcp", "protocol_udp") separate attributions.
+    assert feature_names == ["feature_a", "feature_b", "protocol"]
+    assert shap_values.shape == (10, 3, 3)
+
+    # display_data must carry the original, untransformed values - not the quantile-scaled
+    # numeric representation, and not a one-hot 0/1 indicator for the categorical column.
+    assert np.allclose(display_data[:, 0].astype(float), x["feature_a"].iloc[:10].to_numpy())
+    assert list(display_data[:, 2]) == list(x["protocol"].iloc[:10])
 
 
 def test_plot_shap_bar_and_beeswarm_write_png(tmp_path) -> None:
