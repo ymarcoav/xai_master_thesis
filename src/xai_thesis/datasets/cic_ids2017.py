@@ -38,17 +38,12 @@ class CICIDS2017Dataset(BaseDataset):
         duration_columns = [column for column in data.columns if column == "Flow Duration" or "IAT" in column]
         data = data.loc[~(data[duration_columns] < 0).any(axis=1)]
 
-        # The raw files already contain a corrupted replacement character where an
-        # en-dash was lost (e.g. "Web Attack � Brute Force").
+        # Binary classification: BENIGN vs. every attack category collapsed into one
+        # Attack class, matching prior literature that reports binary results for this
+        # dataset. The exact attack subtype no longer matters once collapsed, so unlike
+        # the multiclass case, corrupted label characters need no repair.
         label_column = self.config.label_column
-        data[label_column] = data[label_column].str.replace("�", "-", regex=False)
-
-        # Brute Force / XSS / Sql Injection produce practically identical short-lived
-        # HTTP flows at the network level (Ferreira & Bosman 2021, arXiv:2109.11224) - this
-        # project's own SHAP/confusion analysis confirms it (43% mutual confusion, 5-6/10
-        # shared top SHAP features across all 4 models), so they're consolidated into one
-        # Web Attack class rather than left as unrecoverable-from-features subtypes.
-        data.loc[data[label_column].str.startswith("Web Attack"), label_column] = "Web Attack"
+        data[label_column] = np.where(data[label_column] == "BENIGN", "Benign", "Attack")
 
         # Dedupe on flow content only, ignoring the source-file tag, so a flow
         # duplicated across two source files is still caught.

@@ -80,6 +80,7 @@ def compute_shap_values(
     preprocessing = pipeline.named_steps["preprocessing"]
     model = pipeline.named_steps["model"]
     feature_names = clean_feature_names(list(preprocessing.get_feature_names_out()))
+    n_classes = len(model.classes_)
 
     x_transformed = preprocessing.transform(x_data)
     background_transformed = preprocessing.transform(background_data)
@@ -89,11 +90,13 @@ def compute_shap_values(
         explainer = shap.TreeExplainer(model)
         shap_values = np.asarray(explainer.shap_values(x_transformed))
         expected_value = np.atleast_1d(np.asarray(explainer.expected_value))
+        shap_values, expected_value = _expand_binary_class_dimension(shap_values, expected_value, n_classes)
         base_values = np.broadcast_to(expected_value, (n_samples, expected_value.shape[0]))
     elif model_name == "svm":
         explainer = shap.LinearExplainer(model, background_transformed)
         shap_values = np.asarray(explainer.shap_values(x_transformed))
         expected_value = np.atleast_1d(np.asarray(explainer.expected_value))
+        shap_values, expected_value = _expand_binary_class_dimension(shap_values, expected_value, n_classes)
         base_values = np.broadcast_to(expected_value, (n_samples, expected_value.shape[0]))
     else:
         background_summary = shap.sample(background_transformed, min(50, len(background_transformed)))
@@ -106,6 +109,23 @@ def compute_shap_values(
         shap_values, feature_names, x_data, categorical_columns
     )
     return shap_values, base_values, display_data, feature_names
+
+
+def _expand_binary_class_dimension(
+    shap_values: np.ndarray, expected_value: np.ndarray, n_classes: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """TreeExplainer/LinearExplainer collapse a binary classifier's output to a single column
+    (the positive class, model.classes_[1]) rather than one per class, since the other class's
+    contribution is just its negation - unlike the multiclass case, or the permutation
+    explainer, which always gets one column per class from predict_proba regardless of class
+    count. Expand back to a uniform (..., n_classes) shape so downstream code (which assumes
+    one SHAP value per class) doesn't need two code paths. The sign convention (index 1 as-is,
+    index 0 negated) was verified empirically against the model's own predict_proba output,
+    not assumed.
+    """
+    if n_classes != 2 or shap_values.ndim == 3:
+        return shap_values, expected_value
+    return np.stack([-shap_values, shap_values], axis=-1), np.array([-expected_value[0], expected_value[0]])
 
 
 def _collapse_to_original_features(

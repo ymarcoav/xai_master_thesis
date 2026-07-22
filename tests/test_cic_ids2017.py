@@ -66,26 +66,16 @@ def test_cic_ids2017_clean_drops_rows_with_negative_duration_or_iat() -> None:
     assert len(cleaned) == 2
 
 
-def test_cic_ids2017_clean_repairs_corrupted_label_characters() -> None:
+def test_cic_ids2017_clean_collapses_labels_to_binary() -> None:
     dataset = _make_dataset()
     data = _base_frame()
-    data[" Label"] = ["Web Attack � Brute Force", "BENIGN", "BENIGN", "BENIGN"]
-
-    cleaned = dataset.clean(data)
-
-    assert "�" not in "".join(cleaned["Label"].tolist())
-
-
-def test_cic_ids2017_clean_consolidates_web_attack_subtypes() -> None:
-    dataset = _make_dataset()
-    data = _base_frame()
-    data[" Label"] = ["Web Attack - Brute Force", "Web Attack - XSS", "Web Attack - Sql Injection", "BENIGN"]
+    data[" Label"] = ["Web Attack - Brute Force", "DDoS", "PortScan", "BENIGN"]
 
     cleaned = dataset.clean(data)
 
     labels = cleaned["Label"].tolist()
-    assert labels.count("Web Attack") == 3
-    assert "BENIGN" in labels
+    assert labels.count("Attack") == 3
+    assert labels.count("Benign") == 1
 
 
 def test_cic_ids2017_clean_drops_exact_duplicate_rows_across_source_files() -> None:

@@ -219,14 +219,17 @@ def generate_label_distribution(
     return plot_label_distribution(labels, output_path, title=f"{dataset_config.name} label distribution")
 
 
-# (target_class, confused_with_class) per dataset, informed by the confusion-matrix analysis:
-# in each case, target_class is a class that gets substantially confused with confused_with_class
-# across every model we trained, not just one - e.g. DAPT2020's Reconnaissance is misclassified as
+# (target_class, confused_with_class) per dataset. For DAPT2020 (multiclass), informed by the
+# confusion-matrix analysis: target_class is a class substantially confused with confused_with_class
+# across every model trained, not just one - e.g. DAPT2020's Reconnaissance is misclassified as
 # Benign by every model (10-75% of the time depending on model). Ties local explanations back to
-# a concrete, already-established error pattern instead of an arbitrary/random instance choice.
+# a concrete, already-established error pattern instead of an arbitrary/random instance choice. For
+# the two binary datasets, Attack misclassified as Benign (a false negative - an undetected attack)
+# is the single most security-critical error an IDS can make, so it's the natural class of interest
+# regardless of per-model confusion specifics.
 _CLASS_OF_INTEREST: dict[str, tuple[str, str]] = {
-    "unsw_nb15": ("Fuzzers", "Normal"),
-    "cic_ids2017": ("Infiltration", "BENIGN"),
+    "unsw_nb15": ("Attack", "Benign"),
+    "cic_ids2017": ("Attack", "Benign"),
     "dapt2020": ("Reconnaissance", "Benign"),
 }
 

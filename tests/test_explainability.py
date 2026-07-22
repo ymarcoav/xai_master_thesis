@@ -19,9 +19,8 @@ from xai_thesis.models import build_model
 from xai_thesis.preprocessing import build_preprocessing_pipeline
 
 
-def _make_dataset(n_per_class: int = 40, random_state: int = 42):
+def _make_dataset(n_per_class: int = 40, random_state: int = 42, n_classes: int = 3):
     rng = np.random.default_rng(random_state)
-    n_classes = 3
     frames = []
     for class_index in range(n_classes):
         center = class_index * 3.0
@@ -121,6 +120,28 @@ def test_compute_shap_values_collapses_one_hot_columns_and_restores_original_val
     # numeric representation, and not a one-hot 0/1 indicator for the categorical column.
     assert np.allclose(display_data[:, 0].astype(float), x["feature_a"].iloc[:10].to_numpy())
     assert list(display_data[:, 2]) == list(x["protocol"].iloc[:10])
+
+
+@pytest.mark.parametrize("model_name", ["gradient_boosting", "svm"])
+def test_compute_shap_values_expands_binary_classifier_to_per_class_shape(model_name: str) -> None:
+    # TreeExplainer/LinearExplainer collapse a binary classifier's output to a single column
+    # (unlike the always-per-class multiclass case, or the permutation explainer's
+    # predict_proba-based path), which crashed downstream shape-dependent code the first time
+    # this project trained on real binary-labeled data.
+    x, y = _make_dataset(n_classes=2)
+    pipeline = _fitted_pipeline(model_name, x, y)
+
+    shap_values, base_values, _, feature_names = compute_shap_values(
+        pipeline, model_name, x.iloc[:10], x.iloc[10:30]
+    )
+
+    assert shap_values.shape == (10, 2, 2)
+    assert base_values.shape == (10, 2)
+    assert feature_names == ["feature_a", "feature_b"]
+    # class 0's contribution must be exactly the negation of class 1's, per the binary SHAP
+    # convention this project verified empirically against the model's own predict_proba.
+    assert np.allclose(shap_values[:, :, 0], -shap_values[:, :, 1])
+    assert np.allclose(base_values[:, 0], -base_values[:, 1])
 
 
 def test_plot_shap_bar_and_beeswarm_write_png(tmp_path) -> None:

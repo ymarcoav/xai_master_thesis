@@ -1,13 +1,15 @@
 name: unsw_nb15
 raw_path: data/raw/UNSW_NB15
 processed_path: data/processed/unsw_nb15
-label_column: attack_cat
+label_column: label
 
-# Fill in after inspecting the raw files.
+# Binary classification: label is UNSW-NB15's own native Normal/Attack ground truth
+# (0/1), used in place of the multiclass attack_cat, to match prior literature that
+# reports binary results for this dataset.
 categorical_columns:
   - proto
   - service
   - state
 drop_columns:
   - id
-  - label
+  - attack_cat
