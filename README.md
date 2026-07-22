@@ -25,17 +25,18 @@ Three intrusion detection datasets are supported: UNSW-NB15, CIC-IDS2017, and DA
 dataset adapter in `src/xai_thesis/datasets/` implementing dataset-specific cleanup (e.g. deduplication,
 fixing known data-quality issues, dropping identifier/leakage columns) behind a shared interface.
 
-Two of these cleaning steps were themselves informed by the explainability analysis, not decided upfront:
+CIC-IDS2017 and UNSW-NB15 use **binary classification** (`Benign`/`Attack`), matching prior literature
+that reports binary results for these two datasets specifically; UNSW-NB15's binary label uses the
+dataset's own native `label` column rather than deriving it from the multiclass `attack_cat`. DAPT2020
+remains multiclass (its five kill-chain stages), since there's no equivalent binary convention for it in
+the literature.
 
-- **DAPT2020** drops `Src Port`/`Dst Port` alongside its IP/timestamp columns: SHAP and permutation
-  importance surfaced suspicious port dominance (e.g. `Lateral Movement` driven by two fixed ports), which
-  turned out to be a testbed-specific identity leak rather than a generalizable signal.
-- **CIC-IDS2017** consolidates `Web Attack - Brute Force`/`XSS`/`Sql Injection` into one `Web Attack`
-  label: these subtypes are near-indistinguishable at the flow level (43% mutual confusion, 5-6/10 shared
-  top SHAP features across all 4 models), consistent with prior literature on this dataset.
-
-In both cases, retraining after the fix produced measurably more coherent explanations (SHAP-vs-permutation-importance
-agreement improved), not just better metrics.
+One cleaning step was itself informed by the explainability analysis, not decided upfront: **DAPT2020**
+drops `Src Port`/`Dst Port` alongside its IP/timestamp columns, since SHAP and permutation importance
+surfaced suspicious port dominance (e.g. `Lateral Movement` driven by two fixed ports) that turned out to
+be a testbed-specific identity leak rather than a generalizable signal. Retraining after the fix produced
+measurably more coherent explanations (SHAP-vs-permutation-importance agreement improved), not just
+better metrics.
 
 ### Dataset inspection
 
