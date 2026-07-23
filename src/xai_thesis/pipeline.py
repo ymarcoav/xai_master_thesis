@@ -233,6 +233,13 @@ _CLASS_OF_INTEREST: dict[str, tuple[str, str]] = {
     "dapt2020": ("Reconnaissance", "Benign"),
 }
 
+# LIME's default discretize_continuous=True crashes on CIC-IDS2017's heavily-skewed columns
+# (scipy truncnorm "scale must be positive" - confirmed reproducible, see explainability.py);
+# verified safe for UNSW-NB15 specifically (30/30 test instances, no error) before enabling it
+# there. DAPT2020 doesn't use this setting at all (it falls back to LIME's own single-panel
+# rendering, since the fixed two-class layout doesn't generalize past two classes).
+_SAFE_TO_DISCRETIZE_LIME = {"unsw_nb15"}
+
 
 def generate_explanations(
     experiment_config_path: str | Path,
@@ -330,6 +337,7 @@ def generate_explanations(
                 output_dir / f"lime_{kind}.png",
                 categorical_columns=dataset_config.categorical_columns,
                 random_state=random_state,
+                discretize_continuous=dataset_config.name in _SAFE_TO_DISCRETIZE_LIME,
             )
 
     return paths

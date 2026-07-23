@@ -47,11 +47,17 @@ def _fitted_pipeline(model_name: str, x, y, random_state: int = 42, categorical_
     return pipeline
 
 
-def _make_dataset_with_categorical(n_per_class: int = 40, random_state: int = 42):
-    x, y = _make_dataset(n_per_class, random_state)
+def _make_dataset_with_categorical(n_per_class: int = 40, random_state: int = 42, n_classes: int = 3):
+    x, y = _make_dataset(n_per_class, random_state, n_classes=n_classes)
     rng = np.random.default_rng(random_state)
     x = x.copy()
     x["protocol"] = rng.choice(["tcp", "udp"], size=len(x))
+    return x, y
+
+
+def _make_binary_attack_benign_dataset(n_per_class: int = 40, random_state: int = 42):
+    x, y = _make_dataset_with_categorical(n_per_class, random_state, n_classes=2)
+    y = y.replace({"class_0": "Benign", "class_1": "Attack"})
     return x, y
 
 
@@ -206,6 +212,40 @@ def test_explain_instance_with_lime_handles_zero_variance_column(tmp_path) -> No
     class_names = list(pipeline.named_steps["model"].classes_)
 
     output_path = explain_instance_with_lime(pipeline, x, x.iloc[0], class_names, tmp_path / "lime_constant.png")
+
+    assert output_path.exists()
+
+
+def test_explain_instance_with_lime_uses_binary_layout_for_attack_benign(tmp_path) -> None:
+    # class_names == {"Attack", "Benign"} triggers the fixed Class 0/Class 1 layout and
+    # forces the explanation to always be relative to Attack (see explain_instance_with_lime),
+    # rather than LIME's default of explaining whichever class was actually predicted.
+    x, y = _make_binary_attack_benign_dataset()
+    pipeline = _fitted_pipeline("gradient_boosting", x, y, categorical_columns=["protocol"])
+    class_names = list(pipeline.named_steps["model"].classes_)
+    assert set(class_names) == {"Attack", "Benign"}
+
+    output_path = explain_instance_with_lime(
+        pipeline, x, x.iloc[0], class_names, tmp_path / "lime_binary.png", categorical_columns=["protocol"]
+    )
+
+    assert output_path.exists()
+
+
+def test_explain_instance_with_lime_binary_layout_works_with_discretize_continuous(tmp_path) -> None:
+    x, y = _make_binary_attack_benign_dataset()
+    pipeline = _fitted_pipeline("gradient_boosting", x, y, categorical_columns=["protocol"])
+    class_names = list(pipeline.named_steps["model"].classes_)
+
+    output_path = explain_instance_with_lime(
+        pipeline,
+        x,
+        x.iloc[0],
+        class_names,
+        tmp_path / "lime_binary_discretized.png",
+        categorical_columns=["protocol"],
+        discretize_continuous=True,
+    )
 
     assert output_path.exists()
 

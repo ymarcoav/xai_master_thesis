@@ -217,6 +217,9 @@ def plot_shap_waterfall(
     return _save_current_figure(output_path)
 
 
+_BINARY_CLASS_NAMES = {"Attack", "Benign"}
+
+
 def explain_instance_with_lime(
     pipeline: Pipeline,
     x_train: pd.DataFrame,
@@ -227,24 +230,33 @@ def explain_instance_with_lime(
     categorical_columns: Sequence[str] = (),
     num_features: int = 8,
     random_state: int = 42,
+    discretize_continuous: bool = False,
 ) -> Path:
-    """Local LIME explanation for one instance, for the class it was actually predicted as.
+    """Local LIME explanation for one instance.
 
     LimeTabularExplainer requires categorical columns to already be label-encoded as
     integers (categorical_names then supplies the display strings); the pipeline itself
     still expects the original values, so encoding/decoding happens transparently here
     rather than needing the caller to worry about it.
+
+    LIME's default quantile-based discretization of continuous features crashes outright
+    (scipy truncnorm "scale must be positive") on the kind of heavily-skewed distributions
+    common in these datasets (e.g. CIC-IDS2017's flag counts, ~99% zero, confirmed still
+    reproducible after the binary-classification switch) - bin edges collapse regardless of
+    cardinality. discretize_continuous defaults to False (sidesteps the discretizer entirely,
+    perturbing continuous features via a Gaussian around each feature's std instead) and
+    should only be set True for a dataset verified not to hit this crash (confirmed safe for
+    UNSW-NB15 specifically).
+
+    For the two binary (Attack/Benign) datasets, the explanation is always computed relative
+    to the Attack class specifically - the security-critical one - regardless of which class
+    the model actually predicted for this instance, so a correctly-flagged attack and a missed
+    one can be read on the same footing. Rendered with a fixed Class 0 (Benign, blue) / Class 1
+    (Attack, orange) layout; true multiclass datasets (e.g. DAPT2020) fall back to LIME's own
+    default single-panel rendering for whichever class was actually predicted, since a fixed
+    two-sided layout doesn't generalize past two classes.
     """
     all_columns = list(x_train.columns)
-
-    # LIME's default quantile-based discretization of continuous features crashes outright
-    # (scipy truncnorm "scale must be positive") on the kind of heavily-skewed distributions
-    # common in these datasets (e.g. CIC-IDS2017's flag counts, ~99% zero) - bin edges
-    # collapse regardless of cardinality. discretize_continuous=False sidesteps the whole
-    # discretizer and perturbs continuous features via a simple Gaussian around each
-    # feature's overall std instead, so only exactly-zero-variance columns remain an issue;
-    # those carry no explanatory signal anyway (a constant can't differentiate predictions),
-    # so they're excluded and held fixed.
     numeric_columns = x_train.select_dtypes(include="number").columns
     zero_variance_columns = [column for column in numeric_columns if x_train[column].std() == 0]
     constant_values = {column: x_train[column].iloc[0] for column in zero_variance_columns}
@@ -288,14 +300,112 @@ def explain_instance_with_lime(
         },
         mode="classification",
         random_state=random_state,
-        discretize_continuous=False,
+        discretize_continuous=discretize_continuous,
     )
-    explanation = explainer.explain_instance(
-        instance_encoded.to_numpy(dtype=float), _predict_fn_on_encoded, num_features=num_features, top_labels=1
-    )
-    label = explanation.available_labels()[0]
-    fig = explanation.as_pyplot_figure(label=label)
+
+    if set(class_names) == _BINARY_CLASS_NAMES:
+        attack_index = class_names.index("Attack")
+        explanation = explainer.explain_instance(
+            instance_encoded.to_numpy(dtype=float), _predict_fn_on_encoded, num_features=num_features,
+            labels=(attack_index,),
+        )
+        fig = _plot_lime_binary_explanation(explanation, class_names, instance, columns)
+    else:
+        explanation = explainer.explain_instance(
+            instance_encoded.to_numpy(dtype=float), _predict_fn_on_encoded, num_features=num_features, top_labels=1
+        )
+        label = explanation.available_labels()[0]
+        fig = explanation.as_pyplot_figure(label=label)
+
     return _save_figure(fig, output_path)
+
+
+def _feature_name_from_condition(condition: str, known_columns: list[str]) -> str:
+    """Recover the underlying feature name from a LIME condition string, whatever form it
+    takes ("sttl", "sttl <= 0.14", "0.00 < ct_srv_dst <= 1.00", "service=unknown") - matched
+    against the known column list rather than parsed by operator, since that's robust to any
+    of LIME's condition formats. Longest match wins, so one column name being a substring of
+    another (e.g. "ct_srv_dst" inside "ct_srv_dst_ltm") doesn't pick the wrong one.
+    """
+    matches = [column for column in known_columns if column in condition]
+    return max(matches, key=len) if matches else condition
+
+
+def _plot_lime_binary_explanation(
+    explanation: object, class_names: list[str], instance: pd.Series, known_columns: list[str]
+) -> plt.Figure:
+    """Render a two-class LIME explanation with a fixed Class 0 (Benign, blue) / Class 1
+    (Attack, orange) layout: a small prediction-probability inset in the top-left, a diverging
+    feature-contribution chart in the middle, and a matching feature-value table on the right.
+
+    The explanation is always for the Attack class (see explain_instance_with_lime), so
+    positive weights support Attack (orange, right) and negative weights support Benign
+    (blue, left) consistently, regardless of which class was actually predicted.
+    """
+    blue, orange = "#1f77b4", "#ff7f0e"
+    attack_index = class_names.index("Attack")
+    benign_index = class_names.index("Benign")
+    proba = explanation.predict_proba
+    contributions = explanation.as_list(label=attack_index)
+
+    conditions = [condition for condition, _ in contributions]
+    weights = [weight for _, weight in contributions]
+    colors = [orange if weight > 0 else blue for weight in weights]
+
+    fig = plt.figure(figsize=(13, max(3.5, len(contributions) * 0.42 + 1.2)), constrained_layout=True)
+    grid = fig.add_gridspec(2, 3, width_ratios=[1.1, 2.2, 1.6], height_ratios=[1, 2.2])
+
+    proba_ax = fig.add_subplot(grid[0, 0])
+    proba_ax.barh([0, 1], [proba[benign_index], proba[attack_index]], color=[blue, orange])
+    proba_ax.set_yticks([0, 1])
+    proba_ax.set_yticklabels(["Class 0", "Class 1"], fontsize=8)
+    proba_ax.invert_yaxis()
+    proba_ax.set_xlim(0, 1)
+    proba_ax.tick_params(axis="x", labelsize=7)
+    proba_ax.set_title("Prediction probabilities", fontsize=9)
+    for position, probability in enumerate([proba[benign_index], proba[attack_index]]):
+        proba_ax.text(min(probability + 0.04, 0.85), position, f"{probability:.2f}", va="center", fontsize=8)
+
+    contrib_ax = fig.add_subplot(grid[:, 1])
+    y_pos = range(len(conditions))
+    contrib_ax.barh(y_pos, weights, color=colors)
+    contrib_ax.set_yticks(list(y_pos))
+    contrib_ax.set_yticklabels(conditions)
+    contrib_ax.invert_yaxis()
+    contrib_ax.axvline(0, color="black", linewidth=0.8)
+    contrib_ax.text(0.0, 1.02, "Class 0", color=blue, ha="left", fontsize=12, transform=contrib_ax.transAxes)
+    contrib_ax.text(1.0, 1.02, "Class 1", color=orange, ha="right", fontsize=12, transform=contrib_ax.transAxes)
+
+    table_ax = fig.add_subplot(grid[:, 2])
+    table_ax.axis("off")
+    row_names, row_values, row_colors = [], [], []
+    for condition, weight in contributions:
+        feature_name = _feature_name_from_condition(condition, known_columns)
+        value = instance.get(feature_name, "")
+        row_names.append(feature_name)
+        if isinstance(value, (int, float, np.number)):
+            row_values.append(f"{value:.0f}" if float(value).is_integer() else f"{value:.2f}")
+        else:
+            row_values.append(str(value))
+        row_colors.append(orange if weight > 0 else blue)
+
+    table = table_ax.table(
+        cellText=list(zip(row_names, row_values, strict=True)),
+        colLabels=["Feature", "Value"],
+        cellLoc="left",
+        loc="center",
+        colWidths=[0.65, 0.35],
+    )
+    for row_index, color in enumerate(row_colors, start=1):
+        for column_index in (0, 1):
+            cell = table[row_index, column_index]
+            cell.set_facecolor(color)
+            cell.get_text().set_color("white")
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    table.scale(1, 1.4)
+
+    return fig
 
 
 def compute_permutation_importance(
