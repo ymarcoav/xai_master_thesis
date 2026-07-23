@@ -93,9 +93,7 @@ def _load_experiment_and_data(
 
 def _build_pipeline(experiment: dict[str, Any], dataset_config: DatasetConfig, x_train: pd.DataFrame) -> Pipeline:
     random_state = experiment.get("random_state", 42)
-    preprocessing = build_preprocessing_pipeline(
-        x_train, categorical_columns=dataset_config.categorical_columns, random_state=random_state
-    )
+    preprocessing = build_preprocessing_pipeline(x_train, categorical_columns=dataset_config.categorical_columns)
     model = build_model(experiment["model"], random_state=random_state, **experiment.get("model_params", {}))
     return Pipeline(steps=[("preprocessing", preprocessing), ("model", model)])
 

@@ -1,21 +1,21 @@
 import pytest
 from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
-from sklearn.svm import LinearSVC
 
 from xai_thesis.models import build_model, train_model
 
 
-def test_build_model_svm_is_balanced_and_seeded() -> None:
-    model = build_model("svm", random_state=7)
+def test_build_model_logistic_regression_is_balanced_and_seeded() -> None:
+    model = build_model("logistic_regression", random_state=7)
 
-    assert isinstance(model, LinearSVC)
+    assert isinstance(model, LogisticRegression)
     assert model.random_state == 7
     assert model.class_weight == "balanced"
 
 
-def test_build_model_svm_forwards_kwargs() -> None:
-    model = build_model("svm", random_state=7, C=10, max_iter=5000)
+def test_build_model_logistic_regression_forwards_kwargs() -> None:
+    model = build_model("logistic_regression", random_state=7, C=10, max_iter=5000)
 
     assert model.C == 10
     assert model.max_iter == 5000

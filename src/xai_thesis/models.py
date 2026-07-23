@@ -3,28 +3,28 @@ from typing import Any
 
 from sklearn.base import ClassifierMixin
 from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
-from sklearn.svm import LinearSVC
 
 # MLPClassifier has no class_weight/sample_weight support, so it can't be rebalanced here
 # like the rest; instead, pipeline.py resamples its training data (balance_classes) before
 # fit. The other two get class_weight="balanced" given how imbalanced these datasets are.
-#
-# svm (LinearSVC) has no predict_proba, which some explainability techniques want. We
-# deliberately don't wrap it in CalibratedClassifierCV here: calibrating a multiclass
-# one-vs-rest decision function per class and renormalizing doesn't preserve the original
-# argmax ranking under severe class imbalance, which measurably degraded macro F1 in
-# testing (e.g. 0.43->0.33 on UNSW-NB15, same C value). Any probability estimate needed
-# for explainability is produced locally there, on a calibrated copy, never as the model
-# of record here.
 #
 # random_forest was dropped from the catalog: it shares gradient_boosting's tree-ensemble
 # family and TreeExplainer (near-highest cross-model SHAP agreement of any pair in this
 # project), while consistently underperforming it on 2 of 3 datasets and only tying on the
 # third - little unique signal lost, and it simplifies the model x technique combinatorics
 # for the expert-interview stimulus set.
+#
+# svm (LinearSVC) was also dropped: its macro-F1 was substantially worse than the other
+# models across all three datasets. logistic_regression replaces it as the linear model in
+# the catalog - same architectural role (linear decision boundary), but with native
+# predict_proba (LinearSVC had none, which needed a softmax(decision_function) workaround
+# everywhere an explanation technique wanted a probability estimate).
 _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
-    "svm": lambda random_state, **kwargs: LinearSVC(random_state=random_state, class_weight="balanced", **kwargs),
+    "logistic_regression": lambda random_state, **kwargs: LogisticRegression(
+        random_state=random_state, class_weight="balanced", **kwargs
+    ),
     "neural_network": lambda random_state, **kwargs: MLPClassifier(random_state=random_state, **kwargs),
     # early_stopping defaults to "auto" in sklearn, which does its own internal
     # stratified train/validation split; combined with hyperparameter-search subsampling
@@ -39,7 +39,7 @@ _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
 # are prefixed "model__" to match the ("model", ...) step name in the sklearn Pipeline that
 # wraps preprocessing + model together (see pipeline.py).
 PARAM_DISTRIBUTIONS: dict[str, dict[str, list[Any]]] = {
-    "svm": {
+    "logistic_regression": {
         "model__C": [0.001, 0.01, 0.1, 1, 10, 100],
     },
     "neural_network": {

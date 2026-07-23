@@ -1,9 +1,9 @@
-name: cic_ids2017_svm_baseline
-dataset: cic_ids2017
-model: svm
+name: unsw_nb15_logistic_regression_baseline
+dataset: unsw_nb15
+model: logistic_regression
 random_state: 42
 model_params:
-  max_iter: 5000
+  max_iter: 1000
   C: 100
 preprocessing:
   strategy: default_tabular

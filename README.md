@@ -69,7 +69,7 @@ split chronologically per source file and label, so every class stays represente
 ## Training
 
 Each experiment config in `configs/experiments/` names a dataset and a model
-(`svm`, `neural_network`, or `gradient_boosting`). Train one:
+(`logistic_regression`, `neural_network`, or `gradient_boosting`). Train one:
 
 ```powershell
 python scripts/train.py --experiment configs/experiments/unsw_nb15_gradient_boosting_baseline.yaml
@@ -85,7 +85,7 @@ python scripts/train.py --experiment configs/experiments/unsw_nb15_gradient_boos
 Trained pipelines (preprocessing + model) are saved to `outputs/models/<experiment_name>.joblib`,
 and metrics to `outputs/metrics/<experiment_name>.json`.
 
-All three datasets are severely class-imbalanced. `svm` and `gradient_boosting` use
+All three datasets are severely class-imbalanced. `logistic_regression` and `gradient_boosting` use
 `class_weight="balanced"`; `neural_network` (`MLPClassifier`) has no `class_weight`/`sample_weight` support
 in scikit-learn, so its training data is resampled instead (`balance_classes` in `preprocessing.py`
 oversamples rare classes and undersamples common ones to the median class count, applied only to the
@@ -94,12 +94,15 @@ training fold, both during hyperparameter search and the final fit).
 `random_forest` was dropped from the model catalog: it shares `gradient_boosting`'s tree-ensemble
 family and `TreeExplainer`, consistently showed the highest cross-model SHAP agreement with it of any
 model pair, and underperformed it on 2 of 3 datasets (tying on the third) - little unique signal for
-the added combinatorial cost in the explainability/interview stages.
+the added combinatorial cost in the explainability/interview stages. `svm` (`LinearSVC`) was also
+dropped, replaced by `logistic_regression`: its macro-F1 was substantially worse than the other models
+across all three datasets, and unlike `LinearSVC`, `LogisticRegression` has native `predict_proba`.
 
 ## Analysis
 
-Confusion matrix (row-normalized by default, since class counts are severely imbalanced) for a
-trained experiment, or all experiments in `configs/experiments/`:
+Confusion matrix (absolute counts, colored on a symmetric-log scale so cells of very different
+magnitude all stay visually distinguishable under severe class imbalance) for a trained experiment,
+or all experiments in `configs/experiments/`:
 
 ```powershell
 python scripts/confusion_matrix.py --experiment configs/experiments/unsw_nb15_gradient_boosting_baseline.yaml
@@ -125,7 +128,7 @@ python scripts/explain.py --experiment configs/experiments/unsw_nb15_gradient_bo
 python scripts/explain.py  # all experiments
 ```
 
-- **SHAP**: `TreeExplainer` for `gradient_boosting`, `LinearExplainer` for `svm`, and a
+- **SHAP**: `TreeExplainer` for `gradient_boosting`, `LinearExplainer` for `logistic_regression`, and a
   permutation-based `Explainer` for `neural_network` (no fast structural explainer exists for sklearn
   MLPs). Produces a global bar plot (mean |SHAP value| per feature, stacked by class), a global beeswarm
   for the dataset's class of interest, and local waterfall plots for two curated test instances.

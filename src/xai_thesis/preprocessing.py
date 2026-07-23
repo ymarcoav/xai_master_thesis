@@ -4,7 +4,7 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, QuantileTransformer
+from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
 from sklearn.utils import resample
 
 
@@ -123,19 +123,21 @@ def build_preprocessing_pipeline(
     categorical_columns: Sequence[str],
     *,
     min_frequency: float = 0.01,
-    random_state: int = 42,
 ) -> ColumnTransformer:
     """Create the shared preprocessing pipeline for numeric and categorical features."""
     numeric_columns = [column for column in features.columns if column not in categorical_columns]
 
-    # Network-flow features (durations, IATs, byte counts) are heavily right-skewed: the
-    # typical spread (IQR) can be tiny next to a legitimate but extreme outlier, which made
-    # RobustScaler's output for those columns balloon to 10^5-10^6x other features and broke
-    # linear-model optimization. QuantileTransformer bounds the output regardless of raw skew.
+    # Min-max scaling, matching the reference methodology this project now follows. Verified
+    # this doesn't reproduce the RobustScaler regression found earlier (which broke LinearSVC
+    # outright, since a few heavy-tailed columns' IQR-scaled output ballooned to 10^5-10^6x
+    # other features): the tree ensemble is scale-invariant regardless (splits depend on
+    # value ordering, not magnitude) and the retained neural network took only a moderate,
+    # non-catastrophic hit on the most heavily-skewed dataset - LinearSVC is no longer in the
+    # catalog (see models.py), so its specific fragility to this choice no longer applies.
     numeric_pipeline = Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="median")),
-            ("scaler", QuantileTransformer(output_distribution="normal", random_state=random_state)),
+            ("scaler", MinMaxScaler()),
         ]
     )
     categorical_pipeline = Pipeline(

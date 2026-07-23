@@ -18,20 +18,23 @@ from lime.lime_tabular import LimeTabularExplainer  # noqa: E402
 from sklearn.inspection import PartialDependenceDisplay, permutation_importance  # noqa: E402
 from sklearn.pipeline import Pipeline  # noqa: E402
 
-# Models with a fast, exact structural SHAP explainer (tree ensembles). svm gets
-# LinearExplainer (uses the linear coefficients directly). Anything else (neural_network)
-# falls back to a model-agnostic permutation explainer, which is far slower since it makes
-# many repeated calls to the model rather than reading its structure directly.
+# Models with a fast, exact structural SHAP explainer (tree ensembles). logistic_regression
+# gets LinearExplainer (uses the linear coefficients directly). Anything else
+# (neural_network) falls back to a model-agnostic permutation explainer, which is far
+# slower since it makes many repeated calls to the model rather than reading its structure
+# directly.
 _TREE_MODELS = ("gradient_boosting",)
 
 
 def predict_proba_fn(model: Any) -> Callable[[np.ndarray], np.ndarray]:
     """Return a predict_proba-like callable for any classifier, even ones without one.
 
-    LinearSVC has no predict_proba; softmax(decision_function) is a deterministic,
-    argmax-preserving stand-in (the predicted class is always identical to model.predict()),
-    unlike CalibratedClassifierCV, which was found to shift predictions under severe
-    class imbalance (see models.py) and is deliberately not used here.
+    No model currently in the catalog actually lacks predict_proba (LinearSVC, the one
+    that did, was dropped in favor of logistic regression - see models.py), but this stays
+    generic rather than assuming that always holds: softmax(decision_function) is a
+    deterministic, argmax-preserving stand-in for a margin-only classifier (the predicted
+    class is always identical to model.predict()), unlike CalibratedClassifierCV, which was
+    found to shift predictions under severe class imbalance and is deliberately not used.
     """
     if hasattr(model, "predict_proba"):
         return model.predict_proba
@@ -92,7 +95,7 @@ def compute_shap_values(
         expected_value = np.atleast_1d(np.asarray(explainer.expected_value))
         shap_values, expected_value = _expand_binary_class_dimension(shap_values, expected_value, n_classes)
         base_values = np.broadcast_to(expected_value, (n_samples, expected_value.shape[0]))
-    elif model_name == "svm":
+    elif model_name == "logistic_regression":
         explainer = shap.LinearExplainer(model, background_transformed)
         shap_values = np.asarray(explainer.shap_values(x_transformed))
         expected_value = np.atleast_1d(np.asarray(explainer.expected_value))

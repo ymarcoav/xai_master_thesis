@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.pipeline import Pipeline
+from sklearn.svm import LinearSVC
 
 from xai_thesis.explainability import (
     clean_feature_names,
@@ -40,8 +41,19 @@ def _make_dataset(n_per_class: int = 40, random_state: int = 42, n_classes: int 
 
 
 def _fitted_pipeline(model_name: str, x, y, random_state: int = 42, categorical_columns=()) -> Pipeline:
-    preprocessing = build_preprocessing_pipeline(x, categorical_columns=categorical_columns, random_state=random_state)
+    preprocessing = build_preprocessing_pipeline(x, categorical_columns=categorical_columns)
     model = build_model(model_name, random_state=random_state)
+    pipeline = Pipeline(steps=[("preprocessing", preprocessing), ("model", model)])
+    pipeline.fit(x, y)
+    return pipeline
+
+
+def _fitted_pipeline_without_predict_proba(x, y, random_state: int = 42) -> Pipeline:
+    # No model currently in the catalog lacks predict_proba (see models.py), but the
+    # fallback that handles that case is kept as generic infrastructure, so it's tested
+    # directly against a raw margin-only classifier rather than through build_model.
+    preprocessing = build_preprocessing_pipeline(x, categorical_columns=[])
+    model = LinearSVC(random_state=random_state, class_weight="balanced")
     pipeline = Pipeline(steps=[("preprocessing", preprocessing), ("model", model)])
     pipeline.fit(x, y)
     return pipeline
@@ -79,9 +91,9 @@ def test_predict_proba_fn_uses_native_predict_proba_when_available() -> None:
     assert fn == model.predict_proba
 
 
-def test_predict_proba_fn_softmax_fallback_preserves_argmax_for_svm() -> None:
+def test_predict_proba_fn_softmax_fallback_preserves_argmax_for_margin_only_classifier() -> None:
     x, y = _make_dataset()
-    pipeline = _fitted_pipeline("svm", x, y)
+    pipeline = _fitted_pipeline_without_predict_proba(x, y)
     model = pipeline.named_steps["model"]
     x_transformed = pipeline.named_steps["preprocessing"].transform(x)
 
@@ -94,7 +106,7 @@ def test_predict_proba_fn_softmax_fallback_preserves_argmax_for_svm() -> None:
     assert (proxy_predictions == model.predict(x_transformed)).all()
 
 
-@pytest.mark.parametrize("model_name", ["gradient_boosting", "svm", "neural_network"])
+@pytest.mark.parametrize("model_name", ["gradient_boosting", "logistic_regression", "neural_network"])
 def test_compute_shap_values_has_consistent_shape_across_model_types(model_name: str) -> None:
     x, y = _make_dataset()
     pipeline = _fitted_pipeline(model_name, x, y)
@@ -128,7 +140,7 @@ def test_compute_shap_values_collapses_one_hot_columns_and_restores_original_val
     assert list(display_data[:, 2]) == list(x["protocol"].iloc[:10])
 
 
-@pytest.mark.parametrize("model_name", ["gradient_boosting", "svm"])
+@pytest.mark.parametrize("model_name", ["gradient_boosting", "logistic_regression"])
 def test_compute_shap_values_expands_binary_classifier_to_per_class_shape(model_name: str) -> None:
     # TreeExplainer/LinearExplainer collapse a binary classifier's output to a single column
     # (unlike the always-per-class multiclass case, or the permutation explainer's
@@ -187,13 +199,13 @@ def test_explain_instance_with_lime_writes_png(tmp_path) -> None:
     assert output_path.exists()
 
 
-def test_explain_instance_with_lime_works_for_svm_without_predict_proba(tmp_path) -> None:
+def test_explain_instance_with_lime_works_without_predict_proba(tmp_path) -> None:
     x, y = _make_dataset()
-    pipeline = _fitted_pipeline("svm", x, y)
+    pipeline = _fitted_pipeline_without_predict_proba(x, y)
     assert not hasattr(pipeline.named_steps["model"], "predict_proba")
     class_names = list(pipeline.named_steps["model"].classes_)
 
-    output_path = explain_instance_with_lime(pipeline, x, x.iloc[0], class_names, tmp_path / "lime_svm.png")
+    output_path = explain_instance_with_lime(pipeline, x, x.iloc[0], class_names, tmp_path / "lime_no_proba.png")
 
     assert output_path.exists()
 
@@ -205,7 +217,7 @@ def test_explain_instance_with_lime_handles_zero_variance_column(tmp_path) -> No
     x, y = _make_dataset()
     x = x.copy()
     x["constant_feature"] = 1.0
-    preprocessing = build_preprocessing_pipeline(x, categorical_columns=[], random_state=42)
+    preprocessing = build_preprocessing_pipeline(x, categorical_columns=[])
     model = build_model("gradient_boosting", random_state=42)
     pipeline = Pipeline(steps=[("preprocessing", preprocessing), ("model", model)])
     pipeline.fit(x, y)
@@ -269,12 +281,12 @@ def test_plot_partial_dependence_writes_png(tmp_path) -> None:
     assert output_path.exists()
 
 
-def test_plot_partial_dependence_works_for_svm_via_decision_function(tmp_path) -> None:
+def test_plot_partial_dependence_works_without_predict_proba_via_decision_function(tmp_path) -> None:
     x, y = _make_dataset()
-    pipeline = _fitted_pipeline("svm", x, y)
+    pipeline = _fitted_pipeline_without_predict_proba(x, y)
     assert not hasattr(pipeline.named_steps["model"], "predict_proba")
 
-    output_path = plot_partial_dependence(pipeline, x, ["feature_a"], "class_0", tmp_path / "pdp_svm.png")
+    output_path = plot_partial_dependence(pipeline, x, ["feature_a"], "class_0", tmp_path / "pdp_no_proba.png")
 
     assert output_path.exists()
 

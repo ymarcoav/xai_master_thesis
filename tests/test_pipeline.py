@@ -278,7 +278,7 @@ def test_tune_hyperparameters_writes_best_params_into_experiment_yaml(tmp_path) 
     assert updated_experiment["model_params"] == tuned_params
 
 
-def test_tune_hyperparameters_svm_round_trip_retrains_successfully(tmp_path) -> None:
+def test_tune_hyperparameters_logistic_regression_round_trip_retrains_successfully(tmp_path) -> None:
     dataset_config_dir = tmp_path / "datasets"
     dataset_config_dir.mkdir()
     processed_dir = tmp_path / "processed" / "toy"
@@ -310,7 +310,7 @@ def test_tune_hyperparameters_svm_round_trip_retrains_successfully(tmp_path) -> 
             {
                 "name": "toy_experiment",
                 "dataset": "toy",
-                "model": "svm",
+                "model": "logistic_regression",
                 "random_state": 42,
                 "preprocessing": {"strategy": "default_tabular"},
                 "metrics": ["accuracy"],

@@ -131,6 +131,8 @@ def test_build_preprocessing_pipeline_imputes_and_scales_numeric_columns() -> No
 
     assert not np.isnan(transformed).any()
     assert transformed.shape == (4, 1)
+    assert transformed.min() == 0.0  # min-max scaled: smallest value maps to 0
+    assert transformed.max() == 1.0  # and the largest to 1
 
 
 def test_build_preprocessing_pipeline_one_hot_encodes_categorical_columns() -> None:
