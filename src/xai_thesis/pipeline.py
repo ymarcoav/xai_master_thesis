@@ -190,7 +190,7 @@ def generate_confusion_matrix(
     dataset_config_dir: str | Path = "configs/datasets",
     models_dir: str | Path = "outputs/models",
     plots_dir: str | Path = "outputs/plots",
-    normalize: bool = True,
+    normalize: bool = False,
 ) -> Path:
     """Plot a confusion matrix for an already-trained experiment's test predictions."""
     experiment, _, _, _, x_test, y_test = _load_experiment_and_data(experiment_config_path, dataset_config_dir)

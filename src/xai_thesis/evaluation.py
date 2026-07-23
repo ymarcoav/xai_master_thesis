@@ -9,6 +9,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import seaborn as sns  # noqa: E402
+from matplotlib.colors import SymLogNorm  # noqa: E402
 from sklearn.metrics import classification_report, confusion_matrix  # noqa: E402
 
 
@@ -18,20 +19,42 @@ def evaluate_classifier(model, x_test, y_test) -> dict:
     return classification_report(y_test, predictions, output_dict=True)
 
 
+def _label_sort_key(label: object) -> tuple[int, str]:
+    """Benign first, Attack second (this project's binary convention: Benign=0, Attack=1),
+    then everything else alphabetically - applies equally to the multiclass DAPT2020 case,
+    where Benign is still a natural reference class even though there's no numbered
+    convention for the remaining kill-chain stages.
+    """
+    if label == "Benign":
+        return (0, "")
+    if label == "Attack":
+        return (1, "")
+    return (2, str(label))
+
+
 def plot_confusion_matrix(
     y_true,
     y_pred,
     output_path: str | Path,
     *,
-    normalize: bool = True,
+    normalize: bool = False,
 ) -> Path:
     """Plot a confusion matrix and save it as a PNG.
 
-    Row-normalized (share of each true class, i.e. per-class recall) by default: with
-    the severe class imbalance in these datasets, raw counts are dominated entirely by
-    the majority class and hide exactly the rare-class confusion patterns we care about.
+    Absolute counts for both the annotated numbers and the color scale by default, the
+    latter on a symmetric-log scale: with severe class imbalance, a *linear* absolute
+    color scale is dominated entirely by the single largest cell, making every other cell
+    (including the rare-class confusion patterns we actually care about) look uniformly
+    pale. Log-scaling the color (not the annotated numbers, which stay exact) keeps cells
+    that differ by orders of magnitude all visibly distinct. SymLogNorm (rather than plain
+    LogNorm) is used specifically so exact-zero cells - common once a class has few enough
+    errors - render as a normal, visible white rather than being masked out entirely, which
+    plain log scaling does to non-positive values.
+
+    Pass normalize=True to color by row-normalized share of each true class (per-class
+    recall) instead, while still annotating the absolute count in each cell either way.
     """
-    labels = sorted(set(y_true) | set(y_pred))
+    labels = sorted(set(y_true) | set(y_pred), key=_label_sort_key)
     matrix = confusion_matrix(y_true, y_pred, labels=labels)
 
     if normalize:
@@ -39,24 +62,25 @@ def plot_confusion_matrix(
         display_matrix = np.divide(
             matrix, row_sums, out=np.zeros(matrix.shape, dtype=float), where=row_sums != 0
         )
-        fmt = ".2f"
-        vmax = 1.0
+        norm = None
+        vmin, vmax = 0, 1.0
         colorbar_label = "Share of true class (recall)"
     else:
         display_matrix = matrix
-        fmt = "d"
-        vmax = None
-        colorbar_label = "Count"
+        norm = SymLogNorm(linthresh=1, vmin=0, vmax=max(matrix.max(), 1))
+        vmin = vmax = None
+        colorbar_label = "Count (log scale)"
 
     figure_size = max(6, len(labels) * 0.6)
     fig, ax = plt.subplots(figsize=(figure_size, figure_size))
     sns.heatmap(
         display_matrix,
-        annot=True,
-        fmt=fmt,
+        annot=matrix,
+        fmt="d",
         cmap="Blues",
-        vmin=0,
+        vmin=vmin,
         vmax=vmax,
+        norm=norm,
         xticklabels=labels,
         yticklabels=labels,
         cbar_kws={"label": colorbar_label},

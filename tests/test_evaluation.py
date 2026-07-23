@@ -1,6 +1,12 @@
 import pandas as pd
 
-from xai_thesis.evaluation import plot_confusion_matrix, plot_label_distribution
+from xai_thesis.evaluation import _label_sort_key, plot_confusion_matrix, plot_label_distribution
+
+
+def test_label_sort_key_orders_benign_first_attack_second_then_alphabetical() -> None:
+    labels = ["Reconnaissance", "Attack", "Data Exfiltration", "Benign"]
+
+    assert sorted(labels, key=_label_sort_key) == ["Benign", "Attack", "Data Exfiltration", "Reconnaissance"]
 
 
 def test_plot_confusion_matrix_normalized_writes_png(tmp_path) -> None:
