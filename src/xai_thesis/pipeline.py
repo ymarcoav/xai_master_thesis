@@ -46,6 +46,12 @@ _METRIC_EXTRACTORS = {
     "precision_macro": lambda report: report["macro avg"]["precision"],
     "recall_macro": lambda report: report["macro avg"]["recall"],
     "f1_macro": lambda report: report["macro avg"]["f1-score"],
+    # Only well-defined for the binary Attack/Benign datasets - see evaluate_classifier().
+    "precision_attack": lambda report: report["Attack"]["precision"],
+    "recall_attack": lambda report: report["Attack"]["recall"],
+    "f1_attack": lambda report: report["Attack"]["f1-score"],
+    "roc_auc": lambda report: report["roc_auc"],
+    "pr_auc": lambda report: report["pr_auc"],
 }
 
 _SUPPORTED_PREPROCESSING_STRATEGY = "default_tabular"

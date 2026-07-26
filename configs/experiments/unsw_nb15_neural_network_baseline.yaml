@@ -17,3 +17,8 @@ metrics:
 - precision_macro
 - recall_macro
 - f1_macro
+- precision_attack
+- recall_attack
+- f1_attack
+- roc_auc
+- pr_auc

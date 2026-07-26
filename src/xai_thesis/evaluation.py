@@ -10,13 +10,38 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import seaborn as sns  # noqa: E402
 from matplotlib.colors import SymLogNorm  # noqa: E402
-from sklearn.metrics import classification_report, confusion_matrix  # noqa: E402
+from sklearn.metrics import (  # noqa: E402
+    average_precision_score,
+    classification_report,
+    confusion_matrix,
+    roc_auc_score,
+)
+
+# The project's binary datasets (UNSW-NB15, CIC-IDS2017) always name their positive class
+# "Attack" (see the dataset adapters' clean() methods); DAPT2020 stays multiclass and has no
+# single positive class, so ROC-AUC/PR-AUC are only ever computed when this label is present.
+_POSITIVE_LABEL = "Attack"
 
 
 def evaluate_classifier(model, x_test, y_test) -> dict:
-    """Return common classification metrics."""
+    """Return classification_report's per-class/macro metrics, plus ROC-AUC and PR-AUC
+    (average precision) for the Attack class when the problem is binary Attack/Benign -
+    accuracy and macro-averaged P/R/F1 alone can look deceptively strong under the severe
+    class imbalance in these datasets, so score-based metrics are added for the datasets
+    where a single positive class makes them well-defined.
+    """
     predictions = model.predict(x_test)
-    return classification_report(y_test, predictions, output_dict=True)
+    report = classification_report(y_test, predictions, output_dict=True)
+
+    classes = list(model.classes_)
+    if len(classes) == 2 and _POSITIVE_LABEL in classes and hasattr(model, "predict_proba"):
+        positive_index = classes.index(_POSITIVE_LABEL)
+        attack_scores = model.predict_proba(x_test)[:, positive_index]
+        y_true_binary = (np.asarray(y_test) == _POSITIVE_LABEL).astype(int)
+        report["roc_auc"] = roc_auc_score(y_true_binary, attack_scores)
+        report["pr_auc"] = average_precision_score(y_true_binary, attack_scores)
+
+    return report
 
 
 def _label_sort_key(label: object) -> tuple[int, str]:
