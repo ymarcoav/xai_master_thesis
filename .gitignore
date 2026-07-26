@@ -6,6 +6,9 @@ __pycache__/
 .pytest_tmp/
 .ruff_cache/
 
+# Session handover notes, not project documentation
+HANDOVER.md
+
 # Local data and generated artifacts
 data/raw/*
 data/processed/*

@@ -35,6 +35,10 @@ from xai_thesis.utils import dump_yaml, ensure_directory, load_yaml
 
 # MLPClassifier has no class_weight/sample_weight support, unlike the other models here
 # (see models.py), so it needs its own training-time rebalancing via resampling instead.
+# Tried adding gradient_boosting/logistic_regression here too, to test whether resampling
+# helps on DAPT2020's most data-starved classes beyond their existing class_weight="balanced"
+# - it made both models measurably worse (LR f1_macro 0.352->0.318, GB 0.644->0.601), so
+# it's restricted back to just the one model that has no other option.
 _MODELS_REQUIRING_RESAMPLING = {"neural_network"}
 
 _METRIC_EXTRACTORS = {
