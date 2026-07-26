@@ -40,25 +40,26 @@ _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
 # wraps preprocessing + model together (see pipeline.py).
 PARAM_DISTRIBUTIONS: dict[str, dict[str, list[Any]]] = {
     "logistic_regression": {
-        "model__C": [0.001, 0.01, 0.1, 1, 10, 100],
+        "model__C": [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000],
     },
     "neural_network": {
-        "model__hidden_layer_sizes": [(50,), (100,), (100, 50), (128, 64)],
-        "model__alpha": [0.0001, 0.001, 0.01, 0.1],
-        "model__learning_rate_init": [0.0005, 0.001, 0.005, 0.01],
+        "model__hidden_layer_sizes": [(50,), (100,), (100, 50), (128, 64), (256, 128), (256, 128, 64)],
+        "model__alpha": [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1],
+        "model__learning_rate_init": [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05],
     },
     "gradient_boosting": {
-        "model__learning_rate": [0.01, 0.05, 0.1, 0.2],
-        "model__max_iter": [100, 200, 300],
-        "model__max_leaf_nodes": [15, 31, 63],
-        "model__max_depth": [None, 5, 10, 20],
+        "model__learning_rate": [0.01, 0.03, 0.05, 0.1, 0.2, 0.3],
+        "model__max_iter": [100, 200, 300, 500],
+        "model__max_leaf_nodes": [7, 15, 31, 63, 100, 127],
+        "model__max_depth": [None, 3, 5, 10, 15, 20],
         # l2_regularization=0.0 is excluded: HistGradientBoostingClassifier's leaf value is
         # sum(gradient)/(sum(hessian) + l2_regularization), and class_weight="balanced"
         # produces extreme per-sample weights under this project's severe class imbalance
         # (e.g. a ~334,000x weight ratio between CIC-IDS2017's Heartbleed and BENIGN
         # classes) - with zero regularization that combination produced a model with 3.7%
         # accuracy (vs. 99.5% with l2_regularization=0.1, identical everything else).
-        "model__l2_regularization": [0.1, 0.5, 1.0],
+        "model__l2_regularization": [0.1, 0.3, 0.5, 0.7, 1.0],
+        "model__min_samples_leaf": [10, 20, 30, 50],
     },
 }
 

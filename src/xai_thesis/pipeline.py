@@ -132,7 +132,7 @@ def tune_hyperparameters(
     experiment_config_path: str | Path,
     *,
     dataset_config_dir: str | Path = "configs/datasets",
-    n_iter: int = 10,
+    n_iter: int = 30,
     cv: int = 3,
     subsample_size: int = 200_000,
     n_jobs: int = 2,

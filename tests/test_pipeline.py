@@ -272,7 +272,14 @@ def test_tune_hyperparameters_writes_best_params_into_experiment_yaml(tmp_path) 
 
     tuned_params = tune_hyperparameters(experiment_path, dataset_config_dir=dataset_config_dir, n_iter=3, cv=3)
 
-    assert set(tuned_params) == {"learning_rate", "max_iter", "max_leaf_nodes", "max_depth", "l2_regularization"}
+    assert set(tuned_params) == {
+        "learning_rate",
+        "max_iter",
+        "max_leaf_nodes",
+        "max_depth",
+        "l2_regularization",
+        "min_samples_leaf",
+    }
 
     updated_experiment = yaml.safe_load(experiment_path.read_text(encoding="utf-8"))
     assert updated_experiment["model_params"] == tuned_params
