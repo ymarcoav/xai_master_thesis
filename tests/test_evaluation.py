@@ -57,7 +57,7 @@ def test_evaluate_classifier_adds_roc_auc_and_pr_auc_for_binary_attack_benign() 
     assert report["Attack"]["precision"] == report["Attack"]["precision"]  # present, not KeyError
 
 
-def test_evaluate_classifier_adds_macro_ovr_roc_auc_for_multiclass_instead_of_binary_metrics() -> None:
+def test_evaluate_classifier_adds_macro_ovr_roc_and_pr_auc_for_multiclass_instead_of_binary_metrics() -> None:
     x_train = [[0.0], [0.4], [0.5], [1.0]]
     y_train = ["Benign", "Reconnaissance", "Reconnaissance", "Data Exfiltration"]
     model = LogisticRegression().fit(x_train, y_train)
@@ -65,6 +65,7 @@ def test_evaluate_classifier_adds_macro_ovr_roc_auc_for_multiclass_instead_of_bi
     report = evaluate_classifier(model, x_train, y_train)
 
     assert "roc_auc_macro" in report
+    assert "pr_auc_macro" in report
     assert "roc_auc" not in report
     assert "pr_auc" not in report
 

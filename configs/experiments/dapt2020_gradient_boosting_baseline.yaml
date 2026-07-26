@@ -10,6 +10,7 @@ metrics:
 - recall_macro
 - f1_macro
 - roc_auc_macro
+- pr_auc_macro
 model_params:
   max_leaf_nodes: 15
   max_iter: 300

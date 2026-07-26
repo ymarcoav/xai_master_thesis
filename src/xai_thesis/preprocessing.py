@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from datetime import datetime
 
 import pandas as pd
 from sklearn.compose import ColumnTransformer
@@ -25,7 +26,13 @@ def split_by_official_split_column(
 
 
 def split_chronologically_by_source(
-    data: pd.DataFrame, source_column: str, label_column: str, test_fraction: float = 0.2
+    data: pd.DataFrame,
+    source_column: str,
+    label_column: str,
+    test_fraction: float = 0.2,
+    *,
+    timestamp_column: str | None = None,
+    timestamp_format: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Split data by holding out the last rows of each (source file, label) group as test.
 
@@ -34,16 +41,41 @@ def split_chronologically_by_source(
     a whole class into just one side of the split, so this groups by (source file, label)
     instead: every class stays represented in both splits, while later rows within each
     group are still the ones held out for test.
+
+    Without timestamp_column, "later rows" means whatever order the raw CSV happens to have -
+    a positional split, not a verified temporal one. This was checked empirically against
+    DAPT2020's real Timestamp column: raw row order is NOT chronological (25-40% of adjacent
+    rows go backwards in time in the files checked), so a positional split there does not
+    actually hold out later traffic. When timestamp_column is given, each group is sorted by
+    it first, so the held-out rows are genuinely the most recent ones. Two pandas/numpy
+    segfaults were hit and worked around while building this (both reproducible on this
+    project's installed pandas 3.0.4 / numpy 2.4.6): pandas' vectorized date parser crashes on
+    this project's %d/%m/%Y %I:%M:%S %p timestamps (worked around with Python's own
+    datetime.strptime instead), and sort_values on a datetime64-dtype column crashes outright
+    regardless of how it was parsed (worked around by sorting on each timestamp's numeric
+    .timestamp() value instead of the datetime object itself - same ordering, plain float64
+    dtype). The timestamp column itself is dropped from the output either way, alongside
+    source_column - it is only ever used to order the split, never as a model feature.
     """
+    if timestamp_column is not None:
+        parsed_timestamps = data[timestamp_column].map(
+            lambda value: datetime.strptime(value, timestamp_format).timestamp()
+        )
+        sort_column = f"_{timestamp_column}_sort_key"
+        data = data.assign(**{sort_column: parsed_timestamps})
+
     train_parts = []
     test_parts = []
     for _, group in data.groupby([source_column, label_column], sort=False):
+        if timestamp_column is not None:
+            group = group.sort_values(sort_column, kind="stable")
         cutoff = int(len(group) * (1 - test_fraction))
         train_parts.append(group.iloc[:cutoff])
         test_parts.append(group.iloc[cutoff:])
 
-    train = pd.concat(train_parts).drop(columns=[source_column]).reset_index(drop=True)
-    test = pd.concat(test_parts).drop(columns=[source_column]).reset_index(drop=True)
+    drop_columns = [source_column] if timestamp_column is None else [source_column, timestamp_column, sort_column]
+    train = pd.concat(train_parts).drop(columns=drop_columns).reset_index(drop=True)
+    test = pd.concat(test_parts).drop(columns=drop_columns).reset_index(drop=True)
     return train, test
 
 

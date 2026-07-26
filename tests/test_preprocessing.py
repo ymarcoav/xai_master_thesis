@@ -73,6 +73,40 @@ def test_split_chronologically_by_source_keeps_class_in_both_splits_despite_time
     assert "rare_attack" in test["label"].tolist()
 
 
+def test_split_chronologically_by_source_sorts_by_real_timestamp_when_given() -> None:
+    # Rows are deliberately given in shuffled (non-chronological) order, mirroring what was
+    # found in DAPT2020's real raw files - without sorting by timestamp_column, a positional
+    # split would treat the last-listed row as "most recent" even though it isn't.
+    data = pd.DataFrame(
+        {
+            "feature": [30, 10, 50, 20, 40],
+            "label": ["a"] * 5,
+            "source_file": ["monday"] * 5,
+            "ts": [
+                "01/01/2020 03:00:00 AM",
+                "01/01/2020 01:00:00 AM",
+                "01/01/2020 05:00:00 AM",
+                "01/01/2020 02:00:00 AM",
+                "01/01/2020 04:00:00 AM",
+            ],
+        }
+    )
+
+    train, test = split_chronologically_by_source(
+        data,
+        "source_file",
+        "label",
+        test_fraction=0.2,
+        timestamp_column="ts",
+        timestamp_format="%d/%m/%Y %I:%M:%S %p",
+    )
+
+    assert test["feature"].tolist() == [50]  # truly latest (05:00), not the last-listed row (40 @ 04:00)
+    assert train["feature"].tolist() == [10, 20, 30, 40]
+    assert "ts" not in train.columns
+    assert "ts" not in test.columns
+
+
 def test_balance_classes_resamples_every_class_to_the_median_count() -> None:
     features = pd.DataFrame({"feature": list(range(23))})
     target = pd.Series(["rare"] * 2 + ["mid"] * 6 + ["common"] * 15, name="label")

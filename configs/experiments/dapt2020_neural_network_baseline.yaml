@@ -19,3 +19,4 @@ metrics:
 - recall_macro
 - f1_macro
 - roc_auc_macro
+- pr_auc_macro

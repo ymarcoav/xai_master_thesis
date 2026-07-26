@@ -52,8 +52,9 @@ _METRIC_EXTRACTORS = {
     "f1_attack": lambda report: report["Attack"]["f1-score"],
     "roc_auc": lambda report: report["roc_auc"],
     "pr_auc": lambda report: report["pr_auc"],
-    # Multiclass counterpart to roc_auc, only well-defined for DAPT2020 - see evaluate_classifier().
+    # Multiclass counterparts to roc_auc/pr_auc, only well-defined for DAPT2020 - see evaluate_classifier().
     "roc_auc_macro": lambda report: report["roc_auc_macro"],
+    "pr_auc_macro": lambda report: report["pr_auc_macro"],
 }
 
 _SUPPORTED_PREPROCESSING_STRATEGY = "default_tabular"
@@ -75,12 +76,33 @@ def preprocess_dataset(config_path: str | Path) -> tuple[Path, Path]:
     return train_path, test_path
 
 
+# DAPT2020's raw Timestamp column is kept through clean() (unlike its other identity/leakage
+# columns - see datasets/dapt2020.py) specifically so the split below can sort by it, then
+# drops it immediately afterward. This was added after checking DAPT2020's actual raw
+# Timestamps: row order within a source file is NOT chronological (25-40% of adjacent rows
+# go backwards in time in the files checked), so without sorting, a "last N rows per group"
+# split does not actually hold out later traffic, despite the split being described as
+# chronological. CIC-IDS2017's raw files in this project have no Timestamp column at all, so
+# its split stays positional - there is nothing to sort by - and should be described as such,
+# not as verified chronological.
+_CHRONOLOGICAL_SPLIT_TIMESTAMP: dict[str, tuple[str, str]] = {
+    "dapt2020": ("Timestamp", "%d/%m/%Y %I:%M:%S %p"),
+}
+
+
 def _split_dataset(config: DatasetConfig, data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     # UNSW-NB15 ships with an official train/test split; the others don't, so they're
     # split chronologically per source file instead (see preprocessing.py for why).
     if config.name == "unsw_nb15":
         return split_by_official_split_column(data, split_column="split")
-    return split_chronologically_by_source(data, source_column="source_file", label_column=config.label_column)
+    timestamp_column, timestamp_format = _CHRONOLOGICAL_SPLIT_TIMESTAMP.get(config.name, (None, None))
+    return split_chronologically_by_source(
+        data,
+        source_column="source_file",
+        label_column=config.label_column,
+        timestamp_column=timestamp_column,
+        timestamp_format=timestamp_format,
+    )
 
 
 def _load_experiment_and_data(
@@ -110,6 +132,49 @@ def _build_pipeline(experiment: dict[str, Any], dataset_config: DatasetConfig, x
     return Pipeline(steps=[("preprocessing", preprocessing), ("model", model)])
 
 
+def _fit_pipeline_with_post_preprocessing_resampling(
+    experiment: dict[str, Any],
+    dataset_config: DatasetConfig,
+    x_train: pd.DataFrame,
+    y_train: pd.Series,
+    random_state: int,
+) -> Pipeline:
+    """Fit preprocessing on the true training distribution first, then resample only the
+    already-transformed features before fitting the model - unlike resampling x_train/y_train
+    before the combined preprocessing+model Pipeline is built and fit, which lets the
+    resampled (duplicated) distribution leak into the imputer's learned median and, for
+    UNSW-NB15, which rare categories cross the one-hot encoder's frequency-bucketing
+    threshold. MinMaxScaler's min/max are unaffected either way (duplicating rows doesn't
+    change the range), so this only changes neural_network's fitted preprocessing, not the
+    other two models', which never resample.
+
+    Reassembles a normal Pipeline from the two separately-fitted pieces afterward (a
+    supported scikit-learn pattern: predict/predict_proba only call transform/predict on each
+    already-fitted step, they don't require Pipeline.fit() to have been called), so callers
+    can treat the result identically to one built via _build_pipeline + train_model.
+    """
+    preprocessing = build_preprocessing_pipeline(x_train, categorical_columns=dataset_config.categorical_columns)
+    x_train_transformed = preprocessing.fit_transform(x_train)
+    if hasattr(x_train_transformed, "toarray"):
+        x_train_transformed = x_train_transformed.toarray()
+    x_train_transformed = pd.DataFrame(x_train_transformed, columns=preprocessing.get_feature_names_out())
+
+    x_resampled, y_resampled = balance_classes(
+        x_train_transformed, y_train.reset_index(drop=True), random_state=random_state
+    )
+
+    model = build_model(experiment["model"], random_state=random_state, **experiment.get("model_params", {}))
+    # .to_numpy(): fitting on a DataFrame would make the model remember the transformed,
+    # ColumnTransformer-prefixed column names (e.g. "numeric__dur") as its own
+    # feature_names_in_, which every other model-fitting path in this project avoids (the
+    # normal Pipeline.fit() path always hands the model a bare array, since ColumnTransformer's
+    # own output isn't a DataFrame) - matching that avoids a spurious "X does not have valid
+    # feature names" warning on every future pipeline.predict() call with this model.
+    train_model(model, x_resampled.to_numpy(), y_resampled)
+
+    return Pipeline(steps=[("preprocessing", preprocessing), ("model", model)])
+
+
 def run_experiment(
     experiment_config_path: str | Path,
     *,
@@ -121,12 +186,15 @@ def run_experiment(
     experiment, dataset_config, x_train, y_train, x_test, y_test = _load_experiment_and_data(
         experiment_config_path, dataset_config_dir
     )
+    random_state = experiment.get("random_state", 42)
 
     if experiment["model"] in _MODELS_REQUIRING_RESAMPLING:
-        x_train, y_train = balance_classes(x_train, y_train, random_state=experiment.get("random_state", 42))
-
-    pipeline = _build_pipeline(experiment, dataset_config, x_train)
-    train_model(pipeline, x_train, y_train)
+        pipeline = _fit_pipeline_with_post_preprocessing_resampling(
+            experiment, dataset_config, x_train, y_train, random_state
+        )
+    else:
+        pipeline = _build_pipeline(experiment, dataset_config, x_train)
+        train_model(pipeline, x_train, y_train)
 
     report = evaluate_classifier(pipeline, x_test, y_test)
     metrics = {name: _METRIC_EXTRACTORS[name](report) for name in experiment.get("metrics", [])}
@@ -167,6 +235,15 @@ def tune_hyperparameters(
     else:
         x_search, y_search = x_train, y_train
 
+    # Unlike run_experiment()'s final fit (see _fit_pipeline_with_post_preprocessing_resampling),
+    # this resamples before the combined preprocessing+model Pipeline is built, so each
+    # RandomizedSearchCV fold's own preprocessing still fits on already-resampled data, and a
+    # duplicated oversampled row can land on both sides of a fold split. Properly closing this
+    # here would need per-fold-safe resampling inside the CV loop (e.g. imbalanced-learn's
+    # Pipeline, which supports a sampler step that only resamples during fit, not transform) -
+    # not implemented, since it would add a new dependency for a search-time-only concern: it
+    # can only bias which hyperparameters get selected, not the final reported model or metrics,
+    # which run_experiment() computes independently on the corrected fit.
     if experiment["model"] in _MODELS_REQUIRING_RESAMPLING:
         x_search, y_search = balance_classes(x_search, y_search, random_state=random_state)
 

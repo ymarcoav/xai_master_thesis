@@ -10,7 +10,9 @@ drop_columns:
   - Activity
   - Src IP
   - Dst IP
-  - Timestamp
+  # Timestamp is intentionally not here - see datasets/dapt2020.py's clean() docstring: it
+  # survives cleanup so pipeline.py's train/test split can sort by it, and is dropped there
+  # right after, before ever reaching preprocessing/the model.
   # Src Port is mostly ephemeral noise with a clear testbed-specific identity leak
   # (Lateral Movement dominated by two fixed ports). Dst Port's attack-stage signal is
   # dominated by a 9000-9003 band that recurs across stages - almost certainly this

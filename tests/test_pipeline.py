@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import joblib
 import numpy as np
 import pandas as pd
 import pytest
@@ -168,6 +169,72 @@ def test_run_experiment_trains_and_saves_model_and_metrics(tmp_path) -> None:
     assert set(metrics) == {"accuracy", "f1_macro"}
     assert (models_dir / "toy_experiment.joblib").exists()
     assert (metrics_dir / "toy_experiment.json").exists()
+
+
+def test_run_experiment_neural_network_fits_preprocessing_before_resampling(tmp_path) -> None:
+    # 8 "benign" rows with feature=1.0 and 2 "attack" rows with feature=100.0. The true,
+    # unresampled median of this column is 1.0. balance_classes resamples both classes to
+    # the median class count (5), which shifts the *resampled* 10-row median to 50.5 - if
+    # preprocessing's imputer fit on that resampled data instead of the original
+    # distribution (the bug being fixed), this test would see 50.5 instead of 1.0.
+    dataset_config_dir = tmp_path / "datasets"
+    dataset_config_dir.mkdir()
+    processed_dir = tmp_path / "processed" / "toy"
+    processed_dir.mkdir(parents=True)
+
+    train_df = pd.DataFrame(
+        {
+            "feature": [1.0] * 8 + [100.0] * 2,
+            "label": ["benign"] * 8 + ["attack"] * 2,
+        }
+    )
+    test_df = pd.DataFrame({"feature": [1.0, 100.0], "label": ["benign", "attack"]})
+    train_df.to_csv(processed_dir / "train.csv", index=False)
+    test_df.to_csv(processed_dir / "test.csv", index=False)
+
+    (dataset_config_dir / "toy.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "toy",
+                "raw_path": "unused",
+                "processed_path": processed_dir.as_posix(),
+                "label_column": "label",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    experiment_path = tmp_path / "experiment.yaml"
+    experiment_path.write_text(
+        yaml.safe_dump(
+            {
+                "name": "toy_experiment",
+                "dataset": "toy",
+                "model": "neural_network",
+                "random_state": 42,
+                "model_params": {"max_iter": 5},
+                "preprocessing": {"strategy": "default_tabular"},
+                "metrics": ["accuracy"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    models_dir = tmp_path / "models"
+    metrics_dir = tmp_path / "metrics"
+
+    run_experiment(
+        experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=metrics_dir
+    )
+
+    pipeline = joblib.load(models_dir / "toy_experiment.joblib")
+    imputer = pipeline.named_steps["preprocessing"].named_transformers_["numeric"].named_steps["imputer"]
+    assert imputer.statistics_[0] == 1.0
+
+    # And the fitted pipeline must still be directly usable for prediction, since it was
+    # assembled from separately-fitted preprocessing + model rather than via pipeline.fit().
+    predictions = pipeline.predict(test_df[["feature"]])
+    assert len(predictions) == 2
 
 
 def test_generate_confusion_matrix_writes_png_for_trained_experiment(tmp_path) -> None:

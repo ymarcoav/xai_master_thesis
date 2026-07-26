@@ -16,6 +16,7 @@ from sklearn.metrics import (  # noqa: E402
     confusion_matrix,
     roc_auc_score,
 )
+from sklearn.preprocessing import label_binarize  # noqa: E402
 
 # The project's binary datasets (UNSW-NB15, CIC-IDS2017) always name their positive class
 # "Attack" (see the dataset adapters' clean() methods); DAPT2020 stays multiclass and has no
@@ -27,10 +28,13 @@ def evaluate_classifier(model, x_test, y_test) -> dict:
     """Return classification_report's per-class/macro metrics, plus score-based metrics that
     accuracy and macro-averaged P/R/F1 alone can miss under the severe class imbalance in
     these datasets: ROC-AUC and PR-AUC (average precision) for the Attack class when the
-    problem is binary Attack/Benign, or macro one-vs-rest ROC-AUC when it's multiclass (only
-    DAPT2020 currently) - the latter is the same masking-of-rare-class-failure concern that
-    already motivates macro-averaging P/R/F1 there, just applied to a threshold-independent
-    score instead of a thresholded one.
+    problem is binary Attack/Benign, or their macro one-vs-rest counterparts when it's
+    multiclass (only DAPT2020 currently) - the latter is the same masking-of-rare-class-failure
+    concern that already motivates macro-averaging P/R/F1 there, just applied to
+    threshold-independent scores instead of thresholded ones. Macro PR-AUC in particular tends
+    to track a struggling rare class more honestly than macro ROC-AUC, which can look
+    deceptively strong under severe imbalance since the true-negative rate stays high almost by
+    default when the negative class dominates.
     """
     predictions = model.predict(x_test)
     report = classification_report(y_test, predictions, output_dict=True)
@@ -47,6 +51,8 @@ def evaluate_classifier(model, x_test, y_test) -> dict:
         report["roc_auc_macro"] = roc_auc_score(
             y_test, probabilities, multi_class="ovr", average="macro", labels=classes
         )
+        y_true_binarized = label_binarize(y_test, classes=classes)
+        report["pr_auc_macro"] = average_precision_score(y_true_binarized, probabilities, average="macro")
 
     return report
 
