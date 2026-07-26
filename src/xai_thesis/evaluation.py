@@ -24,11 +24,13 @@ _POSITIVE_LABEL = "Attack"
 
 
 def evaluate_classifier(model, x_test, y_test) -> dict:
-    """Return classification_report's per-class/macro metrics, plus ROC-AUC and PR-AUC
-    (average precision) for the Attack class when the problem is binary Attack/Benign -
-    accuracy and macro-averaged P/R/F1 alone can look deceptively strong under the severe
-    class imbalance in these datasets, so score-based metrics are added for the datasets
-    where a single positive class makes them well-defined.
+    """Return classification_report's per-class/macro metrics, plus score-based metrics that
+    accuracy and macro-averaged P/R/F1 alone can miss under the severe class imbalance in
+    these datasets: ROC-AUC and PR-AUC (average precision) for the Attack class when the
+    problem is binary Attack/Benign, or macro one-vs-rest ROC-AUC when it's multiclass (only
+    DAPT2020 currently) - the latter is the same masking-of-rare-class-failure concern that
+    already motivates macro-averaging P/R/F1 there, just applied to a threshold-independent
+    score instead of a thresholded one.
     """
     predictions = model.predict(x_test)
     report = classification_report(y_test, predictions, output_dict=True)
@@ -40,6 +42,11 @@ def evaluate_classifier(model, x_test, y_test) -> dict:
         y_true_binary = (np.asarray(y_test) == _POSITIVE_LABEL).astype(int)
         report["roc_auc"] = roc_auc_score(y_true_binary, attack_scores)
         report["pr_auc"] = average_precision_score(y_true_binary, attack_scores)
+    elif len(classes) > 2 and hasattr(model, "predict_proba"):
+        probabilities = model.predict_proba(x_test)
+        report["roc_auc_macro"] = roc_auc_score(
+            y_test, probabilities, multi_class="ovr", average="macro", labels=classes
+        )
 
     return report
 

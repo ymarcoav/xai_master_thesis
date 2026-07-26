@@ -52,6 +52,8 @@ _METRIC_EXTRACTORS = {
     "f1_attack": lambda report: report["Attack"]["f1-score"],
     "roc_auc": lambda report: report["roc_auc"],
     "pr_auc": lambda report: report["pr_auc"],
+    # Multiclass counterpart to roc_auc, only well-defined for DAPT2020 - see evaluate_classifier().
+    "roc_auc_macro": lambda report: report["roc_auc_macro"],
 }
 
 _SUPPORTED_PREPROCESSING_STRATEGY = "default_tabular"
