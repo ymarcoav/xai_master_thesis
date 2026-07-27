@@ -101,13 +101,17 @@ across all three datasets, and unlike `LinearSVC`, `LogisticRegression` has nati
 ## Analysis
 
 Confusion matrix (absolute counts, colored on a symmetric-log scale so cells of very different
-magnitude all stay visually distinguishable under severe class imbalance) for a trained experiment,
-or all experiments in `configs/experiments/`:
+magnitude all stay visually distinguishable under severe class imbalance; the color scale's top end is
+anchored to the largest value *excluding* the single most extreme cell, so one dominant majority-class
+cell doesn't compress every other cell's shade into the same dark band) for a trained experiment, or all
+experiments in `configs/experiments/`:
 
 ```powershell
 python scripts/confusion_matrix.py --experiment configs/experiments/unsw_nb15_gradient_boosting_baseline.yaml
 python scripts/confusion_matrix.py  # all experiments
 ```
+
+Plots are written to `outputs/plots/<experiment_name>/confusion_matrix.png`.
 
 Label class distribution for a dataset, or all datasets:
 
@@ -116,7 +120,7 @@ python scripts/label_distribution.py --dataset unsw_nb15
 python scripts/label_distribution.py  # all datasets
 ```
 
-Plots are written to `outputs/plots/`.
+Plots are written to `outputs/plots/<dataset_name>/label_distribution.png`.
 
 ## Explainability
 
@@ -137,8 +141,11 @@ python scripts/explain.py  # all experiments
 - **Permutation feature importance** (`sklearn.inspection.permutation_importance`): run on the full
   pipeline, so importances are reported in terms of the original feature names, not the one-hot-expanded
   ones.
-- **Partial dependence plots** (`sklearn.inspection.PartialDependenceDisplay`): for the top numeric
-  features by permutation importance.
+- **Partial dependence plots** (`sklearn.inspection.PartialDependenceDisplay`, with individual
+  conditional expectation curves overlaid): for the top numeric features by permutation importance. The
+  ICE curves show one line per sampled instance alongside the usual average PDP line, so a feature whose
+  effect is heterogeneous (pushing some instances toward the target class and others away from it) reads
+  as heterogeneous, rather than averaging out to look flat or negligible.
 
 The two curated instances per experiment (one correctly classified, one misclassified) are chosen from a
 `(target_class, confused_with_class)` pair per dataset — not randomly — based on the cross-model confusion
