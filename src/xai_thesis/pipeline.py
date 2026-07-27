@@ -286,7 +286,9 @@ def generate_confusion_matrix(
     model = joblib.load(Path(models_dir) / f"{experiment_name}.joblib")
     predictions = model.predict(x_test)
 
-    output_path = Path(plots_dir) / f"{experiment_name}_confusion_matrix.png"
+    # Same per-experiment folder generate_explanations() writes into, so every plot for one
+    # trained experiment (confusion matrix and explanations alike) lives in one place.
+    output_path = Path(plots_dir) / experiment_name / "confusion_matrix.png"
     return plot_confusion_matrix(y_test, predictions, output_path, normalize=normalize)
 
 
@@ -302,7 +304,10 @@ def generate_label_distribution(
     test_df = pd.read_csv(Path(dataset_config.processed_path) / "test.csv")
     labels = pd.concat([train_df[dataset_config.label_column], test_df[dataset_config.label_column]])
 
-    output_path = Path(plots_dir) / f"{dataset_config.name}_label_distribution.png"
+    # Per-dataset folder (distinct namespace from the per-experiment folders used for
+    # confusion matrices/explanations, since a dataset name is never equal to one of its own
+    # experiment names) - this plot isn't tied to any one trained model.
+    output_path = Path(plots_dir) / dataset_config.name / "label_distribution.png"
     return plot_label_distribution(labels, output_path, title=f"{dataset_config.name} label distribution")
 
 

@@ -17,6 +17,7 @@ from sklearn.metrics import (  # noqa: E402
     roc_auc_score,
 )
 from sklearn.preprocessing import label_binarize  # noqa: E402
+from mpl_toolkits.axes_grid1 import make_axes_locatable  # noqa: E402
 
 # The project's binary datasets (UNSW-NB15, CIC-IDS2017) always name their positive class
 # "Attack" (see the dataset adapters' clean() methods); DAPT2020 stays multiclass and has no
@@ -84,10 +85,29 @@ def plot_confusion_matrix(
     color scale is dominated entirely by the single largest cell, making every other cell
     (including the rare-class confusion patterns we actually care about) look uniformly
     pale. Log-scaling the color (not the annotated numbers, which stay exact) keeps cells
-    that differ by orders of magnitude all visibly distinct. SymLogNorm (rather than plain
-    LogNorm) is used specifically so exact-zero cells - common once a class has few enough
-    errors - render as a normal, visible white rather than being masked out entirely, which
-    plain log scaling does to non-positive values.
+    that differ by orders of magnitude more distinct than a linear scale would. SymLogNorm
+    (rather than plain LogNorm) is used specifically so exact-zero cells - common once a
+    class has few enough errors - render as a normal, visible white rather than being
+    masked out entirely, which plain log scaling does to non-positive values.
+
+    The scale's vmax is deliberately the largest value *excluding* the single most extreme
+    cell (almost always the majority class's own diagonal entry, often orders of magnitude
+    bigger than everything else), not that cell itself: anchoring vmax to that one outlier
+    left it consuming most of the color range on its own, compressing every other cell -
+    including the off-diagonal error cells that are the actual point of a confusion matrix -
+    into a visually similar dark band near the top, exactly where the eye needs the most
+    separation. Letting that one outlier clip to the same top color (the colorbar's "extend"
+    arrow signals this) frees up the full light-to-dark range for everything else instead.
+
+    linthresh (SymLogNorm's linear-region half-width around zero) is set to 5% of that
+    robust vmax rather than a fixed constant like 1: with linthresh=1, every value >=1
+    immediately starts climbing the log curve, so cells that are still small relative to
+    vmax (tens to low hundreds) rendered as a noticeably dark blue rather than the pale
+    shade their actual share of the range would suggest - checked empirically against a
+    real confusion matrix and tuned by comparing several linthresh values side by side, not
+    guessed. A percentage of vmax (rather than one fixed number) keeps this behavior
+    consistent whether vmax is a few thousand (DAPT2020) or several hundred thousand
+    (CIC-IDS2017).
 
     Pass normalize=True to color by row-normalized share of each true class (per-class
     recall) instead, while still annotating the absolute count in each cell either way.
@@ -103,14 +123,26 @@ def plot_confusion_matrix(
         norm = None
         vmin, vmax = 0, 1.0
         colorbar_label = "Share of true class (recall)"
+        cbar_extend = "neither"
     else:
         display_matrix = matrix
-        norm = SymLogNorm(linthresh=1, vmin=0, vmax=max(matrix.max(), 1))
+        below_peak = matrix[matrix < matrix.max()]
+        robust_vmax = below_peak.max() if below_peak.size > 0 else matrix.max()
+        robust_vmax = max(robust_vmax, 1)
+        norm = SymLogNorm(linthresh=max(1, robust_vmax * 0.05), vmin=0, vmax=robust_vmax)
         vmin = vmax = None
         colorbar_label = "Count (log scale)"
+        cbar_extend = "max" if matrix.max() > robust_vmax else "neither"
 
     figure_size = max(6, len(labels) * 0.6)
     fig, ax = plt.subplots(figsize=(figure_size, figure_size))
+    # A colorbar built via sns.heatmap's own default placement is sized relative to the
+    # whole figure, not the heatmap's actual plotted box - with square=True forcing the
+    # heatmap into a square (which need not fill the figure height), the two drift apart and
+    # the colorbar ends up visibly taller than the grid. make_axes_locatable ties the
+    # colorbar's own axes to the heatmap axes' actual size, so it always matches.
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.3)
     sns.heatmap(
         display_matrix,
         annot=matrix,
@@ -119,9 +151,11 @@ def plot_confusion_matrix(
         vmin=vmin,
         vmax=vmax,
         norm=norm,
+        square=True,
         xticklabels=labels,
         yticklabels=labels,
-        cbar_kws={"label": colorbar_label},
+        cbar_ax=cax,
+        cbar_kws={"label": colorbar_label, "extend": cbar_extend},
         ax=ax,
     )
     ax.set_xlabel("Predicted label")

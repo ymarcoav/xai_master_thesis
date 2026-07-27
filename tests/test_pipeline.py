@@ -108,7 +108,7 @@ def test_generate_label_distribution_writes_png(tmp_path) -> None:
     plots_dir = tmp_path / "plots"
     output_path = generate_label_distribution(dataset_config_path, plots_dir=plots_dir)
 
-    assert output_path == plots_dir / "toy_label_distribution.png"
+    assert output_path == plots_dir / "toy" / "label_distribution.png"
     assert output_path.exists()
 
 
@@ -292,7 +292,7 @@ def test_generate_confusion_matrix_writes_png_for_trained_experiment(tmp_path) -
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, plots_dir=plots_dir
     )
 
-    assert output_path == plots_dir / "toy_experiment_confusion_matrix.png"
+    assert output_path == plots_dir / "toy_experiment" / "confusion_matrix.png"
     assert output_path.exists()
 
 
