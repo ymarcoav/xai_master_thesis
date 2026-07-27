@@ -452,18 +452,38 @@ def plot_partial_dependence(
     features: list[str],
     target_class: str,
     output_path: str | Path,
+    *,
+    random_state: int = 42,
 ) -> Path:
     """Partial dependence plots for a handful of features, for one target class.
 
     Numeric columns are cast to float first: sklearn's PDP rejects integer dtypes outright.
     response_method="auto" falls back to decision_function for models without predict_proba.
+
+    kind="both" overlays individual conditional expectation (ICE) curves - one line per
+    sampled instance - underneath the usual average PDP line. The average alone can look
+    flat or negligible even when a feature has a real but heterogeneous effect (pushing some
+    instances toward the target class and others away from it); that distinction matters
+    here specifically, since "this feature matters, but only for some traffic" is a
+    materially different finding than "this feature doesn't matter" for a thesis about
+    explanations informing security decisions. subsample caps how many individual lines are
+    drawn - plotting all of x_data would overplot into an unreadable smear - and random_state
+    makes which instances get drawn reproducible, matching every other sampling step in this
+    pipeline.
     """
     x_data = x_data.copy()
     numeric_columns = x_data.select_dtypes(include="number").columns
     x_data[numeric_columns] = x_data[numeric_columns].astype(float)
 
     display = PartialDependenceDisplay.from_estimator(
-        pipeline, x_data, features=features, target=target_class, response_method="auto"
+        pipeline,
+        x_data,
+        features=features,
+        target=target_class,
+        response_method="auto",
+        kind="both",
+        subsample=50,
+        random_state=random_state,
     )
     n_cols = min(3, len(features))
     n_rows = -(-len(features) // n_cols)

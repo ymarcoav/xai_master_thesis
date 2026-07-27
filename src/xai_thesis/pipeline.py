@@ -395,7 +395,12 @@ def generate_explanations(
             feature for feature in top_features if feature not in dataset_config.categorical_columns
         ]
         paths["partial_dependence"] = plot_partial_dependence(
-            pipeline, sample_x, numeric_top_features[:pdp_top_n], target_class, output_dir / "partial_dependence.png"
+            pipeline,
+            sample_x,
+            numeric_top_features[:pdp_top_n],
+            target_class,
+            output_dir / "partial_dependence.png",
+            random_state=random_state,
         )
 
     instances = select_curated_instances(
