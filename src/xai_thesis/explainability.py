@@ -20,10 +20,10 @@ from sklearn.pipeline import Pipeline  # noqa: E402
 
 # Models with a fast, exact structural SHAP explainer (tree ensembles). logistic_regression
 # gets LinearExplainer (uses the linear coefficients directly). Anything else
-# (neural_network) falls back to a model-agnostic permutation explainer, which is far
+# (neural_network, svm) falls back to a model-agnostic permutation explainer, which is far
 # slower since it makes many repeated calls to the model rather than reading its structure
 # directly.
-_TREE_MODELS = ("gradient_boosting",)
+_TREE_MODELS = ("gradient_boosting", "random_forest")
 
 
 def predict_proba_fn(model: Any) -> Callable[[np.ndarray], np.ndarray]:

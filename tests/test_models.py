@@ -1,7 +1,8 @@
 import pytest
-from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
+from sklearn.svm import SVC
 
 from xai_thesis.models import build_model, train_model
 
@@ -36,6 +37,24 @@ def test_build_model_gradient_boosting_is_balanced_and_seeded() -> None:
     assert model.random_state == 7
     assert model.class_weight == "balanced"
     assert model.early_stopping is False
+
+
+def test_build_model_random_forest_is_balanced_and_seeded() -> None:
+    model = build_model("random_forest", random_state=7)
+
+    assert isinstance(model, RandomForestClassifier)
+    assert model.random_state == 7
+    assert model.class_weight == "balanced"
+
+
+def test_build_model_svm_is_kernel_balanced_and_seeded_without_probability() -> None:
+    model = build_model("svm", random_state=7)
+
+    assert isinstance(model, SVC)
+    assert model.random_state == 7
+    assert model.class_weight == "balanced"
+    assert model.kernel == "rbf"
+    assert model.probability is False
 
 
 def test_build_model_forwards_extra_kwargs() -> None:

@@ -1,0 +1,14 @@
+name: unsw_nb15_svm_baseline
+dataset: unsw_nb15
+model: svm
+random_state: 42
+preprocessing:
+  strategy: default_tabular
+metrics:
+- accuracy
+- precision_macro
+- recall_macro
+- f1_macro
+- precision_attack
+- recall_attack
+- f1_attack

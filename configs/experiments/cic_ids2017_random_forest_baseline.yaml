@@ -1,0 +1,16 @@
+name: cic_ids2017_random_forest_baseline
+dataset: cic_ids2017
+model: random_forest
+random_state: 42
+preprocessing:
+  strategy: default_tabular
+metrics:
+- accuracy
+- precision_macro
+- recall_macro
+- f1_macro
+- precision_attack
+- recall_attack
+- f1_attack
+- roc_auc
+- pr_auc

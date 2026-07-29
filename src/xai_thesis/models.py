@@ -2,25 +2,29 @@ from collections.abc import Callable
 from typing import Any
 
 from sklearn.base import ClassifierMixin
-from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
+from sklearn.svm import SVC
 
 # MLPClassifier has no class_weight/sample_weight support, so it can't be rebalanced here
 # like the rest; instead, pipeline.py resamples its training data (balance_classes) before
-# fit. The other two get class_weight="balanced" given how imbalanced these datasets are.
+# fit. The other models get class_weight="balanced" given how imbalanced these datasets are.
 #
-# random_forest was dropped from the catalog: it shares gradient_boosting's tree-ensemble
-# family and TreeExplainer (near-highest cross-model SHAP agreement of any pair in this
-# project), while consistently underperforming it on 2 of 3 datasets and only tying on the
-# third - little unique signal lost, and it simplifies the model x technique combinatorics
-# for the expert-interview stimulus set.
+# random_forest was previously dropped from the catalog (shared gradient_boosting's
+# tree-ensemble family and TreeExplainer, with near-highest cross-model SHAP agreement of
+# any pair in this project, while underperforming it) - re-added by explicit request despite
+# that redundancy concern still applying.
 #
-# svm (LinearSVC) was also dropped: its macro-F1 was substantially worse than the other
-# models across all three datasets. logistic_regression replaces it as the linear model in
-# the catalog - same architectural role (linear decision boundary), but with native
-# predict_proba (LinearSVC had none, which needed a softmax(decision_function) workaround
-# everywhere an explanation technique wanted a probability estimate).
+# svm here means a kernel (RBF) SVC, not the LinearSVC previously tried under this same
+# catalog key and dropped for substantially worse macro-F1 than the other models - a
+# genuinely different, non-linear decision boundary, not a retry of the old linear one.
+# probability=False deliberately: SVC's probability=True fits an extra internal Platt-scaling
+# CV pass on top of the already-expensive kernel fit; predict_proba_fn()'s existing
+# softmax(decision_function) fallback (explainability.py) already handles a classifier
+# without predict_proba, so paying for probability=True isn't needed. No hyperparameter
+# search space yet (see PARAM_DISTRIBUTIONS below) - only a single untuned timing run on
+# UNSW-NB15 has been done so far, to check whether tuning/other datasets are feasible at all.
 _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
     "logistic_regression": lambda random_state, **kwargs: LogisticRegression(
         random_state=random_state, class_weight="balanced", **kwargs
@@ -32,6 +36,12 @@ _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
     # stratify. max_iter is already tuned directly, so early stopping is redundant here.
     "gradient_boosting": lambda random_state, **kwargs: HistGradientBoostingClassifier(
         random_state=random_state, class_weight="balanced", early_stopping=False, **kwargs
+    ),
+    "random_forest": lambda random_state, **kwargs: RandomForestClassifier(
+        random_state=random_state, class_weight="balanced", **kwargs
+    ),
+    "svm": lambda random_state, **kwargs: SVC(
+        random_state=random_state, class_weight="balanced", kernel="rbf", probability=False, **kwargs
     ),
 }
 
@@ -60,6 +70,13 @@ PARAM_DISTRIBUTIONS: dict[str, dict[str, list[Any]]] = {
         # accuracy (vs. 99.5% with l2_regularization=0.1, identical everything else).
         "model__l2_regularization": [0.1, 0.3, 0.5, 0.7, 1.0],
         "model__min_samples_leaf": [10, 20, 30, 50],
+    },
+    "random_forest": {
+        "model__n_estimators": [100, 200, 300, 500],
+        "model__max_depth": [None, 5, 10, 15, 20, 30],
+        "model__max_features": ["sqrt", "log2", 0.3, 0.5],
+        "model__min_samples_leaf": [1, 2, 5, 10, 20],
+        "model__min_samples_split": [2, 5, 10, 20],
     },
 }
 

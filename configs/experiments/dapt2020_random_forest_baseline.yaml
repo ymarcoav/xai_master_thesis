@@ -1,0 +1,13 @@
+name: dapt2020_random_forest_baseline
+dataset: dapt2020
+model: random_forest
+random_state: 42
+preprocessing:
+  strategy: default_tabular
+metrics:
+- accuracy
+- precision_macro
+- recall_macro
+- f1_macro
+- roc_auc_macro
+- pr_auc_macro
