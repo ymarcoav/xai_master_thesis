@@ -11,3 +11,12 @@ metrics:
 - f1_macro
 - roc_auc_macro
 - pr_auc_macro
+model_params:
+  learning_rate_init: 0.001
+  hidden_layer_sizes:
+  - 256
+  - 128
+  - 64
+  alpha: 0.0005
+  max_iter: 300
+  early_stopping: true

@@ -11,3 +11,9 @@ metrics:
 - f1_macro
 - roc_auc_macro
 - pr_auc_macro
+model_params:
+  n_estimators: 200
+  min_samples_split: 5
+  min_samples_leaf: 2
+  max_features: sqrt
+  max_depth: 30
