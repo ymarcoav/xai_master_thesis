@@ -1,0 +1,11 @@
+name: dapt2020_svm_baseline
+dataset: dapt2020
+model: svm
+random_state: 42
+preprocessing:
+  strategy: default_tabular
+metrics:
+- accuracy
+- precision_macro
+- recall_macro
+- f1_macro

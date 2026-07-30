@@ -78,6 +78,13 @@ PARAM_DISTRIBUTIONS: dict[str, dict[str, list[Any]]] = {
         "model__min_samples_leaf": [1, 2, 5, 10, 20],
         "model__min_samples_split": [2, 5, 10, 20],
     },
+    # Measured on UNSW-NB15 (~101k training rows): a single untuned fit already takes ~5.5
+    # minutes, so a full 30-iteration/3-fold search here costs hours, not minutes, unlike
+    # every other model in this catalog - see the timing note in _MODEL_FACTORIES above.
+    "svm": {
+        "model__C": [0.1, 1, 10, 100, 1000],
+        "model__gamma": ["scale", "auto", 0.001, 0.01, 0.1, 1],
+    },
 }
 
 
