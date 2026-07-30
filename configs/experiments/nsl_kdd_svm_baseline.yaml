@@ -1,0 +1,15 @@
+name: nsl_kdd_svm_baseline
+dataset: nsl_kdd
+model: svm
+random_state: 42
+model_params:
+  C: 0.5
+preprocessing:
+  strategy: default_tabular
+metrics:
+- accuracy
+- precision_macro
+- recall_macro
+- f1_macro
+- roc_auc_macro
+- pr_auc_macro

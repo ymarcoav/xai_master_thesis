@@ -47,14 +47,14 @@ def test_build_model_random_forest_is_balanced_and_seeded() -> None:
     assert model.class_weight == "balanced"
 
 
-def test_build_model_svm_is_kernel_balanced_and_seeded_without_probability() -> None:
+def test_build_model_svm_is_linear_kernel_balanced_seeded_with_probability() -> None:
     model = build_model("svm", random_state=7)
 
     assert isinstance(model, SVC)
     assert model.random_state == 7
     assert model.class_weight == "balanced"
-    assert model.kernel == "rbf"
-    assert model.probability is False
+    assert model.kernel == "linear"
+    assert model.probability is True
 
 
 def test_build_model_forwards_extra_kwargs() -> None:

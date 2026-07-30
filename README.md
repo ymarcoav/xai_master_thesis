@@ -69,7 +69,7 @@ split chronologically per source file and label, so every class stays represente
 ## Training
 
 Each experiment config in `configs/experiments/` names a dataset and a model
-(`logistic_regression`, `neural_network`, or `gradient_boosting`). Train one:
+(`logistic_regression`, `neural_network`, `gradient_boosting`, `random_forest`, or `svm`). Train one:
 
 ```powershell
 python scripts/train.py --experiment configs/experiments/unsw_nb15_gradient_boosting_baseline.yaml
@@ -85,18 +85,36 @@ python scripts/train.py --experiment configs/experiments/unsw_nb15_gradient_boos
 Trained pipelines (preprocessing + model) are saved to `outputs/models/<experiment_name>.joblib`,
 and metrics to `outputs/metrics/<experiment_name>.json`.
 
-All three datasets are severely class-imbalanced. `logistic_regression` and `gradient_boosting` use
-`class_weight="balanced"`; `neural_network` (`MLPClassifier`) has no `class_weight`/`sample_weight` support
-in scikit-learn, so its training data is resampled instead (`balance_classes` in `preprocessing.py`
-oversamples rare classes and undersamples common ones to the median class count, applied only to the
-training fold, both during hyperparameter search and the final fit).
+All three datasets are severely class-imbalanced. `logistic_regression`, `gradient_boosting`,
+`random_forest`, and `svm` all use `class_weight="balanced"`; `neural_network` (`MLPClassifier`) has no
+`class_weight`/`sample_weight` support in scikit-learn, so its training data is resampled instead
+(`balance_classes` in `preprocessing.py` oversamples rare classes and undersamples common ones to the
+median class count, applied only to the training fold, both during hyperparameter search and the final
+fit).
 
-`random_forest` was dropped from the model catalog: it shares `gradient_boosting`'s tree-ensemble
-family and `TreeExplainer`, consistently showed the highest cross-model SHAP agreement with it of any
-model pair, and underperformed it on 2 of 3 datasets (tying on the third) - little unique signal for
-the added combinatorial cost in the explainability/interview stages. `svm` (`LinearSVC`) was also
-dropped, replaced by `logistic_regression`: its macro-F1 was substantially worse than the other models
-across all three datasets, and unlike `LinearSVC`, `LogisticRegression` has native `predict_proba`.
+`random_forest` was originally dropped from the model catalog (shares `gradient_boosting`'s
+tree-ensemble family and `TreeExplainer`, consistently showed the highest cross-model SHAP agreement
+with it of any model pair, and underperformed it on 2 of 3 datasets) - re-added by explicit request
+despite that redundancy concern still applying. It gets the same `class_weight="balanced"` and
+`TreeExplainer` treatment as `gradient_boosting`.
+
+An earlier `svm` (`LinearSVC`) was dropped for substantially worse macro-F1 than the other models,
+replaced by `logistic_regression` as the catalog's linear model. The current `svm` entry is a
+different, later addition: `SVC` with a **linear kernel**, `C=0.5`, and `probability=True`, matching
+an external reference configuration exactly rather than being tuned via this project's usual
+`RandomizedSearchCV` - there is deliberately no hyperparameter search space for it. `probability=True`
+is kept despite the extra internal Platt-scaling cost it adds on top of the kernel fit, to match that
+reference configuration directly; scikit-learn 1.9 deprecates this in favor of wrapping with
+`CalibratedClassifierCV`, but the parameter still works. `svm` is measurably more expensive than every
+other model in this catalog, at both training and explanation time: fitting it took ~26 minutes on
+UNSW-NB15 (~101k training rows) and ~18 minutes on DAPT2020 (~59k rows, but 5 classes means an
+internal one-vs-one decomposition into 10 calibrated binary sub-models) - both slower than an earlier
+RBF-kernel attempt without `probability=True` (~5.5 minutes on UNSW-NB15), confirming the calibration
+cost, not the kernel choice, dominates. Explanation generation is slower too: `svm` has no structural
+SHAP explainer (same permutation-based fallback as `neural_network`), and each permutation sample pays
+`SVC`'s comparatively expensive prediction cost, pushing SHAP generation alone to 20-30 minutes per
+experiment. Given this, `svm` has not been trained on CIC-IDS2017 (~2M training rows) - extrapolating
+from the measured UNSW-NB15/DAPT2020 timings, a single fit there would plausibly take hours to days.
 
 ## Analysis
 
@@ -132,9 +150,11 @@ python scripts/explain.py --experiment configs/experiments/unsw_nb15_gradient_bo
 python scripts/explain.py  # all experiments
 ```
 
-- **SHAP**: `TreeExplainer` for `gradient_boosting`, `LinearExplainer` for `logistic_regression`, and a
-  permutation-based `Explainer` for `neural_network` (no fast structural explainer exists for sklearn
-  MLPs). Produces a global bar plot (mean |SHAP value| per feature, stacked by class), a global beeswarm
+- **SHAP**: `TreeExplainer` for `gradient_boosting` and `random_forest`, `LinearExplainer` for
+  `logistic_regression`, and a permutation-based `Explainer` for `neural_network` and `svm` (no fast
+  structural explainer exists for sklearn MLPs or kernel SVMs - this path is markedly slower for both,
+  and slower still for `svm` specifically, since its own predictions are more expensive to compute).
+  Produces a global bar plot (mean |SHAP value| per feature, stacked by class), a global beeswarm
   for the dataset's class of interest, and local waterfall plots for two curated test instances.
 - **LIME** (`LimeTabularExplainer`): local explanations for the same two curated instances, so SHAP and
   LIME can be compared directly on identical cases.

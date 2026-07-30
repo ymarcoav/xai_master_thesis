@@ -91,9 +91,9 @@ _CHRONOLOGICAL_SPLIT_TIMESTAMP: dict[str, tuple[str, str]] = {
 
 
 def _split_dataset(config: DatasetConfig, data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    # UNSW-NB15 ships with an official train/test split; the others don't, so they're
-    # split chronologically per source file instead (see preprocessing.py for why).
-    if config.name == "unsw_nb15":
+    # UNSW-NB15 and NSL-KDD both ship with an official train/test split; the others don't, so
+    # they're split chronologically per source file instead (see preprocessing.py for why).
+    if config.name in ("unsw_nb15", "nsl_kdd"):
         return split_by_official_split_column(data, split_column="split")
     timestamp_column, timestamp_format = _CHRONOLOGICAL_SPLIT_TIMESTAMP.get(config.name, (None, None))
     return split_chronologically_by_source(
@@ -323,6 +323,10 @@ _CLASS_OF_INTEREST: dict[str, tuple[str, str]] = {
     "unsw_nb15": ("Attack", "Benign"),
     "cic_ids2017": ("Attack", "Benign"),
     "dapt2020": ("Reconnaissance", "Benign"),
+    # R2L is confused with Benign more heavily than any other pair in this dataset, and by a
+    # wide margin - confirmed across both models trained so far (82.5% of R2L misclassified
+    # as Benign for gradient_boosting, 64.8% for logistic_regression).
+    "nsl_kdd": ("R2L", "Benign"),
 }
 
 # LIME's default discretize_continuous=True crashes on CIC-IDS2017's heavily-skewed columns

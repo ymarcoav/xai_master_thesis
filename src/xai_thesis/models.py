@@ -16,15 +16,18 @@ from sklearn.svm import SVC
 # any pair in this project, while underperforming it) - re-added by explicit request despite
 # that redundancy concern still applying.
 #
-# svm here means a kernel (RBF) SVC, not the LinearSVC previously tried under this same
-# catalog key and dropped for substantially worse macro-F1 than the other models - a
-# genuinely different, non-linear decision boundary, not a retry of the old linear one.
-# probability=False deliberately: SVC's probability=True fits an extra internal Platt-scaling
-# CV pass on top of the already-expensive kernel fit; predict_proba_fn()'s existing
-# softmax(decision_function) fallback (explainability.py) already handles a classifier
-# without predict_proba, so paying for probability=True isn't needed. No hyperparameter
-# search space yet (see PARAM_DISTRIBUTIONS below) - only a single untuned timing run on
-# UNSW-NB15 has been done so far, to check whether tuning/other datasets are feasible at all.
+# svm here means SVC with a linear kernel, not the LinearSVC previously tried under this same
+# catalog key and dropped for substantially worse macro-F1 than the other models. Configured
+# to match an external reference exactly (kernel="linear", C=0.5 via model_params,
+# probability=True) rather than tuned via this project's usual RandomizedSearchCV - no
+# PARAM_DISTRIBUTIONS entry for it below, since these settings are meant to be adopted as-is,
+# not searched around. An earlier RBF-kernel attempt was abandoned after measuring ~5.5
+# minutes for a single untuned fit on UNSW-NB15 alone (~101k rows) - infeasible to tune, and
+# likely infeasible to even fit once on CIC-IDS2017's ~2M rows. probability=True is kept
+# despite the extra internal Platt-scaling cost it adds on top of the kernel fit, to match the
+# reference configuration; sklearn 1.9 deprecates this in favor of wrapping with
+# CalibratedClassifierCV, but the parameter still works and is simpler to keep matching the
+# reference's stated configuration directly.
 _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
     "logistic_regression": lambda random_state, **kwargs: LogisticRegression(
         random_state=random_state, class_weight="balanced", **kwargs
@@ -41,7 +44,7 @@ _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
         random_state=random_state, class_weight="balanced", **kwargs
     ),
     "svm": lambda random_state, **kwargs: SVC(
-        random_state=random_state, class_weight="balanced", kernel="rbf", probability=False, **kwargs
+        random_state=random_state, class_weight="balanced", kernel="linear", probability=True, **kwargs
     ),
 }
 
@@ -78,13 +81,9 @@ PARAM_DISTRIBUTIONS: dict[str, dict[str, list[Any]]] = {
         "model__min_samples_leaf": [1, 2, 5, 10, 20],
         "model__min_samples_split": [2, 5, 10, 20],
     },
-    # Measured on UNSW-NB15 (~101k training rows): a single untuned fit already takes ~5.5
-    # minutes, so a full 30-iteration/3-fold search here costs hours, not minutes, unlike
-    # every other model in this catalog - see the timing note in _MODEL_FACTORIES above.
-    "svm": {
-        "model__C": [0.1, 1, 10, 100, 1000],
-        "model__gamma": ["scale", "auto", 0.001, 0.01, 0.1, 1],
-    },
+    # svm intentionally has no entry here: its hyperparameters are fixed to match an external
+    # reference configuration directly (see _MODEL_FACTORIES above and each svm experiment
+    # config's model_params), not searched via RandomizedSearchCV.
 }
 
 

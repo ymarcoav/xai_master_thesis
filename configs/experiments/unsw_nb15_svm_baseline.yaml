@@ -2,6 +2,8 @@ name: unsw_nb15_svm_baseline
 dataset: unsw_nb15
 model: svm
 random_state: 42
+model_params:
+  C: 0.5
 preprocessing:
   strategy: default_tabular
 metrics:
@@ -12,3 +14,5 @@ metrics:
 - precision_attack
 - recall_attack
 - f1_attack
+- roc_auc
+- pr_auc

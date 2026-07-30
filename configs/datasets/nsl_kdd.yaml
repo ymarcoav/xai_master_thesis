@@ -1,0 +1,14 @@
+name: nsl_kdd
+raw_path: data/raw/NSL_KDD
+processed_path: data/processed/nsl_kdd
+label_column: attack_category
+
+# Multiclass over the conventional DoS/Probe/R2L/U2R categories (+ Benign) - see
+# datasets/nsl_kdd.py's _ATTACK_CATEGORY mapping and module docstring for why this grouping
+# was chosen over either the full ~40-way specific attack-type scheme or a binary collapse.
+categorical_columns:
+  - protocol_type
+  - service
+  - flag
+drop_columns:
+  - difficulty_level

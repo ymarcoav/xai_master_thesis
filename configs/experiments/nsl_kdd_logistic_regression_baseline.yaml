@@ -1,0 +1,16 @@
+name: nsl_kdd_logistic_regression_baseline
+dataset: nsl_kdd
+model: logistic_regression
+random_state: 42
+preprocessing:
+  strategy: default_tabular
+metrics:
+- accuracy
+- precision_macro
+- recall_macro
+- f1_macro
+- roc_auc_macro
+- pr_auc_macro
+model_params:
+  C: 100
+  max_iter: 1000
