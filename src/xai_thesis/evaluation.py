@@ -19,38 +19,29 @@ from sklearn.metrics import (  # noqa: E402
 from sklearn.preprocessing import label_binarize  # noqa: E402
 from mpl_toolkits.axes_grid1 import make_axes_locatable  # noqa: E402
 
-# As of 2026-07-31, every dataset in this project's catalog is multiclass (UNSW-NB15 was the
-# last binary one, switched to its native attack_cat scheme) - the binary Attack/Benign path
-# below is consequently unreachable by any current experiment config. Left in place rather
-# than deleted pending a decision on whether to clean it up (see project memory); the
-# _POSITIVE_LABEL constant/branch would need removing, not just leaving unused, if that
-# decision is made.
-_POSITIVE_LABEL = "Attack"
-
 
 def evaluate_classifier(model, x_test, y_test) -> dict:
-    """Return classification_report's per-class/macro metrics, plus score-based metrics that
-    accuracy and macro-averaged P/R/F1 alone can miss under the severe class imbalance in
-    these datasets: ROC-AUC and PR-AUC (average precision) for the Attack class when the
-    problem is binary Attack/Benign (currently unreachable - see _POSITIVE_LABEL above), or
-    their macro one-vs-rest counterparts when it's multiclass (now every dataset) - the latter
-    is the same masking-of-rare-class-failure concern that already motivates macro-averaging
-    P/R/F1 there, just applied to threshold-independent scores instead of thresholded ones.
-    Macro PR-AUC in particular tends to track a struggling rare class more honestly than macro
-    ROC-AUC, which can look deceptively strong under severe imbalance since the true-negative
-    rate stays high almost by default when the negative class dominates.
+    """Return classification_report's per-class/macro metrics, plus macro one-vs-rest ROC-AUC
+    and PR-AUC (average precision) - every dataset in this project's catalog is multiclass, so
+    these are always the macro variants. This is the same masking-of-rare-class-failure concern
+    that already motivates macro-averaging P/R/F1: macro PR-AUC in particular tends to track a
+    struggling rare class more honestly than macro ROC-AUC, which can look deceptively strong
+    under severe imbalance since the true-negative rate stays high almost by default when the
+    negative class dominates.
+
+    The len(classes) > 2 guard isn't a binary/multiclass special-case (that was removed - every
+    real dataset here has well over 2 classes) - it reflects a genuine sklearn API constraint:
+    roc_auc_score's multi_class="ovr" and average_precision_score's macro averaging both reject
+    exactly-2-class input outright (confirmed directly - label_binarize collapses 2 classes to a
+    single column, which then shape-mismatches against predict_proba's 2 columns). Toy 2-class
+    test fixtures elsewhere in this project exist for reasons unrelated to metric computation, so
+    this guard keeps them from crashing rather than expecting every fixture to use 3+ classes.
     """
     predictions = model.predict(x_test)
     report = classification_report(y_test, predictions, output_dict=True)
 
     classes = list(model.classes_)
-    if len(classes) == 2 and _POSITIVE_LABEL in classes and hasattr(model, "predict_proba"):
-        positive_index = classes.index(_POSITIVE_LABEL)
-        attack_scores = model.predict_proba(x_test)[:, positive_index]
-        y_true_binary = (np.asarray(y_test) == _POSITIVE_LABEL).astype(int)
-        report["roc_auc"] = roc_auc_score(y_true_binary, attack_scores)
-        report["pr_auc"] = average_precision_score(y_true_binary, attack_scores)
-    elif len(classes) > 2 and hasattr(model, "predict_proba"):
+    if len(classes) > 2 and hasattr(model, "predict_proba"):
         probabilities = model.predict_proba(x_test)
         report["roc_auc_macro"] = roc_auc_score(
             y_test, probabilities, multi_class="ovr", average="macro", labels=classes
@@ -63,15 +54,11 @@ def evaluate_classifier(model, x_test, y_test) -> dict:
 
 def _label_sort_key(label: object) -> tuple[int, str]:
     """Benign first (this project's convention across every dataset), then everything else
-    alphabetically. The "Attack second" tier is dead weight now that UNSW-NB15 (the last
-    dataset with a literal "Attack" class) is multiclass, but harmless to leave: it just never
-    matches, same as _POSITIVE_LABEL in evaluate_classifier above.
+    alphabetically.
     """
     if label == "Benign":
         return (0, "")
-    if label == "Attack":
-        return (1, "")
-    return (2, str(label))
+    return (1, str(label))
 
 
 def plot_confusion_matrix(

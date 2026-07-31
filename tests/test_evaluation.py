@@ -4,10 +4,10 @@ from sklearn.linear_model import LogisticRegression
 from xai_thesis.evaluation import _label_sort_key, evaluate_classifier, plot_confusion_matrix, plot_label_distribution
 
 
-def test_label_sort_key_orders_benign_first_attack_second_then_alphabetical() -> None:
-    labels = ["Reconnaissance", "Attack", "Data Exfiltration", "Benign"]
+def test_label_sort_key_orders_benign_first_then_alphabetical() -> None:
+    labels = ["Reconnaissance", "Worms", "Data Exfiltration", "Benign"]
 
-    assert sorted(labels, key=_label_sort_key) == ["Benign", "Attack", "Data Exfiltration", "Reconnaissance"]
+    assert sorted(labels, key=_label_sort_key) == ["Benign", "Data Exfiltration", "Reconnaissance", "Worms"]
 
 
 def test_plot_confusion_matrix_normalized_writes_png(tmp_path) -> None:
@@ -45,19 +45,7 @@ def test_plot_confusion_matrix_handles_label_absent_from_true(tmp_path) -> None:
     assert result_path.exists()
 
 
-def test_evaluate_classifier_adds_roc_auc_and_pr_auc_for_binary_attack_benign() -> None:
-    x_train = [[0.0], [0.1], [0.9], [1.0]]
-    y_train = ["Benign", "Benign", "Attack", "Attack"]
-    model = LogisticRegression().fit(x_train, y_train)
-
-    report = evaluate_classifier(model, x_train, y_train)
-
-    assert "roc_auc" in report
-    assert "pr_auc" in report
-    assert report["Attack"]["precision"] == report["Attack"]["precision"]  # present, not KeyError
-
-
-def test_evaluate_classifier_adds_macro_ovr_roc_and_pr_auc_for_multiclass_instead_of_binary_metrics() -> None:
+def test_evaluate_classifier_adds_macro_ovr_roc_and_pr_auc() -> None:
     x_train = [[0.0], [0.4], [0.5], [1.0]]
     y_train = ["Benign", "Reconnaissance", "Reconnaissance", "Data Exfiltration"]
     model = LogisticRegression().fit(x_train, y_train)
@@ -66,8 +54,6 @@ def test_evaluate_classifier_adds_macro_ovr_roc_and_pr_auc_for_multiclass_instea
 
     assert "roc_auc_macro" in report
     assert "pr_auc_macro" in report
-    assert "roc_auc" not in report
-    assert "pr_auc" not in report
 
 
 def test_plot_label_distribution_writes_png(tmp_path) -> None:
