@@ -8,6 +8,48 @@ from xai_thesis.datasets.base import BaseDataset
 _DUPLICATE_COLUMN = "Fwd Header Length.1"
 _SOURCE_COLUMN = "source_file"
 
+# CIC-IDS2017 is modeled as multiclass over 7 categories (Benign + 6 attack families),
+# matching the scheme used by Arreche et al. 2024 ("E-XAI: Evaluating Black-Box Explainable
+# AI Frameworks for Network Intrusion Detection", IEEE Access) - confirmed against that
+# paper's own Figure 21 SHAP-plot legend, which explicitly lists these 7 class names
+# (the paper's prose description is internally inconsistent, claiming "six distinct attack
+# profiles" while naming seven, so the figure legend - not the prose - is the source of truth
+# here). DoS and DDoS are merged into one DoS/DDoS bucket, as are the two brute-force tools
+# (FTP-Patator, SSH-Patator) into "Brute Force" and the three Web Attack subtypes into "Web
+# Attack"; Heartbleed folds into DoS/DDoS too (it's a DoS-class vulnerability, and native
+# CIC-IDS2017 has only a handful of Heartbleed rows total - far too few to model as its own
+# class). PortScan, Infiltration, and Bot are already single native labels.
+_ATTACK_CATEGORY: dict[str, str] = {
+    "DoS Hulk": "DoS/DDoS",
+    "DDoS": "DoS/DDoS",
+    "DoS GoldenEye": "DoS/DDoS",
+    "DoS slowloris": "DoS/DDoS",
+    "DoS Slowhttptest": "DoS/DDoS",
+    "Heartbleed": "DoS/DDoS",
+    "FTP-Patator": "Brute Force",
+    "SSH-Patator": "Brute Force",
+    "PortScan": "PortScan",
+    "Infiltration": "Infiltration",
+    "Bot": "Bot",
+}
+
+
+def _map_to_category(value: str) -> str:
+    """Map a native CIC-IDS2017 label to Benign or one of the 6 attack categories.
+
+    The three native "Web Attack - <subtype>" labels don't get an exact dict entry: the
+    separator byte between "Web Attack" and the subtype is a corrupted, non-ASCII character
+    baked into the raw files themselves (confirmed via raw byte inspection: literal UTF-8
+    encoding of U+FFFD, not a decoding artifact on this project's end), so matching by
+    startswith() is robust to however pandas happens to decode that byte, rather than
+    depending on an exact string match against a specific corrupted character.
+    """
+    if value == "BENIGN":
+        return "Benign"
+    if value.startswith("Web Attack"):
+        return "Web Attack"
+    return _ATTACK_CATEGORY[value]
+
 
 class CICIDS2017Dataset(BaseDataset):
     """CIC-IDS-2017 adapter."""
@@ -38,12 +80,10 @@ class CICIDS2017Dataset(BaseDataset):
         duration_columns = [column for column in data.columns if column == "Flow Duration" or "IAT" in column]
         data = data.loc[~(data[duration_columns] < 0).any(axis=1)]
 
-        # Binary classification: BENIGN vs. every attack category collapsed into one
-        # Attack class, matching prior literature that reports binary results for this
-        # dataset. The exact attack subtype no longer matters once collapsed, so unlike
-        # the multiclass case, corrupted label characters need no repair.
+        # Multiclass classification: native ~15-way label collapsed into 7 categories - see
+        # _ATTACK_CATEGORY/_map_to_category above.
         label_column = self.config.label_column
-        data[label_column] = np.where(data[label_column] == "BENIGN", "Benign", "Attack")
+        data[label_column] = data[label_column].map(_map_to_category)
 
         # Dedupe on flow content only, ignoring the source-file tag, so a flow
         # duplicated across two source files is still caught.

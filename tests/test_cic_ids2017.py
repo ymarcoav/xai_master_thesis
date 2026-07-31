@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from xai_thesis.datasets.base import DatasetConfig
 from xai_thesis.datasets.cic_ids2017 import CICIDS2017Dataset
@@ -66,7 +67,7 @@ def test_cic_ids2017_clean_drops_rows_with_negative_duration_or_iat() -> None:
     assert len(cleaned) == 2
 
 
-def test_cic_ids2017_clean_collapses_labels_to_binary() -> None:
+def test_cic_ids2017_clean_maps_labels_to_seven_categories() -> None:
     dataset = _make_dataset()
     data = _base_frame()
     data[" Label"] = ["Web Attack - Brute Force", "DDoS", "PortScan", "BENIGN"]
@@ -74,8 +75,29 @@ def test_cic_ids2017_clean_collapses_labels_to_binary() -> None:
     cleaned = dataset.clean(data)
 
     labels = cleaned["Label"].tolist()
-    assert labels.count("Attack") == 3
-    assert labels.count("Benign") == 1
+    assert labels == ["Web Attack", "DoS/DDoS", "PortScan", "Benign"]
+
+
+def test_cic_ids2017_clean_maps_corrupted_web_attack_separator_byte() -> None:
+    dataset = _make_dataset()
+    data = _base_frame()
+    # The real raw files use a corrupted non-ASCII separator byte here, not a plain hyphen -
+    # confirmed via raw byte inspection (literal UTF-8 encoding of U+FFFD).
+    data[" Label"] = ["Web Attack � Brute Force", "Web Attack � Sql Injection", "Web Attack � XSS", "BENIGN"]
+
+    cleaned = dataset.clean(data)
+
+    labels = cleaned["Label"].tolist()
+    assert labels == ["Web Attack", "Web Attack", "Web Attack", "Benign"]
+
+
+def test_cic_ids2017_clean_raises_on_unrecognized_label() -> None:
+    dataset = _make_dataset()
+    data = _base_frame()
+    data[" Label"] = ["Not A Real Label", "DDoS", "PortScan", "BENIGN"]
+
+    with pytest.raises(KeyError):
+        dataset.clean(data)
 
 
 def test_cic_ids2017_clean_drops_exact_duplicate_rows_across_source_files() -> None:

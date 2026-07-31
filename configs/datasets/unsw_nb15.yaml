@@ -1,15 +1,18 @@
 name: unsw_nb15
 raw_path: data/raw/UNSW_NB15
 processed_path: data/processed/unsw_nb15
-label_column: label
+label_column: attack_cat
 
-# Binary classification: label is UNSW-NB15's own native Normal/Attack ground truth
-# (0/1), used in place of the multiclass attack_cat, to match prior literature that
-# reports binary results for this dataset.
+# Multiclass classification: attack_cat is UNSW-NB15's own native 10-category ground
+# truth (Normal + Generic/Exploits/Fuzzers/DoS/Reconnaissance/Analysis/Backdoor/
+# Shellcode/Worms), the standard scheme used throughout UNSW-NB15 literature (Moustafa
+# & Slay 2015) essentially as-is - unlike NSL-KDD/CIC-IDS2017, there's no common further
+# consolidation of this scheme in the literature. The native binary label (0/1) is
+# dropped in favor of this.
 categorical_columns:
   - proto
   - service
   - state
 drop_columns:
   - id
-  - attack_cat
+  - label

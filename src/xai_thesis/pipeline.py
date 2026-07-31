@@ -311,29 +311,39 @@ def generate_label_distribution(
     return plot_label_distribution(labels, output_path, title=f"{dataset_config.name} label distribution")
 
 
-# (target_class, confused_with_class) per dataset. For DAPT2020 (multiclass), informed by the
-# confusion-matrix analysis: target_class is a class substantially confused with confused_with_class
-# across every model trained, not just one - e.g. DAPT2020's Reconnaissance is misclassified as
-# Benign by every model (10-75% of the time depending on model). Ties local explanations back to
-# a concrete, already-established error pattern instead of an arbitrary/random instance choice. For
-# the two binary datasets, Attack misclassified as Benign (a false negative - an undetected attack)
-# is the single most security-critical error an IDS can make, so it's the natural class of interest
-# regardless of per-model confusion specifics.
+# (target_class, confused_with_class) per dataset - every dataset in the catalog is multiclass as
+# of 2026-07-31. Informed by the confusion-matrix analysis: target_class is a class substantially
+# confused with confused_with_class across every model trained, not just one - e.g. DAPT2020's
+# Reconnaissance is misclassified as Benign by every model (10-75% of the time depending on model).
+# Ties local explanations back to a concrete, already-established error pattern instead of an
+# arbitrary/random instance choice.
 _CLASS_OF_INTEREST: dict[str, tuple[str, str]] = {
-    "unsw_nb15": ("Attack", "Benign"),
-    "cic_ids2017": ("Attack", "Benign"),
+    # Unlike this project's other multiclass datasets, UNSW-NB15's dominant confusion doesn't
+    # funnel into Benign at all - Analysis and Backdoor are confused with each other far more
+    # than with anything else, in both directions, across every model trained (Analysis-
+    # >Backdoor 27.6-66.6%, Backdoor->Analysis 15.9-66.8%). Analysis is picked as target_class
+    # since it has the lower average recall of the two (~34% vs ~50% across models) - the
+    # harder-to-detect side of this pair.
+    "unsw_nb15": ("Analysis", "Backdoor"),
     "dapt2020": ("Reconnaissance", "Benign"),
     # R2L is confused with Benign more heavily than any other pair in this dataset, and by a
     # wide margin - confirmed across both models trained so far (82.5% of R2L misclassified
     # as Benign for gradient_boosting, 64.8% for logistic_regression).
     "nsl_kdd": ("R2L", "Benign"),
+    # DoS/DDoS is misclassified as Benign by every model trained under the new 7-category
+    # multiclass scheme (6.3-13.2% depending on model), the only confusion pattern that shows
+    # up for all 4 - and it's also this dataset's largest attack category by far (64,319 of
+    # 485,902 test rows), making a missed DoS/DDoS attack the single highest-volume false
+    # negative this dataset can produce.
+    "cic_ids2017": ("DoS/DDoS", "Benign"),
 }
 
 # LIME's default discretize_continuous=True crashes on CIC-IDS2017's heavily-skewed columns
 # (scipy truncnorm "scale must be positive" - confirmed reproducible, see explainability.py);
 # verified safe for UNSW-NB15 specifically (30/30 test instances, no error) before enabling it
-# there. DAPT2020 doesn't use this setting at all (it falls back to LIME's own single-panel
-# rendering, since the fixed two-class layout doesn't generalize past two classes).
+# there. This is orthogonal to binary vs. multiclass (it's about column skew, not class count),
+# so UNSW-NB15's switch to multiclass doesn't change whether this is still safe there - it's
+# restricted to unsw_nb15 here simply because that's the only dataset this was ever verified for.
 _SAFE_TO_DISCRETIZE_LIME = {"unsw_nb15"}
 
 

@@ -58,8 +58,8 @@ def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
                 "name": "unsw_nb15",
                 "raw_path": raw_dir.as_posix(),
                 "processed_path": processed_dir.as_posix(),
-                "label_column": "label",
-                "drop_columns": ["id", "attack_cat"],
+                "label_column": "attack_cat",
+                "drop_columns": ["id", "label"],
                 "categorical_columns": ["proto", "service", "state"],
             }
         ),
@@ -75,11 +75,11 @@ def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
     test_df = pd.read_csv(test_path)
 
     assert "id" not in train_df.columns
-    assert "attack_cat" not in train_df.columns
+    assert "label" not in train_df.columns
     assert "split" not in train_df.columns
     assert len(train_df) == 2
     assert len(test_df) == 2
-    assert set(train_df["label"]) <= {"Benign", "Attack"}  # binary label mapped from 0/1
+    assert set(train_df["attack_cat"]) <= {"Benign", "Exploits", "DoS"}  # "Normal" mapped to "Benign"
     assert "unknown" in train_df["service"].tolist()  # "-" sentinel normalized
     assert train_df["is_ftp_login"].max() == 1  # clipped from 2
 

@@ -244,20 +244,19 @@ def explain_instance_with_lime(
 
     LIME's default quantile-based discretization of continuous features crashes outright
     (scipy truncnorm "scale must be positive") on the kind of heavily-skewed distributions
-    common in these datasets (e.g. CIC-IDS2017's flag counts, ~99% zero, confirmed still
-    reproducible after the binary-classification switch) - bin edges collapse regardless of
-    cardinality. discretize_continuous defaults to False (sidesteps the discretizer entirely,
-    perturbing continuous features via a Gaussian around each feature's std instead) and
-    should only be set True for a dataset verified not to hit this crash (confirmed safe for
-    UNSW-NB15 specifically).
+    common in these datasets (e.g. CIC-IDS2017's flag counts, ~99% zero) - bin edges collapse
+    regardless of cardinality. discretize_continuous defaults to False (sidesteps the
+    discretizer entirely, perturbing continuous features via a Gaussian around each feature's
+    std instead) and should only be set True for a dataset verified not to hit this crash
+    (confirmed safe for UNSW-NB15 specifically).
 
-    For the two binary (Attack/Benign) datasets, the explanation is always computed relative
-    to the Attack class specifically - the security-critical one - regardless of which class
-    the model actually predicted for this instance, so a correctly-flagged attack and a missed
-    one can be read on the same footing. Rendered with a fixed Class 0 (Benign, blue) / Class 1
-    (Attack, orange) layout; true multiclass datasets (e.g. DAPT2020) fall back to LIME's own
-    default single-panel rendering for whichever class was actually predicted, since a fixed
-    two-sided layout doesn't generalize past two classes.
+    A binary Attack/Benign fixed Class 0 (Benign, blue) / Class 1 (Attack, orange) layout is
+    still supported below (see _BINARY_CLASS_NAMES/_plot_lime_binary_explanation) but is
+    unreachable as of 2026-07-31: UNSW-NB15, the last dataset that produced exactly these two
+    classes, is now multiclass too, so every dataset falls back to LIME's own default
+    single-panel rendering for whichever class was actually predicted. Left in place pending a
+    decision on whether to remove it (see project memory), same as evaluation.py's
+    _POSITIVE_LABEL/binary ROC-AUC path.
     """
     all_columns = list(x_train.columns)
     numeric_columns = x_train.select_dtypes(include="number").columns

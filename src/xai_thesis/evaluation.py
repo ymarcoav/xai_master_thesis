@@ -19,9 +19,12 @@ from sklearn.metrics import (  # noqa: E402
 from sklearn.preprocessing import label_binarize  # noqa: E402
 from mpl_toolkits.axes_grid1 import make_axes_locatable  # noqa: E402
 
-# The project's binary datasets (UNSW-NB15, CIC-IDS2017) always name their positive class
-# "Attack" (see the dataset adapters' clean() methods); DAPT2020 stays multiclass and has no
-# single positive class, so ROC-AUC/PR-AUC are only ever computed when this label is present.
+# As of 2026-07-31, every dataset in this project's catalog is multiclass (UNSW-NB15 was the
+# last binary one, switched to its native attack_cat scheme) - the binary Attack/Benign path
+# below is consequently unreachable by any current experiment config. Left in place rather
+# than deleted pending a decision on whether to clean it up (see project memory); the
+# _POSITIVE_LABEL constant/branch would need removing, not just leaving unused, if that
+# decision is made.
 _POSITIVE_LABEL = "Attack"
 
 
@@ -29,13 +32,13 @@ def evaluate_classifier(model, x_test, y_test) -> dict:
     """Return classification_report's per-class/macro metrics, plus score-based metrics that
     accuracy and macro-averaged P/R/F1 alone can miss under the severe class imbalance in
     these datasets: ROC-AUC and PR-AUC (average precision) for the Attack class when the
-    problem is binary Attack/Benign, or their macro one-vs-rest counterparts when it's
-    multiclass (only DAPT2020 currently) - the latter is the same masking-of-rare-class-failure
-    concern that already motivates macro-averaging P/R/F1 there, just applied to
-    threshold-independent scores instead of thresholded ones. Macro PR-AUC in particular tends
-    to track a struggling rare class more honestly than macro ROC-AUC, which can look
-    deceptively strong under severe imbalance since the true-negative rate stays high almost by
-    default when the negative class dominates.
+    problem is binary Attack/Benign (currently unreachable - see _POSITIVE_LABEL above), or
+    their macro one-vs-rest counterparts when it's multiclass (now every dataset) - the latter
+    is the same masking-of-rare-class-failure concern that already motivates macro-averaging
+    P/R/F1 there, just applied to threshold-independent scores instead of thresholded ones.
+    Macro PR-AUC in particular tends to track a struggling rare class more honestly than macro
+    ROC-AUC, which can look deceptively strong under severe imbalance since the true-negative
+    rate stays high almost by default when the negative class dominates.
     """
     predictions = model.predict(x_test)
     report = classification_report(y_test, predictions, output_dict=True)
@@ -59,10 +62,10 @@ def evaluate_classifier(model, x_test, y_test) -> dict:
 
 
 def _label_sort_key(label: object) -> tuple[int, str]:
-    """Benign first, Attack second (this project's binary convention: Benign=0, Attack=1),
-    then everything else alphabetically - applies equally to the multiclass DAPT2020 case,
-    where Benign is still a natural reference class even though there's no numbered
-    convention for the remaining kill-chain stages.
+    """Benign first (this project's convention across every dataset), then everything else
+    alphabetically. The "Attack second" tier is dead weight now that UNSW-NB15 (the last
+    dataset with a literal "Attack" class) is multiclass, but harmless to leave: it just never
+    matches, same as _POSITIVE_LABEL in evaluate_classifier above.
     """
     if label == "Benign":
         return (0, "")

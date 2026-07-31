@@ -18,11 +18,12 @@ class UNSWNB15Dataset(BaseDataset):
         return pd.concat([train, test], ignore_index=True)
 
     def clean(self, data: pd.DataFrame) -> pd.DataFrame:
-        # label is UNSW-NB15's native binary ground truth (0/1); map to readable strings
-        # before attack_cat (the multiclass label, unused here) is dropped below.
-        data["label"] = data["label"].map({0: "Benign", 1: "Attack"})
+        # attack_cat is UNSW-NB15's native multiclass label; "Normal" is renamed to "Benign"
+        # to match this project's convention across every other dataset. The native binary
+        # label (0/1, now unused) is dropped below.
+        data["attack_cat"] = data["attack_cat"].replace("Normal", "Benign")
 
-        # Drop row identifiers and the (now unused) multiclass label.
+        # Drop row identifiers and the (now unused) native binary label.
         data = data.drop(columns=list(self.config.drop_columns), errors="ignore")
 
         # "-" marks "service not identified" in the raw data; make it explicit.

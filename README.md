@@ -31,13 +31,35 @@ interface.
 > no longer part of the actual analysis the thesis reports on. Treat any DAPT2020-specific content here
 > or elsewhere in this repo as legacy/reference material, not current thesis scope.
 
-CIC-IDS2017 and UNSW-NB15 use **binary classification** (`Benign`/`Attack`), matching prior literature
-that reports binary results for these two datasets specifically; UNSW-NB15's binary label uses the
-dataset's own native `label` column rather than deriving it from the multiclass `attack_cat`. DAPT2020
-remains multiclass (its five kill-chain stages), since there's no equivalent binary convention for it in
-the literature. NSL-KDD is also kept multiclass, but not at its native ~40-way specific attack-type
-granularity: it's grouped into the conventional **DoS/Probe/R2L/U2R categories** (+ `Benign`) used
-throughout NSL-KDD literature - structurally similar to DAPT2020's multi-stage setup.
+**Every dataset in this catalog is multiclass as of 2026-07-31** - UNSW-NB15 was the last binary one.
+**UNSW-NB15** is multiclass over its native **10-category `attack_cat` scheme** (`Benign` + `Generic`,
+`Exploits`, `Fuzzers`, `DoS`, `Reconnaissance`, `Analysis`, `Backdoor`, `Shellcode`, `Worms`) - the
+standard categorization from the dataset's own source paper (Moustafa & Slay 2015), used essentially
+as-is throughout UNSW-NB15 literature; unlike NSL-KDD/CIC-IDS2017, there's no common further
+consolidation of this scheme. The dataset's native binary `label` column (0/1) is dropped in favor of
+this. **CIC-IDS2017** is multiclass over **7 categories** (`Benign` + 6 attack families: `DoS/DDoS`,
+`PortScan`, `Brute Force`, `Web Attack`, `Infiltration`, `Bot`), collapsed from its native ~15-way label -
+this specific 7-category scheme matches Arreche et al. 2024 ("E-XAI: Evaluating Black-Box Explainable AI
+Frameworks for Network Intrusion Detection", IEEE Access), confirmed against that paper's Figure 21
+SHAP-plot legend (its prose description is internally inconsistent - it claims "six distinct attack
+profiles" while naming seven, so the figure legend, not the prose, is the source of truth). `DoS Hulk`/
+`DDoS`/`DoS GoldenEye`/`DoS slowloris`/`DoS Slowhttptest`/`Heartbleed` all fold into `DoS/DDoS`;
+`FTP-Patator`/`SSH-Patator` fold into `Brute Force`; the three native `Web Attack - <subtype>` labels fold
+into one `Web Attack` category. DAPT2020 is multiclass (its five kill-chain stages). NSL-KDD is kept
+multiclass, but not at its native ~40-way specific attack-type granularity: it's grouped into the
+conventional **DoS/Probe/R2L/U2R categories** (+ `Benign`) used throughout NSL-KDD literature -
+structurally similar to DAPT2020's multi-stage setup.
+
+UNSW-NB15's `Worms` category is severely data-scarce (127 training rows, 44 test rows) - by far the
+rarest class in this dataset, in the same spirit as DAPT2020's `Data Exfiltration` or NSL-KDD's `U2R`.
+Its dominant confusion pattern also doesn't funnel into `Benign` at all, unlike every other dataset here:
+`Analysis` and `Backdoor` are confused with each other far more than with anything else, in both
+directions, across every model trained - see `_CLASS_OF_INTEREST` in `src/xai_thesis/pipeline.py`.
+
+CIC-IDS2017's native `Web Attack` labels carry a corrupted, non-ASCII separator byte baked into the raw
+files themselves (confirmed via raw byte inspection: literal UTF-8 encoding of U+FFFD, not a decoding
+artifact on this project's end) - the label-mapping code matches on `.startswith("Web Attack")` rather
+than an exact string, so it's robust to however pandas happens to decode that byte.
 
 One cleaning step was itself informed by the explainability analysis, not decided upfront: **DAPT2020**
 drops `Src Port`/`Dst Port` alongside its IP/timestamp columns, since SHAP and permutation importance
@@ -201,6 +223,11 @@ python scripts/explain.py  # all experiments
 The two curated instances per experiment (one correctly classified, one misclassified) are chosen from a
 `(target_class, confused_with_class)` pair per dataset — not randomly — based on the cross-model confusion
 patterns found via `scripts/confusion_matrix.py` (e.g. DAPT2020's `Reconnaissance` is confused with
-`Benign` by every model trained so far). See `_CLASS_OF_INTEREST` in `src/xai_thesis/pipeline.py`.
+`Benign` by every model trained so far, and CIC-IDS2017's `DoS/DDoS` — its largest attack category by far
+— is confused with `Benign` by every model trained under its new 7-category scheme, 6.3-13.2% depending on
+model). UNSW-NB15 is the exception to the "confused with Benign" pattern: `Analysis` and `Backdoor` are
+confused with *each other* far more than with anything else, in both directions, across every model
+trained (27.6-66.6% one way, 15.9-66.8% the other) — `Analysis` is picked as `target_class` since it has
+the lower average recall of the two. See `_CLASS_OF_INTEREST` in `src/xai_thesis/pipeline.py`.
 
 Plots are written to `outputs/plots/<experiment_name>/`.
