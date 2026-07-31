@@ -1,3 +1,6 @@
+# OUT OF SCOPE for the thesis as of 2026-07-31: kept fully functional (adapter, configs,
+# trained models, explanations all still work) but no longer part of the actual thesis
+# analysis - see README.md's Datasets section.
 name: dapt2020
 raw_path: data/raw/dapt2020
 processed_path: data/processed/dapt2020

@@ -10,7 +10,11 @@ _TIMESTAMP_COLUMN = "Timestamp"
 
 
 class DAPT2020Dataset(BaseDataset):
-    """DAPT2020 adapter."""
+    """DAPT2020 adapter.
+
+    Out of scope for the thesis as of 2026-07-31: kept fully functional, but no longer part
+    of the actual thesis analysis - see README.md's Datasets section.
+    """
 
     def load_raw(self) -> pd.DataFrame:
         raw_path = Path(self.config.raw_path)

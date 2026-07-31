@@ -457,6 +457,11 @@ def plot_partial_dependence(
 ) -> Path:
     """Partial dependence plots for a handful of features, for one target class.
 
+    Out of scope for the thesis's explainability analysis as of 2026-07-31: kept fully
+    functional (still called from generate_explanations, still produces plots), but PDP
+    output is no longer part of what the thesis actually reports on - see README.md's
+    Explainability section.
+
     Numeric columns are cast to float first: sklearn's PDP rejects integer dtypes outright.
     response_method="auto" falls back to decision_function for models without predict_proba.
 

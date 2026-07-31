@@ -21,15 +21,23 @@ pip install -e ".[dev]"
 
 ## Datasets
 
-Three intrusion detection datasets are supported: UNSW-NB15, CIC-IDS2017, and DAPT2020. Each has a
-dataset adapter in `src/xai_thesis/datasets/` implementing dataset-specific cleanup (e.g. deduplication,
-fixing known data-quality issues, dropping identifier/leakage columns) behind a shared interface.
+Four intrusion detection datasets are supported: UNSW-NB15, CIC-IDS2017, DAPT2020, and NSL-KDD. Each
+has a dataset adapter in `src/xai_thesis/datasets/` implementing dataset-specific cleanup (e.g.
+deduplication, fixing known data-quality issues, dropping identifier/leakage columns) behind a shared
+interface.
+
+> **DAPT2020 is out of scope for the thesis as of 2026-07-31.** Its adapter, configs, trained models,
+> and generated explanations all remain in place and fully functional - nothing was removed - but it is
+> no longer part of the actual analysis the thesis reports on. Treat any DAPT2020-specific content here
+> or elsewhere in this repo as legacy/reference material, not current thesis scope.
 
 CIC-IDS2017 and UNSW-NB15 use **binary classification** (`Benign`/`Attack`), matching prior literature
 that reports binary results for these two datasets specifically; UNSW-NB15's binary label uses the
 dataset's own native `label` column rather than deriving it from the multiclass `attack_cat`. DAPT2020
 remains multiclass (its five kill-chain stages), since there's no equivalent binary convention for it in
-the literature.
+the literature. NSL-KDD is also kept multiclass, but not at its native ~40-way specific attack-type
+granularity: it's grouped into the conventional **DoS/Probe/R2L/U2R categories** (+ `Benign`) used
+throughout NSL-KDD literature - structurally similar to DAPT2020's multi-stage setup.
 
 One cleaning step was itself informed by the explainability analysis, not decided upfront: **DAPT2020**
 drops `Src Port`/`Dst Port` alongside its IP/timestamp columns, since SHAP and permutation importance
@@ -37,6 +45,16 @@ surfaced suspicious port dominance (e.g. `Lateral Movement` driven by two fixed 
 be a testbed-specific identity leak rather than a generalizable signal. Retraining after the fix produced
 measurably more coherent explanations (SHAP-vs-permutation-importance agreement improved), not just
 better metrics.
+
+**NSL-KDD**'s raw `KDDTrain+.txt`/`KDDTest+.txt` files ship with no header row and one undocumented
+trailing column (a KDD-Cup-era per-record "difficulty level" score, not a traffic feature - confirmed by
+checking actual row lengths against the dataset's documented 41 named attributes + class label, which
+is one short); the adapter assigns column names explicitly and drops that column. Its native `class`
+column (e.g. `neptune`, `buffer_overflow`) is mapped to the four attack categories via a lookup table
+compiled from, and verified against, every distinct label actually present in *both* raw files - NSL-KDD's
+test set deliberately introduces attack types absent from training (e.g. `mscan`, `httptunnel`,
+`sqlattack`) to test generalization to novel attacks, so the mapping had to cover both, not just
+training. An unrecognized label raises rather than silently falling back to `Benign`.
 
 ### Dataset inspection
 
@@ -63,8 +81,9 @@ python scripts/preprocess.py --dataset unsw_nb15
 python scripts/preprocess.py  # all datasets
 ```
 
-UNSW-NB15 uses its official train/test split; CIC-IDS2017 and DAPT2020 (which ship without one) are
-split chronologically per source file and label, so every class stays represented in both splits.
+UNSW-NB15 and NSL-KDD both ship with their own official train/test split, used as-is. CIC-IDS2017 and
+DAPT2020 (which ship without one) are split chronologically per source file and label, so every class
+stays represented in both splits.
 
 ## Training
 
@@ -85,7 +104,8 @@ python scripts/train.py --experiment configs/experiments/unsw_nb15_gradient_boos
 Trained pipelines (preprocessing + model) are saved to `outputs/models/<experiment_name>.joblib`,
 and metrics to `outputs/metrics/<experiment_name>.json`.
 
-All three datasets are severely class-imbalanced. `logistic_regression`, `gradient_boosting`,
+All four datasets are severely class-imbalanced (NSL-KDD's `U2R` category has only 52 training rows and
+67 test rows, against 67,343/9,711 `Benign`). `logistic_regression`, `gradient_boosting`,
 `random_forest`, and `svm` all use `class_weight="balanced"`; `neural_network` (`MLPClassifier`) has no
 `class_weight`/`sample_weight` support in scikit-learn, so its training data is resampled instead
 (`balance_classes` in `preprocessing.py` oversamples rare classes and undersamples common ones to the
@@ -115,6 +135,10 @@ SHAP explainer (same permutation-based fallback as `neural_network`), and each p
 `SVC`'s comparatively expensive prediction cost, pushing SHAP generation alone to 20-30 minutes per
 experiment. Given this, `svm` has not been trained on CIC-IDS2017 (~2M training rows) - extrapolating
 from the measured UNSW-NB15/DAPT2020 timings, a single fit there would plausibly take hours to days.
+NSL-KDD (~126k training rows, the most of any dataset `svm` has actually been trained on) took only
+~12 minutes - notably *faster* than either UNSW-NB15 or DAPT2020 despite having the most rows, a reminder
+that kernel SVM training time tracks how separable the data is (how many support vectors end up needed),
+not row count alone.
 
 ## Analysis
 
@@ -145,6 +169,12 @@ Plots are written to `outputs/plots/<dataset_name>/label_distribution.png`.
 Four techniques are implemented in `src/xai_thesis/explainability.py`, generated per trained experiment
 (or all of them) via:
 
+> **Partial dependence plots (PDP) are out of scope for the thesis's explainability analysis as of
+> 2026-07-31.** The implementation, ICE-curve overlay, and generated plots all remain in place and
+> fully functional - nothing was removed - but PDP output is no longer part of what the thesis actually
+> reports on. Treat it as legacy/reference material, not current analysis scope; see the PDP bullet
+> below for what it still produces.
+
 ```powershell
 python scripts/explain.py --experiment configs/experiments/unsw_nb15_gradient_boosting_baseline.yaml
 python scripts/explain.py  # all experiments
@@ -161,8 +191,9 @@ python scripts/explain.py  # all experiments
 - **Permutation feature importance** (`sklearn.inspection.permutation_importance`): run on the full
   pipeline, so importances are reported in terms of the original feature names, not the one-hot-expanded
   ones.
-- **Partial dependence plots** (`sklearn.inspection.PartialDependenceDisplay`, with individual
-  conditional expectation curves overlaid): for the top numeric features by permutation importance. The
+- **Partial dependence plots** *(implemented, but out of scope for the thesis's analysis - see note
+  above)* (`sklearn.inspection.PartialDependenceDisplay`, with individual conditional expectation curves
+  overlaid): for the top numeric features by permutation importance. The
   ICE curves show one line per sampled instance alongside the usual average PDP line, so a feature whose
   effect is heterogeneous (pushing some instances toward the target class and others away from it) reads
   as heterogeneous, rather than averaging out to look flat or negligible.
