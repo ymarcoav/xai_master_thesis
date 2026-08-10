@@ -55,6 +55,20 @@ def test_build_model_svm_is_linear_kernel_balanced_seeded_with_probability() -> 
     assert model.class_weight == "balanced"
     assert model.kernel == "linear"
     assert model.probability is True
+    # Hard safety cap, not a modeling choice - without it, a pathological (C, fold)
+    # combination hung for 19+ hours during a real tuning run instead of failing fast (see
+    # models.py). Bounds worst-case fit time; well-behaved fits never get close to it.
+    assert model.max_iter == 50_000
+
+
+def test_build_model_svm_probability_and_max_iter_are_overridable() -> None:
+    # tune_hyperparameters() overrides probability=False during search (Platt-scaling is
+    # unneeded overhead there - see pipeline.py); confirms **kwargs can override these two
+    # fixed defaults specifically, unlike kernel/class_weight, which never vary.
+    model = build_model("svm", random_state=7, probability=False, max_iter=1000)
+
+    assert model.probability is False
+    assert model.max_iter == 1000
 
 
 def test_build_model_forwards_extra_kwargs() -> None:

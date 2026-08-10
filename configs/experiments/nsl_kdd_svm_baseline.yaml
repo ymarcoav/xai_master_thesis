@@ -3,7 +3,7 @@ dataset: nsl_kdd
 model: svm
 random_state: 42
 model_params:
-  C: 0.5
+  C: 10
 preprocessing:
   strategy: default_tabular
 metrics:

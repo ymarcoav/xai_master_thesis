@@ -125,6 +125,20 @@ def _load_experiment_and_data(
     return experiment, dataset_config, x_train, y_train, x_test, y_test
 
 
+# Model params applied only to the search-time pipeline built inside tune_hyperparameters(),
+# never written back to the experiment config - the final fit in run_experiment() always uses
+# the model's normal defaults/config. svm's probability=True is skipped during search
+# specifically: RandomizedSearchCV's f1_macro scoring only ever calls .predict(), never
+# .predict_proba(), so Platt-scaling calibration is pure overhead there - and this project's
+# own measurements found it dominates SVC's fit cost more than the kernel choice itself (an
+# RBF fit without it took ~5.5 min on UNSW-NB15 vs. ~26 min for the linear-kernel fit with it,
+# same data - see models.py). This alone is expected to cut the search phase by roughly the
+# same factor.
+_SEARCH_TIME_MODEL_PARAM_OVERRIDES: dict[str, dict[str, Any]] = {
+    "svm": {"probability": False},
+}
+
+
 def _build_pipeline(experiment: dict[str, Any], dataset_config: DatasetConfig, x_train: pd.DataFrame) -> Pipeline:
     random_state = experiment.get("random_state", 42)
     preprocessing = build_preprocessing_pipeline(x_train, categorical_columns=dataset_config.categorical_columns)
@@ -247,7 +261,9 @@ def tune_hyperparameters(
     if experiment["model"] in _MODELS_REQUIRING_RESAMPLING:
         x_search, y_search = balance_classes(x_search, y_search, random_state=random_state)
 
-    pipeline = _build_pipeline(experiment, dataset_config, x_search)
+    search_overrides = _SEARCH_TIME_MODEL_PARAM_OVERRIDES.get(experiment["model"], {})
+    search_experiment = {**experiment, "model_params": {**experiment.get("model_params", {}), **search_overrides}}
+    pipeline = _build_pipeline(search_experiment, dataset_config, x_search)
     n_splits = min(cv, y_search.value_counts().min())
 
     # n_jobs is deliberately modest (not -1): spawning one worker process per core for

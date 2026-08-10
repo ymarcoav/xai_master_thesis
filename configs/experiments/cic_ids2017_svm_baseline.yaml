@@ -1,0 +1,15 @@
+name: cic_ids2017_svm_baseline
+dataset: cic_ids2017
+model: svm
+random_state: 42
+model_params:
+  C: 10
+preprocessing:
+  strategy: default_tabular
+metrics:
+- accuracy
+- precision_macro
+- recall_macro
+- f1_macro
+- roc_auc_macro
+- pr_auc_macro

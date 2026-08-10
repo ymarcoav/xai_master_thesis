@@ -11,23 +11,53 @@ from sklearn.svm import SVC
 # like the rest; instead, pipeline.py resamples its training data (balance_classes) before
 # fit. The other models get class_weight="balanced" given how imbalanced these datasets are.
 #
+# ⚠️ THESIS SCOPE, as of 2026-08-09: logistic_regression and gradient_boosting are out of
+# scope for the thesis. Both stay fully implemented, trained, and explained here - nothing was
+# removed - but the thesis now reports on only three models: neural_network, random_forest,
+# and svm. Do not include logistic_regression/gradient_boosting results in methodology/results
+# writing going forward unless the user explicitly reverses this (same pattern as DAPT2020/PDP
+# being flagged out of scope elsewhere in this project - see README.md).
+#
 # random_forest was previously dropped from the catalog (shared gradient_boosting's
 # tree-ensemble family and TreeExplainer, with near-highest cross-model SHAP agreement of
 # any pair in this project, while underperforming it) - re-added by explicit request despite
 # that redundancy concern still applying.
 #
 # svm here means SVC with a linear kernel, not the LinearSVC previously tried under this same
-# catalog key and dropped for substantially worse macro-F1 than the other models. Configured
-# to match an external reference exactly (kernel="linear", C=0.5 via model_params,
-# probability=True) rather than tuned via this project's usual RandomizedSearchCV - no
-# PARAM_DISTRIBUTIONS entry for it below, since these settings are meant to be adopted as-is,
-# not searched around. An earlier RBF-kernel attempt was abandoned after measuring ~5.5
-# minutes for a single untuned fit on UNSW-NB15 alone (~101k rows) - infeasible to tune, and
-# likely infeasible to even fit once on CIC-IDS2017's ~2M rows. probability=True is kept
-# despite the extra internal Platt-scaling cost it adds on top of the kernel fit, to match the
-# reference configuration; sklearn 1.9 deprecates this in favor of wrapping with
-# CalibratedClassifierCV, but the parameter still works and is simpler to keep matching the
+# catalog key and dropped for substantially worse macro-F1 than the other models. kernel stays
+# fixed to match an external reference configuration exactly and is not searched; C is tuned
+# via this project's usual RandomizedSearchCV as of 2026-08-09 (PARAM_DISTRIBUTIONS below) -
+# the reference's own C=0.5 is kept only as tune_hyperparameters()'s starting model_params,
+# overwritten once a search actually runs. An earlier RBF-kernel attempt was abandoned after
+# measuring ~5.5 minutes for a single untuned fit on UNSW-NB15 alone (~101k rows) - the linear
+# kernel was adopted for tractability as much as to match the reference.
+#
+# probability defaults to True (matching the reference configuration) but is deliberately left
+# overridable via **kwargs (hence not hardcoded after it below, unlike every other fixed
+# setting here) rather than baked in unconditionally: tune_hyperparameters() in pipeline.py
+# passes probability=False during the search phase specifically, since RandomizedSearchCV's
+# f1_macro scoring only ever calls .predict(), never .predict_proba() - Platt-scaling
+# calibration is pure overhead there. probability=True is restored for the final fit in
+# run_experiment() (every experiment config's model_params has no "probability" key, so the
+# True default applies), which is the only place it's actually needed, for the explanation
+# pipeline's predict_proba calls. sklearn 1.9 deprecates this parameter in favor of wrapping
+# with CalibratedClassifierCV, but it still works and is simpler to keep matching the
 # reference's stated configuration directly.
+#
+# max_iter=50_000 is a hard safety cap, not a modeling choice - discovered necessary the hard
+# way: an early attempt at tuning C via RandomizedSearchCV (unsw_nb15, C candidates up to 100)
+# hung for over 19 hours of CPU time on what should have been a multi-minute fit, almost
+# certainly libsvm's QP solver failing to converge for some (C, fold) combination under
+# class_weight="balanced"'s extreme per-sample weights on this project's severely imbalanced
+# data - the same class of failure already documented for gradient_boosting's
+# l2_regularization=0 (see PARAM_DISTRIBUTIONS below), just silent instead of producing an
+# obviously-bad model. Without a cap, sklearn's default (-1, unlimited) has no way to fail fast
+# on a pathological fit - it can only hang. With the cap, a fit that would have hung instead
+# stops early with a ConvergenceWarning and returns whatever (possibly suboptimal) solution it
+# had reached, which is a far better failure mode for an automated search loop that may run
+# many fits unattended. 50,000 is generous headroom above every fit observed to actually
+# converge normally (a handful of minutes each), while still bounding worst-case time to
+# something finite.
 _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
     "logistic_regression": lambda random_state, **kwargs: LogisticRegression(
         random_state=random_state, class_weight="balanced", **kwargs
@@ -44,7 +74,10 @@ _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
         random_state=random_state, class_weight="balanced", **kwargs
     ),
     "svm": lambda random_state, **kwargs: SVC(
-        random_state=random_state, class_weight="balanced", kernel="linear", probability=True, **kwargs
+        random_state=random_state,
+        class_weight="balanced",
+        kernel="linear",
+        **{"probability": True, "max_iter": 50_000, **kwargs},
     ),
 }
 
@@ -81,9 +114,18 @@ PARAM_DISTRIBUTIONS: dict[str, dict[str, list[Any]]] = {
         "model__min_samples_leaf": [1, 2, 5, 10, 20],
         "model__min_samples_split": [2, 5, 10, 20],
     },
-    # svm intentionally has no entry here: its hyperparameters are fixed to match an external
-    # reference configuration directly (see _MODEL_FACTORIES above and each svm experiment
-    # config's model_params), not searched via RandomizedSearchCV.
+    # C is the only thing searched: kernel="linear" and probability=True stay fixed to match
+    # the external reference configuration (see _MODEL_FACTORIES above). gamma isn't included
+    # since it has no effect on a linear kernel. Capped at 10, not higher: larger C forces a
+    # harder-margin fit, which combined with class_weight="balanced"'s extreme per-sample
+    # weights under this project's severe imbalance is the exact combination that triggered
+    # the multi-hour libsvm non-convergence hang documented in _MODEL_FACTORIES above (that
+    # incident used candidates up to 100) - max_iter=50_000 now bounds worst-case fit time
+    # regardless, but there's no reason to spend search budget on C values this unlikely to be
+    # both well-behaved and better than the reference's own C=0.5 anyway.
+    "svm": {
+        "model__C": [0.01, 0.03, 0.1, 0.3, 0.5, 1, 3, 10],
+    },
 }
 
 

@@ -109,6 +109,12 @@ stays represented in both splits.
 
 ## Training
 
+> **`logistic_regression` and `gradient_boosting` are out of scope for the thesis as of
+> 2026-08-09.** Both remain fully implemented, trained, and explained - nothing was removed - but
+> the thesis now reports on only three models: `neural_network`, `random_forest`, and `svm`. Treat
+> any `logistic_regression`/`gradient_boosting` content here or elsewhere in this repo as
+> legacy/reference material, not current thesis scope (same pattern as DAPT2020/PDP above).
+
 Each experiment config in `configs/experiments/` names a dataset and a model
 (`logistic_regression`, `neural_network`, `gradient_boosting`, `random_forest`, or `svm`). Train one:
 
@@ -142,25 +148,32 @@ despite that redundancy concern still applying. It gets the same `class_weight="
 
 An earlier `svm` (`LinearSVC`) was dropped for substantially worse macro-F1 than the other models,
 replaced by `logistic_regression` as the catalog's linear model. The current `svm` entry is a
-different, later addition: `SVC` with a **linear kernel**, `C=0.5`, and `probability=True`, matching
-an external reference configuration exactly rather than being tuned via this project's usual
-`RandomizedSearchCV` - there is deliberately no hyperparameter search space for it. `probability=True`
-is kept despite the extra internal Platt-scaling cost it adds on top of the kernel fit, to match that
-reference configuration directly; scikit-learn 1.9 deprecates this in favor of wrapping with
-`CalibratedClassifierCV`, but the parameter still works. `svm` is measurably more expensive than every
-other model in this catalog, at both training and explanation time: fitting it took ~26 minutes on
-UNSW-NB15 (~101k training rows) and ~18 minutes on DAPT2020 (~59k rows, but 5 classes means an
-internal one-vs-one decomposition into 10 calibrated binary sub-models) - both slower than an earlier
-RBF-kernel attempt without `probability=True` (~5.5 minutes on UNSW-NB15), confirming the calibration
-cost, not the kernel choice, dominates. Explanation generation is slower too: `svm` has no structural
-SHAP explainer (same permutation-based fallback as `neural_network`), and each permutation sample pays
-`SVC`'s comparatively expensive prediction cost, pushing SHAP generation alone to 20-30 minutes per
-experiment. Given this, `svm` has not been trained on CIC-IDS2017 (~2M training rows) - extrapolating
-from the measured UNSW-NB15/DAPT2020 timings, a single fit there would plausibly take hours to days.
-NSL-KDD (~126k training rows, the most of any dataset `svm` has actually been trained on) took only
-~12 minutes - notably *faster* than either UNSW-NB15 or DAPT2020 despite having the most rows, a reminder
-that kernel SVM training time tracks how separable the data is (how many support vectors end up needed),
-not row count alone.
+different, later addition: `SVC` with a **linear kernel** and `probability=True`, matching an external
+reference configuration exactly for those two settings. `probability=True` is kept despite the extra
+internal Platt-scaling cost it adds on top of the kernel fit, to match that reference configuration
+directly; scikit-learn 1.9 deprecates this in favor of wrapping with `CalibratedClassifierCV`, but the
+parameter still works. As of 2026-08-09, `C` is tuned via `RandomizedSearchCV` like the other models
+(the reference's own `C=0.5` is kept only as `--tune`'s starting point) - but with a deliberately
+smaller search budget than the other models (`n_iter=8` instead of the usual default 30) called
+directly via `tune_hyperparameters()` rather than the `scripts/train.py --tune` default, since `svm` is
+measurably more expensive to fit than every other model in this catalog and the standard 30-iteration/
+3-fold budget (90 fits) was projected to take many hours even on UNSW-NB15 alone.
+
+`svm` is measurably more expensive than every other model in this catalog, at both training and
+explanation time: an untuned fit took ~26 minutes on UNSW-NB15 (~101k training rows) and ~18 minutes on
+DAPT2020 (~59k rows, but 5 classes means an internal one-vs-one decomposition into 10 calibrated binary
+sub-models) - both slower than an earlier RBF-kernel attempt without `probability=True` (~5.5 minutes on
+UNSW-NB15), confirming the calibration cost, not the kernel choice, dominates. Explanation generation is
+slower too: `svm` has no structural SHAP explainer (same permutation-based fallback as `neural_network`),
+and each permutation sample pays `SVC`'s comparatively expensive prediction cost, pushing SHAP generation
+alone to 20-30 minutes per experiment for UNSW-NB15/NSL-KDD, and ~105 minutes for UNSW-NB15's later
+10-class multiclass version (permutation SHAP cost scales with class count, not just row count).
+NSL-KDD (~126k training rows, the most of any dataset `svm` had been trained on before CIC-IDS2017) took
+only ~12 minutes to fit untuned - notably *faster* than either UNSW-NB15 or DAPT2020 despite having the
+most rows, a reminder that kernel SVM training time tracks how separable the data is (how many support
+vectors end up needed), not row count alone. `svm` is now also trained on **CIC-IDS2017** (~2M training
+rows) as of 2026-08-09 - previously skipped as impractical; see the exact timing this actually took
+below.
 
 ## Analysis
 
