@@ -15,7 +15,7 @@ from xai_thesis.evaluation import evaluate_classifier, plot_confusion_matrix, pl
 from xai_thesis.explainability import (
     compute_permutation_importance,
     compute_shap_values,
-    explain_instance_with_lime,
+    explain_instance_with_lime_full,
     plot_partial_dependence,
     plot_shap_bar,
     plot_shap_beeswarm,
@@ -456,7 +456,7 @@ def generate_explanations(
                 class_index,
                 output_dir / f"shap_waterfall_{kind}.png",
             )
-            paths[f"lime_{kind}"] = explain_instance_with_lime(
+            paths[f"lime_{kind}"] = explain_instance_with_lime_full(
                 pipeline,
                 x_train,
                 x_test.loc[instance_indices[row_index]],

@@ -9,6 +9,7 @@ from xai_thesis.explainability import (
     compute_permutation_importance,
     compute_shap_values,
     explain_instance_with_lime,
+    explain_instance_with_lime_full,
     plot_partial_dependence,
     plot_shap_bar,
     plot_shap_beeswarm,
@@ -233,6 +234,47 @@ def test_explain_instance_with_lime_works_with_discretize_continuous(tmp_path) -
         x.iloc[0],
         class_names,
         tmp_path / "lime_discretized.png",
+        categorical_columns=["protocol"],
+        discretize_continuous=True,
+    )
+
+    assert output_path.exists()
+
+
+def test_explain_instance_with_lime_full_writes_png(tmp_path) -> None:
+    x, y = _make_dataset()
+    pipeline = _fitted_pipeline("gradient_boosting", x, y)
+    class_names = list(pipeline.named_steps["model"].classes_)
+
+    output_path = explain_instance_with_lime_full(pipeline, x, x.iloc[0], class_names, tmp_path / "lime_full.png")
+
+    assert output_path.exists()
+
+
+def test_explain_instance_with_lime_full_works_without_predict_proba(tmp_path) -> None:
+    x, y = _make_dataset()
+    pipeline = _fitted_pipeline_without_predict_proba(x, y)
+    assert not hasattr(pipeline.named_steps["model"], "predict_proba")
+    class_names = list(pipeline.named_steps["model"].classes_)
+
+    output_path = explain_instance_with_lime_full(
+        pipeline, x, x.iloc[0], class_names, tmp_path / "lime_full_no_proba.png"
+    )
+
+    assert output_path.exists()
+
+
+def test_explain_instance_with_lime_full_works_with_categorical_and_discretize_continuous(tmp_path) -> None:
+    x, y = _make_dataset_with_categorical()
+    pipeline = _fitted_pipeline("gradient_boosting", x, y, categorical_columns=["protocol"])
+    class_names = list(pipeline.named_steps["model"].classes_)
+
+    output_path = explain_instance_with_lime_full(
+        pipeline,
+        x,
+        x.iloc[0],
+        class_names,
+        tmp_path / "lime_full_discretized.png",
         categorical_columns=["protocol"],
         discretize_continuous=True,
     )

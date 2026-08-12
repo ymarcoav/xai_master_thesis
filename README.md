@@ -152,12 +152,7 @@ different, later addition: `SVC` with a **linear kernel** and `probability=True`
 reference configuration exactly for those two settings. `probability=True` is kept despite the extra
 internal Platt-scaling cost it adds on top of the kernel fit, to match that reference configuration
 directly; scikit-learn 1.9 deprecates this in favor of wrapping with `CalibratedClassifierCV`, but the
-parameter still works. As of 2026-08-09, `C` is tuned via `RandomizedSearchCV` like the other models
-(the reference's own `C=0.5` is kept only as `--tune`'s starting point) - but with a deliberately
-smaller search budget than the other models (`n_iter=8` instead of the usual default 30) called
-directly via `tune_hyperparameters()` rather than the `scripts/train.py --tune` default, since `svm` is
-measurably more expensive to fit than every other model in this catalog and the standard 30-iteration/
-3-fold budget (90 fits) was projected to take many hours even on UNSW-NB15 alone.
+parameter still works.
 
 `svm` is measurably more expensive than every other model in this catalog, at both training and
 explanation time: an untuned fit took ~26 minutes on UNSW-NB15 (~101k training rows) and ~18 minutes on
@@ -166,14 +161,47 @@ sub-models) - both slower than an earlier RBF-kernel attempt without `probabilit
 UNSW-NB15), confirming the calibration cost, not the kernel choice, dominates. Explanation generation is
 slower too: `svm` has no structural SHAP explainer (same permutation-based fallback as `neural_network`),
 and each permutation sample pays `SVC`'s comparatively expensive prediction cost, pushing SHAP generation
-alone to 20-30 minutes per experiment for UNSW-NB15/NSL-KDD, and ~105 minutes for UNSW-NB15's later
-10-class multiclass version (permutation SHAP cost scales with class count, not just row count).
-NSL-KDD (~126k training rows, the most of any dataset `svm` had been trained on before CIC-IDS2017) took
-only ~12 minutes to fit untuned - notably *faster* than either UNSW-NB15 or DAPT2020 despite having the
-most rows, a reminder that kernel SVM training time tracks how separable the data is (how many support
-vectors end up needed), not row count alone. `svm` is now also trained on **CIC-IDS2017** (~2M training
-rows) as of 2026-08-09 - previously skipped as impractical; see the exact timing this actually took
-below.
+alone to 20-30 minutes per experiment for UNSW-NB15/NSL-KDD's earlier binary versions, and ~105 minutes
+for UNSW-NB15's later 10-class multiclass version (permutation SHAP cost scales with class count, not
+just row count). NSL-KDD (~126k training rows) took only ~12 minutes to fit untuned - notably *faster*
+than either UNSW-NB15 or DAPT2020 despite having the most rows (before CIC-IDS2017 was added), a
+reminder that kernel SVM training time tracks how separable the data is (how many support vectors end up
+needed), not row count alone.
+
+As of 2026-08-09, `C` is tuned via `RandomizedSearchCV` like the other models (the reference's own
+`C=0.5` is kept only as `--tune`'s starting point), and `svm` is also now trained on **CIC-IDS2017**
+(~2M training rows) for the first time - previously skipped outright as impractical. Getting there
+required two real fixes, not just patience:
+
+- **A deliberately smaller search budget** than the other models, called directly via
+  `tune_hyperparameters()` rather than `scripts/train.py --tune`'s CLI (which doesn't expose these
+  knobs): `n_iter=8` instead of the usual default 30 (the standard 30-iteration/3-fold budget, 90 fits,
+  was projected to take many hours even on UNSW-NB15 alone), and for CIC-IDS2017 specifically, an
+  explicit `subsample_size=40_000` passed to `tune_hyperparameters()` (well below the shared
+  `200_000` default) so the search phase stays tractable - the final fit still trains on the complete,
+  un-subsampled training set regardless, same as every other model.
+- **`probability=False` during the search phase only.** `RandomizedSearchCV`'s `f1_macro` scoring calls
+  `.predict()`, never `.predict_proba()`, so Platt-scaling calibration is pure overhead during search -
+  `tune_hyperparameters()` in `pipeline.py` now builds the search-time pipeline with `probability=False`
+  via a small model-params override (`_SEARCH_TIME_MODEL_PARAM_OVERRIDES`), never written back to the
+  experiment config; the final fit in `run_experiment()` still gets `probability=True` (`svm`'s default),
+  which is the only place it's actually needed, for the explanation pipeline's `predict_proba` calls.
+
+**A genuine incident, not just slowness, surfaced while first tuning `svm` on UNSW-NB15**: an early
+attempt (`C` candidates including 30 and 100) hung for **over 19 hours of CPU time** on what should have
+been a multi-minute fit - almost certainly `class_weight="balanced"`'s extreme per-sample weights under
+this project's severe imbalance causing libsvm's solver to essentially never converge for some `(C,
+fold)` combination, the same class of failure already documented above for `gradient_boosting`'s
+`l2_regularization=0`, just silent instead of producing an obviously-bad model. Fixed with two changes in
+`models.py`: `SVC` now gets a hard `max_iter=50_000` safety cap (a fit that would have hung instead
+stops early with a `ConvergenceWarning` and returns whatever solution it had reached - a far better
+failure mode for an unattended search loop), and the `C` search grid was trimmed to drop the values most
+likely to trigger this (`30`, `100`). Tuned results: UNSW-NB15 (`C=10`, search took 74 minutes) improved
+macro-F1 from 0.313 to **0.360**; NSL-KDD (`C=10`, search took 30 minutes) reached macro-F1 **0.626**.
+Both final fits still hit the `max_iter` cap without fully converging (visible via a
+`ConvergenceWarning`) - a real, honestly-reported quality caveat, not hidden: the safety net trades a
+small amount of potential model quality for bounded, predictable runtime, which given the alternative
+(a silent multi-hour-or-worse hang) is the right trade for this project.
 
 ## Analysis
 

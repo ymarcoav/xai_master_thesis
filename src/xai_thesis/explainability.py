@@ -220,19 +220,24 @@ def plot_shap_waterfall(
     return _save_current_figure(output_path)
 
 
-def explain_instance_with_lime(
+def _build_lime_explanation(
     pipeline: Pipeline,
     x_train: pd.DataFrame,
     instance: pd.Series,
     class_names: list[str],
-    output_path: str | Path,
     *,
     categorical_columns: Sequence[str] = (),
     num_features: int = 8,
     random_state: int = 42,
     discretize_continuous: bool = False,
-) -> Path:
-    """Local LIME explanation for one instance.
+) -> tuple[Any, int, list[str]]:
+    """Shared setup for LIME explanations: encodes categoricals, builds the explainer, and
+    runs explain_instance. Returns (explanation, predicted_label, columns), where columns is
+    the (zero-variance-dropped) feature order that local_exp's feature indices refer to.
+
+    Factored out of explain_instance_with_lime so the notebook-style single-panel bar chart
+    and the three-panel Figure-2-style layout can share one explanation run instead of
+    computing it twice.
 
     LimeTabularExplainer requires categorical columns to already be label-encoded as
     integers (categorical_names then supplies the display strings); the pipeline itself
@@ -247,9 +252,8 @@ def explain_instance_with_lime(
     std instead) and should only be set True for a dataset verified not to hit this crash
     (confirmed safe for UNSW-NB15 specifically).
 
-    Rendered via LIME's own default single-panel layout for whichever class was actually
-    predicted (top_labels=1) - every dataset in this project's catalog is multiclass, so there's
-    no fixed two-class layout to special-case.
+    top_labels=1 explains whichever class was actually predicted - every dataset in this
+    project's catalog is multiclass, so there's no fixed two-class layout to special-case.
     """
     all_columns = list(x_train.columns)
     numeric_columns = x_train.select_dtypes(include="number").columns
@@ -302,9 +306,148 @@ def explain_instance_with_lime(
         instance_encoded.to_numpy(dtype=float), _predict_fn_on_encoded, num_features=num_features, top_labels=1
     )
     label = explanation.available_labels()[0]
+    return explanation, label, columns
+
+
+def explain_instance_with_lime(
+    pipeline: Pipeline,
+    x_train: pd.DataFrame,
+    instance: pd.Series,
+    class_names: list[str],
+    output_path: str | Path,
+    *,
+    categorical_columns: Sequence[str] = (),
+    num_features: int = 8,
+    random_state: int = 42,
+    discretize_continuous: bool = False,
+) -> Path:
+    """Local LIME explanation for one instance, rendered as LIME's default single-panel
+    feature-weight bar chart. See _build_lime_explanation for the encoding/explainer details.
+    """
+    explanation, label, _columns = _build_lime_explanation(
+        pipeline,
+        x_train,
+        instance,
+        class_names,
+        categorical_columns=categorical_columns,
+        num_features=num_features,
+        random_state=random_state,
+        discretize_continuous=discretize_continuous,
+    )
     fig = explanation.as_pyplot_figure(label=label)
 
     return _save_figure(fig, output_path)
+
+
+def explain_instance_with_lime_full(
+    pipeline: Pipeline,
+    x_train: pd.DataFrame,
+    instance: pd.Series,
+    class_names: list[str],
+    output_path: str | Path,
+    *,
+    categorical_columns: Sequence[str] = (),
+    num_features: int = 8,
+    random_state: int = 42,
+    discretize_continuous: bool = False,
+) -> Path:
+    """Local LIME explanation rendered as LIME's three-panel show_in_notebook layout,
+    reproduced in matplotlib: prediction probabilities (left), feature weights (center), and a
+    feature-value table (right).
+
+    show_in_notebook/save_to_file render this as HTML+D3 with no static-image output (this
+    project runs headless, matplotlib.use("Agg") at module import), so this rebuilds the same
+    three panels from data the explanation object already exposes (predict_proba, as_list,
+    local_exp) rather than needing a browser/headless-Chrome screenshot step. as_list(label=...)
+    and local_exp[label] are guaranteed to be in the same order (as_list is just local_exp run
+    through the domain mapper's map_exp_ids, which substitutes names for indices in place -
+    verified directly against the installed lime package's source, not assumed), which is what
+    lets the feature-value column line up with the correct weight bar without re-deriving it
+    from the (possibly discretized) condition string.
+
+    The right-hand table shows the instance's raw feature value (not the discretized bin
+    range), even if discretize_continuous=True - that matches a real value table rather than
+    bin text. Swap feature_values[i] for conditions[i] in table_rows below if bin text is
+    wanted there instead.
+    """
+    explanation, label, columns = _build_lime_explanation(
+        pipeline,
+        x_train,
+        instance,
+        class_names,
+        categorical_columns=categorical_columns,
+        num_features=num_features,
+        random_state=random_state,
+        discretize_continuous=discretize_continuous,
+    )
+
+    exp_ids = explanation.local_exp[label]  # [(feature_index, weight), ...]
+    exp_list = explanation.as_list(label=label)  # [(condition_str, weight), ...], same order
+    feature_values = [instance[columns[feature_index]] for feature_index, _ in exp_ids]
+
+    probabilities = explanation.predict_proba
+    predicted_class = class_names[label]
+    conditions = [condition for condition, _ in exp_list]
+    weights = np.array([weight for _, weight in exp_list])
+    n = len(weights)
+
+    fig, (ax_proba, ax_weights, ax_table) = plt.subplots(
+        1,
+        3,
+        figsize=(12, max(3, 0.4 * n + 1.5)),
+        gridspec_kw={"width_ratios": [1.1, 2, 1.6]},
+    )
+
+    # Left: prediction probabilities
+    class_y = np.arange(len(class_names))
+    proba_colors = ["#1f77b4" if name == predicted_class else "#bbbbbb" for name in class_names]
+    ax_proba.barh(class_y, probabilities, color=proba_colors)
+    ax_proba.set_yticks(class_y, class_names)
+    ax_proba.set_xlim(0, 1)
+    ax_proba.invert_yaxis()
+    ax_proba.set_title("Prediction probabilities")
+    for y, p in zip(class_y, probabilities):
+        ax_proba.text(min(p + 0.02, 0.95), y, f"{p:.2f}", va="center")
+
+    # Center: feature weights for the predicted class, strongest first
+    weight_y = np.arange(n)
+    bar_colors = ["#2ca02c" if w > 0 else "#d62728" for w in weights]
+    ax_weights.barh(weight_y, weights, color=bar_colors)
+    ax_weights.set_yticks(weight_y, conditions)
+    ax_weights.invert_yaxis()
+    ax_weights.axvline(0, color="black", linewidth=0.8)
+    ax_weights.set_title(f"Feature weights ({predicted_class})")
+
+    # Right: feature-value table, row-aligned and color-matched to the weights panel
+    ax_table.axis("off")
+    table_rows = [
+        [columns[feature_index], _format_value(value)]
+        for (feature_index, _), value in zip(exp_ids, feature_values, strict=True)
+    ]
+    table = ax_table.table(cellText=table_rows, colLabels=["Feature", "Value"], cellLoc="left", loc="center")
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    # Default column widths split the axes 50/50 regardless of content and don't wrap text,
+    # so a feature name longer than that width (common - e.g. NSL-KDD's ct_src_dport_ltm)
+    # silently clips instead of resizing. auto_set_column_width sizes each column to its
+    # actual longest cell instead of a fixed guess, since typical name length varies a lot
+    # across this project's datasets.
+    table.auto_set_column_width([0, 1])
+    for row_index in range(n):
+        color = "#d5f5d5" if weights[row_index] > 0 else "#f8d7d7"
+        table[row_index + 1, 0].set_facecolor(color)
+        table[row_index + 1, 1].set_facecolor(color)
+    ax_table.set_title("Feature value")
+
+    fig.suptitle(f"LIME explanation (predicted: {predicted_class})")
+    fig.tight_layout()
+    return _save_figure(fig, output_path)
+
+
+def _format_value(value: Any) -> str:
+    if isinstance(value, float):
+        return f"{value:.4g}"
+    return str(value)
 
 
 def compute_permutation_importance(
