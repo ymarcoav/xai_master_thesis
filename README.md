@@ -52,15 +52,27 @@ raw part files (`UNSW-NB15_1.csv`..`_4.csv`, 2,411,053 rows total - roughly 13x 
 to CIC-IDS2017) plus `NUSW-NB15_features.csv` for the column schema. This surfaced real raw-data quality
 issues the pre-built files had already cleaned up: `attack_cat` is blank for benign rows (not the string
 `"Normal"`) and inconsistently spelled `"Backdoor"`/`"Backdoors"` across the 4 files (normalized to
-`"Backdoor"`); `is_ftp_login`/`ct_ftp_cmd`/`ct_flw_http_mthd` are blank for ~54% of rows, verified to mean
-"not applicable" rather than missing-at-random (filled with 0 directly, not left to the shared median
+`"Backdoor"`); `is_ftp_login`/`ct_flw_http_mthd` are blank for ~54% of rows, verified to mean "not
+applicable" rather than missing-at-random (filled with 0 directly, not left to the shared median
 imputer); exactly one row across all 2.4M is truncated mid-record (dropped generically, via `label` not
 being a valid 0/1, rather than a hardcoded row index). `srcip`/`dstip`/`sport`/`dsport` are dropped as
 identifiers (not present in the old pre-built files either); the raw data also has no `rate` column (a
-feature the original paper authors derived only for the pre-built files), so the current feature set is
-otherwise a superset of the old one, identifiers aside. The dataset now has no official train/test split
-(the pre-built files provided one; the raw capture doesn't), so it's split chronologically like
-CIC-IDS2017/DAPT2020 instead - see Preprocessing below.
+feature the original paper authors derived only for the pre-built files). The dataset now has no
+official train/test split (the pre-built files provided one; the raw capture doesn't), so it's split
+chronologically like CIC-IDS2017/DAPT2020 instead - see Preprocessing below.
+
+**Two more UNSW-NB15 features were dropped outright as of 2026-08-13, on top of the above:** `service`
+and `ct_ftp_cmd`. `service` follows Tai et al. 2024 ("A Robust and Trustworthy Intrusion Detection
+System Using Adversarial Machine Learning and XAI", ATC), whose UNSW-NB15 preprocessing drops it among
+7 features with no stated rationale - checked directly against this project's own data first: it's
+`"unknown"` (the raw `-`/blank placeholder) for 57.33% of rows across both splits, a plausible
+unstated reason for their manual "not valuable" call (they explicitly did not run automated feature
+selection for UNSW-NB15, unlike their CIC-IDS2017 pipeline, so this was a human judgment call, not an
+algorithm's output). `ct_ftp_cmd` is a follow-up finding of this project's own, not from that paper:
+verified to correlate with `is_ftp_login` at r=0.92 (near-redundant with a feature already kept) and,
+when nonzero (only 1.95% of rows), to show no per-class differentiation - its mean value is ~1.0-1.06
+across every `attack_cat` with any nonzero rows at all. The current feature set is otherwise a superset
+of the old pre-built-file feature set, identifiers aside.
 
 **CIC-IDS2017** is multiclass over **7 categories** (`Benign` + 6 attack families: `DoS/DDoS`,
 `PortScan`, `Brute Force`, `Web Attack`, `Infiltration`, `Bot`), collapsed from its native ~15-way label -
@@ -78,16 +90,32 @@ structurally similar to DAPT2020's multi-stage setup.
 UNSW-NB15's `Worms` category is severely data-scarce (130 training rows, 33 test rows on the current
 full-raw-capture data) - by far the rarest class in this dataset, in the same spirit as DAPT2020's `Data
 Exfiltration` or NSL-KDD's `U2R`. Its dominant confusion pattern also doesn't funnel into `Benign` at all,
-unlike every other dataset here: `Analysis`->`Backdoor` remains a top-2 confusion for every model trained
-(18.2-69.4%), though the picture is noisier at the new scale than it was on the old 10%-sample data - the
-reverse direction isn't as consistently dominant anymore, and DoS/Reconnaissance now confuse heavily with
-Backdoor/Analysis/Exploits/Shellcode for some models too - see `_CLASS_OF_INTEREST` in
+unlike every other dataset here: `Analysis`<->`Backdoor` remains a real two-way confusion for every model
+trained on the final feature set (15.9-60.8% one way, 14.7-40.8% the other) - narrower ranges than
+immediately after the raw-data switch, but still present across the board - see `_CLASS_OF_INTEREST` in
 `src/xai_thesis/pipeline.py` for exact numbers.
 
 CIC-IDS2017's native `Web Attack` labels carry a corrupted, non-ASCII separator byte baked into the raw
 files themselves (confirmed via raw byte inspection: literal UTF-8 encoding of U+FFFD, not a decoding
 artifact on this project's end) - the label-mapping code matches on `.startswith("Web Attack")` rather
 than an exact string, so it's robust to however pandas happens to decode that byte.
+
+**As of 2026-08-13, CIC-IDS2017's feature set was cut from ~79 to 61 columns**, driven by pairwise
+correlation analysis on the processed data (not a plotted sample, which can be misleading - see below):
+8 columns (`Bwd PSH/URG Flags`, all 6 `*_Bulk`/`Bulk_Rate` columns) are literally zero for every row in
+the raw dataset, and 9 more are near-exact duplicates of another kept column (verified row-for-row, not
+just via correlation - e.g. `Total Fwd Packets`/`Subflow Fwd Packets` differ in 0 of 2.83M rows) - see
+`configs/datasets/cic_ids2017.yaml`'s `drop_columns` comment for the exact pairs. Also found in the same
+pass: `Fwd Header Length`/`Bwd Header Length`/`min_seg_size_forward` carry physically impossible negative
+values (as low as -3.22e10) in ~35 rows, almost certainly a CICFlowMeter integer-underflow bug - those
+rows (not the columns, which are fine and meaningfully correlated once cleaned) are now dropped in
+`clean()`. This was a genuine methodological trap worth noting: a correlation heatmap computed on a
+sampled subset of rows initially flagged Fwd/Bwd Header Length as a duplicate pair (sample correlation
+1.000), but the same computation on the full data gave 0.07 - the corrupted rows were extreme enough to
+dominate whichever random sample happened to include them. Dropping the 17 columns above (all verified
+either zero-variance or byte-identical to a kept twin) still required re-tuning `random_forest`
+afterward - see Training below - since fewer total columns changes what `max_features="log2"` means at
+each split, which briefly looked like a real regression on the rare `Bot` class before re-tuning fixed it.
 
 One cleaning step was itself informed by the explainability analysis, not decided upfront: **DAPT2020**
 drops `Src Port`/`Dst Port` alongside its IP/timestamp columns, since SHAP and permutation importance
@@ -198,6 +226,16 @@ than either UNSW-NB15 or DAPT2020 despite having the most rows (before CIC-IDS20
 reminder that kernel SVM training time tracks how separable the data is (how many support vectors end up
 needed), not row count alone.
 
+**A hyperparameter set tuned for one feature space doesn't necessarily transfer to a smaller one.** When
+CIC-IDS2017's feature set was cut from ~79 to 61 columns (see Datasets above), `random_forest`'s existing
+tuned `model_params` (from before the cut) caused a real regression - `Bot`-class precision collapsed
+from ~0.98 to 0.06 (macro-F1 0.909->0.827) - even though every dropped column was verified to carry zero
+unique information. The cause: `max_features="log2"` is evaluated against the *current* column count, so
+removing columns changes which random feature subsets get tried at every split throughout the forest,
+regardless of whether those columns were informative. Re-running `RandomizedSearchCV` (not just re-fitting
+with the old params) fixed it and then slightly improved on the original score (macro-F1 0.916). Treat any
+column-set change to an already-tuned experiment as requiring a re-tune, not just a re-fit.
+
 As of 2026-08-09, `C` is tuned via `RandomizedSearchCV` like the other models (the reference's own
 `C=0.5` is kept only as `--tune`'s starting point). Getting this to run in reasonable time at all
 required two real fixes, not just patience:
@@ -233,22 +271,23 @@ small amount of potential model quality for bounded, predictable runtime, which 
 (a silent multi-hour-or-worse hang) is the right trade for this project. **These UNSW-NB15 numbers
 describe the old 10%-sample dataset** - see the next paragraph for the current, full-raw-capture data.
 
-**UNSW-NB15's `svm` is deferred on the new full-raw-capture data (2026-08-13), by explicit user
-decision.** UNSW-NB15 jumped to ~1.9M training rows when it switched from the pre-built 10%-sample to the
-full raw capture (see Datasets above) - the same scale that already caused CIC-IDS2017's `svm` to hang
-for 24+ hours (next paragraph). The other 4 models retrained fine at this scale (5-15 minutes each - see
-the tuning-hang note below), but `svm`'s final fit was skipped rather than risk repeating that incident.
-`outputs/models/unsw_nb15_svm_baseline.joblib` and its metrics are still the old model, trained on the
-old 10%-sample data; running it against the new `data/processed/unsw_nb15/test.csv` would error (its
-fitted preprocessing expects the old feature set, which included `rate` - absent from the new raw-derived
-data) rather than silently score wrong, which is an acceptable failure mode but means a real retrain is
-needed before this baseline is usable on current data. Resuming this hit its own, unrelated problem: the
-*default* `tune_hyperparameters()` budget (`subsample_size=200_000`, `n_jobs=2`) hung for 20+ hours
-tuning `gradient_boosting` on this same new data (confirmed a genuine deadlock via live CPU-time
-sampling, not slowness - see the project's HANDOVER.md for the full incident writeup); the fix that
-unblocked the other 4 models was calling `tune_hyperparameters()` directly with an explicit
-`subsample_size=40_000`, the same pattern CIC-IDS2017 already uses below. Resuming `svm` should use that
-same override rather than the `--tune` CLI's 200k default.
+**UNSW-NB15's `svm` final fit is trained on a stratified subsample, not the complete training set -
+unlike every other model/dataset combination in this catalog.** UNSW-NB15 jumped to ~1.9M training rows
+when it switched from the pre-built 10%-sample to the full raw capture (see Datasets above) - the same
+scale that already caused CIC-IDS2017's `svm` to hang for 24+ hours (next paragraph). Getting there also
+hit its own, unrelated problem first: the *default* `tune_hyperparameters()` budget
+(`subsample_size=200_000`, `n_jobs=2`) hung for 20+ hours tuning `gradient_boosting` on this same new
+data (confirmed a genuine deadlock via live CPU-time sampling, not slowness - see the project's
+HANDOVER.md for the full incident writeup); fixed by calling `tune_hyperparameters()` directly with an
+explicit `subsample_size=40_000`, the same pattern CIC-IDS2017 already uses below - this unblocked
+tuning for all 5 models. The final-fit problem is separate and was still real: `svm`'s final fit is the
+one step in this whole pipeline that scales badly enough with row count to make "just tune smaller,
+train on everything" infeasible (CIC-IDS2017's 24-hour non-completion below is the concrete proof). Fix:
+`_FINAL_FIT_SUBSAMPLE` in `pipeline.py` stratified-subsamples `svm`'s final training set to 150,000 rows
+(`min_per_class=200`, comfortably above every class's full row count so no class gets thinned further -
+UNSW-NB15's rarest, `Worms`, has 130) before fitting, for `unsw_nb15`/`cic_ids2017` specifically - a
+deliberate, disclosed methodological deviation, not an oversight. Current UNSW-NB15 `svm` result on the
+final feature set (`C=10`, tuned): macro-F1 **0.390** (24m44s for the final fit).
 
 **CIC-IDS2017's `svm` is tuned but not yet trained.** `configs/experiments/cic_ids2017_svm_baseline.yaml`
 exists and its `C` search completed (`C=10`, search took only ~8 minutes thanks to an explicit
@@ -336,10 +375,9 @@ The two curated instances per experiment (one correctly classified, one misclass
 patterns found via `scripts/confusion_matrix.py` (e.g. DAPT2020's `Reconnaissance` is confused with
 `Benign` by every model trained so far, and CIC-IDS2017's `DoS/DDoS` — its largest attack category by far
 — is confused with `Benign` by every model trained under its new 7-category scheme, 6.3-13.2% depending on
-model). UNSW-NB15 is the exception to the "confused with Benign" pattern: `Analysis`→`Backdoor` remains a
-top-2 confusion for every model trained on the current full-raw-capture data (18.2-69.4%), though the
-reverse direction is no longer as consistently dominant as it was on the old 10%-sample data (0-36.7%) —
-`Analysis` is still picked as `target_class`, since its average recall is still clearly the lower of the
-two (~31% vs ~56%). See `_CLASS_OF_INTEREST` in `src/xai_thesis/pipeline.py`.
+model). UNSW-NB15 is the exception to the "confused with Benign" pattern: `Analysis`↔`Backdoor` remains a
+real two-way confusion for every model trained on the final feature set (15.9-60.8% one way, 14.7-40.8%
+the other) — `Analysis` is still picked as `target_class`, since its average recall is still (narrowly)
+the lower of the two (~43% vs ~47%). See `_CLASS_OF_INTEREST` in `src/xai_thesis/pipeline.py`.
 
 Plots are written to `outputs/plots/<experiment_name>/`.

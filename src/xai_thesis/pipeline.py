@@ -438,16 +438,17 @@ def generate_feature_correlation(
 # arbitrary/random instance choice.
 _CLASS_OF_INTEREST: dict[str, tuple[str, str]] = {
     # Unlike this project's other multiclass datasets, UNSW-NB15's dominant confusion doesn't
-    # funnel into Benign at all. Re-verified 2026-08-13 after switching UNSW-NB15 from the
-    # pre-built 10%-sampled training-set/testing-set files to the full raw capture (2.4M rows,
-    # ~13x the old scale - see datasets/unsw_nb15.py): Analysis->Backdoor is still a top-2
-    # confusion for every model trained (18.2-69.4%), but the picture is noisier at this scale
-    # than it was on the old data - DoS and Reconnaissance now also confuse heavily with
-    # Backdoor/Analysis/Exploits/Shellcode for some models, and the reverse direction
-    # (Backdoor->Analysis) is no longer consistently dominant (0-36.7%, actually 0% for
-    # neural_network). Analysis remains target_class regardless: its recall is still clearly
-    # the lower of the two on the new data (~31% vs ~56% average across models), the
-    # harder-to-detect side of this pair.
+    # funnel into Benign at all. Re-verified 2026-08-13, twice: first after switching UNSW-NB15
+    # from the pre-built 10%-sampled training-set/testing-set files to the full raw capture
+    # (2.4M rows, ~13x the old scale), then again after dropping service (57% "unknown",
+    # matching Tai et al. 2024's UNSW-NB15 preprocessing) and ct_ftp_cmd (near-redundant with
+    # is_ftp_login, r=0.92, no per-class differentiation - see datasets/unsw_nb15.py) from the
+    # feature set entirely. Analysis->Backdoor remains a real confusion for every model trained
+    # (15.9-60.8%), and so does the reverse direction (14.7-40.8%) - both narrower ranges than
+    # immediately after the raw-data switch, but still present across the board. Analysis
+    # remains target_class: its average recall is still the lower of the two on the final
+    # feature set (~43% vs ~47% - a much narrower gap than earlier in this dataset's history,
+    # but still the harder-to-detect side of this pair).
     "unsw_nb15": ("Analysis", "Backdoor"),
     "dapt2020": ("Reconnaissance", "Benign"),
     # R2L is confused with Benign more heavily than any other pair in this dataset, and by a
