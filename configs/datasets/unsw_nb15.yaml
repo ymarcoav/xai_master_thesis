@@ -13,6 +13,15 @@ categorical_columns:
   - proto
   - service
   - state
+# srcip/dstip/sport/dsport: raw identifiers, not present in the pre-built training-set/
+# testing-set files this project used previously - dropped to avoid a model memorizing
+# attacker/victim addresses instead of learning traffic behavior. ltime: redundant with
+# dur/stime. label: native binary, dropped in favor of attack_cat. stime is deliberately
+# NOT listed here - see datasets/unsw_nb15.py's clean().
 drop_columns:
-  - id
+  - srcip
+  - sport
+  - dstip
+  - dsport
+  - ltime
   - label

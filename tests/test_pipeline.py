@@ -16,33 +16,85 @@ from xai_thesis.pipeline import (
 )
 
 
+def _unsw_row(*, dur: str, service: str, attack_cat: str, label: str, stime: str, is_ftp_login: str = "0") -> list[str]:
+    """One raw UNSW-NB15 row, positionally matching datasets/unsw_nb15.py's _COLUMN_NAMES
+    order exactly (the raw files are headerless - column identity comes purely from
+    position), with everything not under test held at a fixed, valid, non-corrupted value."""
+    return [
+        "59.166.0.0",  # srcip
+        "1390",  # sport
+        "149.171.126.6",  # dstip
+        "53",  # dsport
+        "udp",  # proto
+        "CON",  # state
+        dur,
+        "132",  # sbytes
+        "164",  # dbytes
+        "31",  # sttl
+        "29",  # dttl
+        "0",  # sloss
+        "0",  # dloss
+        service,
+        "500473.9",  # sload
+        "621800.9",  # dload
+        "2",  # spkts
+        "2",  # dpkts
+        "0",  # swin
+        "0",  # dwin
+        "0",  # stcpb
+        "0",  # dtcpb
+        "66",  # smean
+        "82",  # dmean
+        "0",  # trans_depth
+        "0",  # response_body_len
+        "0",  # sjit
+        "0",  # djit
+        stime,
+        stime,  # ltime
+        "0.017",  # sinpkt
+        "0.013",  # dinpkt
+        "0",  # tcprtt
+        "0",  # synack
+        "0",  # ackdat
+        "0",  # is_sm_ips_ports
+        "3",  # ct_state_ttl
+        "",  # ct_flw_http_mthd
+        is_ftp_login,
+        "",  # ct_ftp_cmd
+        "7",  # ct_srv_src
+        "1",  # ct_srv_dst
+        "3",  # ct_dst_ltm
+        "1",  # ct_src_ltm
+        "1",  # ct_src_dport_ltm
+        "1",  # ct_dst_sport_ltm
+        "1",  # ct_dst_src_ltm
+        attack_cat,
+        label,
+    ]
+
+
 def _write_unsw_fixture(raw_dir: Path) -> None:
-    train = pd.DataFrame(
-        {
-            "id": [1, 2],
-            "dur": [0.1, 0.2],
-            "proto": ["tcp", "udp"],
-            "service": ["http", "-"],
-            "state": ["FIN", "CON"],
-            "is_ftp_login": [0, 2],
-            "attack_cat": ["Normal", "Exploits"],
-            "label": [0, 1],
-        }
+    # File 1 carries most of the data: 5 Benign + 5 Exploits rows (dur varies per row so
+    # none collide as exact duplicates), enough per (source_file, attack_cat) group for the
+    # chronological split's 80/20 cutoff to land on a non-degenerate split (4 train/1 test
+    # each). Files 2-4 each add one more row (still with distinct dur/stime), one of them
+    # exercising the "-" service sentinel and the is_ftp_login=2 data-entry bug, so the split
+    # covers all 4 required raw files without every group being a same-sized clone of file 1.
+    file1_rows = [
+        _unsw_row(dur=f"0.{i}", service="dns", attack_cat="" if i < 5 else "Exploits", label="0" if i < 5 else "1", stime=str(1421927414 + i))
+        for i in range(10)
+    ]
+    pd.DataFrame(file1_rows).to_csv(raw_dir / "UNSW-NB15_1.csv", header=False, index=False)
+
+    pd.DataFrame([_unsw_row(dur="1.0", service="-", attack_cat="", label="0", stime="1421955795", is_ftp_login="2")]).to_csv(
+        raw_dir / "UNSW-NB15_2.csv", header=False, index=False
     )
-    test = pd.DataFrame(
-        {
-            "id": [3, 4],
-            "dur": [0.3, 0.4],
-            "proto": ["tcp", "tcp"],
-            "service": ["ftp", "http"],
-            "state": ["INT", "FIN"],
-            "is_ftp_login": [1, 0],
-            "attack_cat": ["Normal", "DoS"],
-            "label": [0, 1],
-        }
+    pd.DataFrame([_unsw_row(dur="1.1", service="dns", attack_cat="DoS", label="1", stime="1424231099")]).to_csv(
+        raw_dir / "UNSW-NB15_3.csv", header=False, index=False
     )
-    train.to_csv(raw_dir / "UNSW_NB15_training-set.csv", index=False)
-    test.to_csv(raw_dir / "UNSW_NB15_testing-set.csv", index=False)
+    pd.DataFrame([_unsw_row(dur="1.2", service="dns", attack_cat="", label="0", stime="1424250100")]).to_csv(
+        raw_dir / "UNSW-NB15_4.csv", header=False, index=False
+    )
 
 
 def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
@@ -59,7 +111,7 @@ def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
                 "raw_path": raw_dir.as_posix(),
                 "processed_path": processed_dir.as_posix(),
                 "label_column": "attack_cat",
-                "drop_columns": ["id", "label"],
+                "drop_columns": ["srcip", "sport", "dstip", "dsport", "ltime", "label"],
                 "categorical_columns": ["proto", "service", "state"],
             }
         ),
@@ -74,14 +126,19 @@ def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
     train_df = pd.read_csv(train_path)
     test_df = pd.read_csv(test_path)
 
-    assert "id" not in train_df.columns
+    assert "srcip" not in train_df.columns
+    assert "sport" not in train_df.columns
+    assert "ltime" not in train_df.columns
     assert "label" not in train_df.columns
-    assert "split" not in train_df.columns
-    assert len(train_df) == 2
-    assert len(test_df) == 2
-    assert set(train_df["attack_cat"]) <= {"Benign", "Exploits", "DoS"}  # "Normal" mapped to "Benign"
-    assert "unknown" in train_df["service"].tolist()  # "-" sentinel normalized
-    assert train_df["is_ftp_login"].max() == 1  # clipped from 2
+    assert "stime" not in train_df.columns  # dropped by the split itself, only used to order it
+    assert "source_file" not in train_df.columns
+    # 5 Benign + 5 Exploits in file 1 (80/20 cutoff -> 4 train/1 test each) + one more row per
+    # file in files 2-4 (each its own size-1 group -> 0 train/1 test).
+    assert len(train_df) == 8
+    assert len(test_df) == 5
+    assert set(train_df["attack_cat"]) | set(test_df["attack_cat"]) == {"Benign", "Exploits", "DoS"}
+    assert "unknown" in (set(train_df["service"]) | set(test_df["service"]))  # "-" sentinel normalized
+    assert pd.concat([train_df["is_ftp_login"], test_df["is_ftp_login"]]).max() == 1  # clipped from 2
 
 
 def test_generate_label_distribution_writes_png(tmp_path) -> None:

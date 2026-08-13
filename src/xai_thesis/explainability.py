@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -441,7 +442,44 @@ def explain_instance_with_lime_full(
 
     fig.suptitle(f"LIME explanation (predicted: {predicted_class})")
     fig.tight_layout()
+
+    # The fixed colWidths above can be narrower than a cell's text at fontsize 9 (long
+    # feature names on some datasets, e.g. NSL-KDD's dst_host_same_src_port_rate). Cell
+    # text isn't clipped by matplotlib, so an overflow silently hides under the next
+    # column's background instead of raising. Wrap the overflowing cells onto multiple
+    # lines at full size first; only shrink font as a last resort if a single unbroken
+    # token still doesn't fit, so the common case (short names) stays untouched.
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    table_width_px = ax_table.get_window_extent(renderer).width
+    for cell in table.get_celld().values():
+        text = cell.get_text()
+        available_px = cell.get_width() * table_width_px * 0.85
+        if text.get_window_extent(renderer).width > available_px > 0:
+            text.set_text(_wrap_cell_text(text, renderer, available_px))
+            if text.get_window_extent(renderer).width > available_px:
+                cell.set_fontsize(max(6, 9 * available_px / text.get_window_extent(renderer).width))
+
     return _save_figure(fig, output_path)
+
+
+def _wrap_cell_text(text: plt.Text, renderer: Any, available_px: float) -> str:
+    """Greedily break `text` at '_'/' ' boundaries so each line fits `available_px`."""
+    original = text.get_text()
+    tokens = re.split(r"(?<=[_ ])", original)
+    lines: list[str] = []
+    current = ""
+    for token in tokens:
+        candidate = current + token
+        text.set_text(candidate)
+        if current and text.get_window_extent(renderer).width > available_px:
+            lines.append(current)
+            current = token
+        else:
+            current = candidate
+    lines.append(current)
+    text.set_text(original)
+    return "\n".join(lines)
 
 
 def _format_value(value: Any) -> str:

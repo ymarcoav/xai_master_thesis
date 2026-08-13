@@ -84,16 +84,23 @@ def preprocess_dataset(config_path: str | Path) -> tuple[Path, Path]:
 # split does not actually hold out later traffic, despite the split being described as
 # chronological. CIC-IDS2017's raw files in this project have no Timestamp column at all, so
 # its split stays positional - there is nothing to sort by - and should be described as such,
-# not as verified chronological.
-_CHRONOLOGICAL_SPLIT_TIMESTAMP: dict[str, tuple[str, str]] = {
+# not as verified chronological. UNSW-NB15's stime is already a numeric Unix epoch (no format
+# string needed - see split_chronologically_by_source); verified genuinely chronological across
+# its 4 raw part files (Jan 22 - Feb 18 2015, files 1->4 in order, matching the dataset's
+# documented two-session capture window).
+_CHRONOLOGICAL_SPLIT_TIMESTAMP: dict[str, tuple[str, str | None]] = {
     "dapt2020": ("Timestamp", "%d/%m/%Y %I:%M:%S %p"),
+    "unsw_nb15": ("stime", None),
 }
 
 
 def _split_dataset(config: DatasetConfig, data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    # UNSW-NB15 and NSL-KDD both ship with an official train/test split; the others don't, so
-    # they're split chronologically per source file instead (see preprocessing.py for why).
-    if config.name in ("unsw_nb15", "nsl_kdd"):
+    # NSL-KDD ships with an official train/test split, used as-is. UNSW-NB15 no longer does
+    # (unlike the pre-built training-set/testing-set files this project used previously, the
+    # full raw capture it's now built from has no predefined split), so it's split
+    # chronologically per source file instead, same as CIC-IDS2017/DAPT2020 - see
+    # preprocessing.py for why.
+    if config.name == "nsl_kdd":
         return split_by_official_split_column(data, split_column="split")
     timestamp_column, timestamp_format = _CHRONOLOGICAL_SPLIT_TIMESTAMP.get(config.name, (None, None))
     return split_chronologically_by_source(

@@ -22,3 +22,8 @@ outputs/plots/*
 !outputs/models/.gitkeep
 !outputs/metrics/.gitkeep
 !outputs/plots/.gitkeep
+
+# Local backups of superseded data/models/metrics/plots (e.g. before a dataset overhaul) -
+# same reasoning as the patterns above, just under a different directory name.
+data/_archive/
+outputs/_archive/

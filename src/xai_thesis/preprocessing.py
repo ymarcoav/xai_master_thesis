@@ -47,20 +47,26 @@ def split_chronologically_by_source(
     DAPT2020's real Timestamp column: raw row order is NOT chronological (25-40% of adjacent
     rows go backwards in time in the files checked), so a positional split there does not
     actually hold out later traffic. When timestamp_column is given, each group is sorted by
-    it first, so the held-out rows are genuinely the most recent ones. Two pandas/numpy
-    segfaults were hit and worked around while building this (both reproducible on this
-    project's installed pandas 3.0.4 / numpy 2.4.6): pandas' vectorized date parser crashes on
-    this project's %d/%m/%Y %I:%M:%S %p timestamps (worked around with Python's own
-    datetime.strptime instead), and sort_values on a datetime64-dtype column crashes outright
-    regardless of how it was parsed (worked around by sorting on each timestamp's numeric
-    .timestamp() value instead of the datetime object itself - same ordering, plain float64
-    dtype). The timestamp column itself is dropped from the output either way, alongside
-    source_column - it is only ever used to order the split, never as a model feature.
+    it first, so the held-out rows are genuinely the most recent ones. timestamp_format is only
+    needed when the column holds formatted strings (e.g. DAPT2020's Timestamp); pass None for a
+    column that's already numeric (e.g. UNSW-NB15's stime, a Unix epoch integer) to sort on it
+    directly, with no parsing step. Two pandas/numpy segfaults were hit and worked around while
+    building the string-parsing path (both reproducible on this project's installed pandas
+    3.0.4 / numpy 2.4.6): pandas' vectorized date parser crashes on this project's
+    %d/%m/%Y %I:%M:%S %p timestamps (worked around with Python's own datetime.strptime
+    instead), and sort_values on a datetime64-dtype column crashes outright regardless of how
+    it was parsed (worked around by sorting on each timestamp's numeric .timestamp() value
+    instead of the datetime object itself - same ordering, plain float64 dtype). The timestamp
+    column itself is dropped from the output either way, alongside source_column - it is only
+    ever used to order the split, never as a model feature.
     """
     if timestamp_column is not None:
-        parsed_timestamps = data[timestamp_column].map(
-            lambda value: datetime.strptime(value, timestamp_format).timestamp()
-        )
+        if timestamp_format is not None:
+            parsed_timestamps = data[timestamp_column].map(
+                lambda value: datetime.strptime(value, timestamp_format).timestamp()
+            )
+        else:
+            parsed_timestamps = data[timestamp_column]
         sort_column = f"_{timestamp_column}_sort_key"
         data = data.assign(**{sort_column: parsed_timestamps})
 

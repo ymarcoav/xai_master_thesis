@@ -10,84 +10,152 @@ def _make_dataset() -> UNSWNB15Dataset:
         raw_path="unused",
         processed_path="unused",
         label_column="attack_cat",
-        drop_columns=("id", "label"),
+        drop_columns=("srcip", "sport", "dstip", "dsport", "ltime", "label"),
     )
     return UNSWNB15Dataset(config)
 
 
-def test_unsw_clean_drops_identifier_and_native_binary_label() -> None:
+def _row(**overrides: object) -> dict[str, object]:
+    """A minimal-but-complete raw row (every column clean() touches), as raw strings -
+    matching how load_raw() actually reads the headerless files (dtype=str,
+    keep_default_na=False) - with overrides layered on top per test."""
+    base = {
+        "srcip": "59.166.0.0",
+        "sport": "1390",
+        "dstip": "149.171.126.6",
+        "dsport": "53",
+        "proto": "udp",
+        "state": "CON",
+        "dur": "0.001",
+        "sbytes": "132",
+        "dbytes": "164",
+        "sttl": "31",
+        "dttl": "29",
+        "sloss": "0",
+        "dloss": "0",
+        "service": "dns",
+        "sload": "500473.9",
+        "dload": "621800.9",
+        "spkts": "2",
+        "dpkts": "2",
+        "swin": "0",
+        "dwin": "0",
+        "stcpb": "0",
+        "dtcpb": "0",
+        "smean": "66",
+        "dmean": "82",
+        "trans_depth": "0",
+        "response_body_len": "0",
+        "sjit": "0",
+        "djit": "0",
+        "stime": "1421927414",
+        "ltime": "1421927414",
+        "sinpkt": "0.017",
+        "dinpkt": "0.013",
+        "tcprtt": "0",
+        "synack": "0",
+        "ackdat": "0",
+        "is_sm_ips_ports": "0",
+        "ct_state_ttl": "3",
+        "ct_flw_http_mthd": "",
+        "is_ftp_login": "0",
+        "ct_ftp_cmd": "",
+        "ct_srv_src": "7",
+        "ct_srv_dst": "1",
+        "ct_dst_ltm": "3",
+        "ct_src_ltm": "1",
+        "ct_src_dport_ltm": "1",
+        "ct_dst_sport_ltm": "1",
+        "ct_dst_src_ltm": "1",
+        "attack_cat": "",
+        "label": "0",
+        "source_file": "UNSW-NB15_1.csv",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_unsw_clean_drops_identifiers_native_label_and_ltime_but_keeps_stime() -> None:
+    dataset = _make_dataset()
+    data = pd.DataFrame([_row()])
+
+    cleaned = dataset.clean(data)
+
+    assert "srcip" not in cleaned.columns
+    assert "sport" not in cleaned.columns
+    assert "dstip" not in cleaned.columns
+    assert "dsport" not in cleaned.columns
+    assert "ltime" not in cleaned.columns
+    assert "label" not in cleaned.columns
+    assert "stime" in cleaned.columns
+
+
+def test_unsw_clean_drops_truncated_rows_via_invalid_label() -> None:
+    dataset = _make_dataset()
+    # Simulates the one genuinely corrupted row found in the real raw files: truncated
+    # mid-record, so label (like every later column) reads as blank rather than 0/1.
+    data = pd.DataFrame([_row(), _row(attack_cat="Exploits", dur="0.5")])
+    data.loc[1, "label"] = ""
+
+    cleaned = dataset.clean(data)
+
+    assert len(cleaned) == 1
+
+
+def test_unsw_clean_maps_blank_attack_cat_to_benign_and_normalizes_backdoors_spelling() -> None:
     dataset = _make_dataset()
     data = pd.DataFrame(
-        {
-            "id": [1],
-            "dur": [0.1],
-            "label": [1],
-            "attack_cat": ["Exploits"],
-            "service": ["http"],
-            "is_ftp_login": [0],
-            "split": ["train"],
-        }
+        [
+            _row(attack_cat=""),
+            _row(attack_cat=" Backdoors ", dur="0.2"),
+            _row(attack_cat="Backdoor", dur="0.3"),
+        ]
     )
 
     cleaned = dataset.clean(data)
 
-    assert list(cleaned.columns) == ["dur", "attack_cat", "service", "is_ftp_login", "split"]
+    assert cleaned["attack_cat"].tolist() == ["Benign", "Backdoor", "Backdoor"]
 
 
-def test_unsw_clean_renames_normal_to_benign() -> None:
+def test_unsw_clean_normalizes_service_sentinels() -> None:
+    dataset = _make_dataset()
+    data = pd.DataFrame([_row(service="-"), _row(service="", dur="0.2")])
+
+    cleaned = dataset.clean(data)
+
+    assert cleaned["service"].tolist() == ["unknown", "unknown"]
+
+
+def test_unsw_clean_clips_ftp_login_bug_values() -> None:
+    dataset = _make_dataset()
+    data = pd.DataFrame([_row(is_ftp_login="2"), _row(is_ftp_login="4", dur="0.2")])
+
+    cleaned = dataset.clean(data)
+
+    assert cleaned["is_ftp_login"].tolist() == [1, 1]
+
+
+def test_unsw_clean_fills_not_applicable_counts_with_zero_not_shared_imputer() -> None:
+    dataset = _make_dataset()
+    data = pd.DataFrame([_row(ct_flw_http_mthd="", is_ftp_login="", ct_ftp_cmd=" ")])
+
+    cleaned = dataset.clean(data)
+
+    assert cleaned["ct_flw_http_mthd"].tolist() == [0]
+    assert cleaned["is_ftp_login"].tolist() == [0]
+    assert cleaned["ct_ftp_cmd"].tolist() == [0]
+
+
+def test_unsw_clean_drops_duplicates_ignoring_source_file_and_stime() -> None:
     dataset = _make_dataset()
     data = pd.DataFrame(
-        {
-            "id": [1, 2],
-            "dur": [0.1, 0.2],
-            "label": [1, 0],
-            "attack_cat": ["Exploits", "Normal"],
-            "service": ["http", "http"],
-            "is_ftp_login": [0, 0],
-            "split": ["train", "train"],
-        }
+        [
+            _row(source_file="UNSW-NB15_1.csv", stime="1421927414"),
+            _row(source_file="UNSW-NB15_2.csv", stime="1424231129"),
+            _row(attack_cat="Exploits", dur="0.9", source_file="UNSW-NB15_1.csv"),
+        ]
     )
 
     cleaned = dataset.clean(data)
 
-    assert cleaned["attack_cat"].tolist() == ["Exploits", "Benign"]
-
-
-def test_unsw_clean_drops_duplicates_within_split_but_keeps_cross_split_overlap() -> None:
-    dataset = _make_dataset()
-    data = pd.DataFrame(
-        {
-            "id": [1, 2, 3, 4],
-            "dur": [0.1, 0.1, 0.1, 0.5],
-            "label": [1, 1, 1, 0],
-            "attack_cat": ["Exploits", "Exploits", "Exploits", "Normal"],
-            "service": ["-", "-", "-", "http"],
-            "is_ftp_login": [2, 2, 2, 0],
-            "split": ["train", "train", "test", "train"],
-        }
-    )
-
-    cleaned = dataset.clean(data)
-
-    assert len(cleaned) == 3
-    assert cleaned["split"].value_counts().to_dict() == {"train": 2, "test": 1}
-
-
-def test_unsw_clean_normalizes_service_sentinel_and_clips_ftp_login_flag() -> None:
-    dataset = _make_dataset()
-    data = pd.DataFrame(
-        {
-            "id": [1],
-            "dur": [0.1],
-            "label": [1],
-            "attack_cat": ["Exploits"],
-            "service": ["-"],
-            "is_ftp_login": [2],
-            "split": ["train"],
-        }
-    )
-
-    cleaned = dataset.clean(data)
-
-    assert cleaned["service"].tolist() == ["unknown"]
-    assert cleaned["is_ftp_login"].tolist() == [1]
+    assert len(cleaned) == 2
