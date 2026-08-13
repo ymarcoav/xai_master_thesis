@@ -37,7 +37,26 @@ interface.
 standard categorization from the dataset's own source paper (Moustafa & Slay 2015), used essentially
 as-is throughout UNSW-NB15 literature; unlike NSL-KDD/CIC-IDS2017, there's no common further
 consolidation of this scheme. The dataset's native binary `label` column (0/1) is dropped in favor of
-this. **CIC-IDS2017** is multiclass over **7 categories** (`Benign` + 6 attack families: `DoS/DDoS`,
+this.
+
+**As of 2026-08-13, UNSW-NB15 is built from the full raw capture, not the pre-built 10%-sample.** The
+`UNSW_NB15_training-set.csv`/`testing-set.csv` files used previously (a pre-cleaned, already-split 10%
+sample published separately by the dataset's authors) are gone; the adapter now reads the 4 headerless
+raw part files (`UNSW-NB15_1.csv`..`_4.csv`, 2,411,053 rows total - roughly 13x the old scale, comparable
+to CIC-IDS2017) plus `NUSW-NB15_features.csv` for the column schema. This surfaced real raw-data quality
+issues the pre-built files had already cleaned up: `attack_cat` is blank for benign rows (not the string
+`"Normal"`) and inconsistently spelled `"Backdoor"`/`"Backdoors"` across the 4 files (normalized to
+`"Backdoor"`); `is_ftp_login`/`ct_ftp_cmd`/`ct_flw_http_mthd` are blank for ~54% of rows, verified to mean
+"not applicable" rather than missing-at-random (filled with 0 directly, not left to the shared median
+imputer); exactly one row across all 2.4M is truncated mid-record (dropped generically, via `label` not
+being a valid 0/1, rather than a hardcoded row index). `srcip`/`dstip`/`sport`/`dsport` are dropped as
+identifiers (not present in the old pre-built files either); the raw data also has no `rate` column (a
+feature the original paper authors derived only for the pre-built files), so the current feature set is
+otherwise a superset of the old one, identifiers aside. The dataset now has no official train/test split
+(the pre-built files provided one; the raw capture doesn't), so it's split chronologically like
+CIC-IDS2017/DAPT2020 instead - see Preprocessing below.
+
+**CIC-IDS2017** is multiclass over **7 categories** (`Benign` + 6 attack families: `DoS/DDoS`,
 `PortScan`, `Brute Force`, `Web Attack`, `Infiltration`, `Bot`), collapsed from its native ~15-way label -
 this specific 7-category scheme matches Arreche et al. 2024 ("E-XAI: Evaluating Black-Box Explainable AI
 Frameworks for Network Intrusion Detection", IEEE Access), confirmed against that paper's Figure 21
@@ -50,11 +69,14 @@ multiclass, but not at its native ~40-way specific attack-type granularity: it's
 conventional **DoS/Probe/R2L/U2R categories** (+ `Benign`) used throughout NSL-KDD literature -
 structurally similar to DAPT2020's multi-stage setup.
 
-UNSW-NB15's `Worms` category is severely data-scarce (127 training rows, 44 test rows) - by far the
-rarest class in this dataset, in the same spirit as DAPT2020's `Data Exfiltration` or NSL-KDD's `U2R`.
-Its dominant confusion pattern also doesn't funnel into `Benign` at all, unlike every other dataset here:
-`Analysis` and `Backdoor` are confused with each other far more than with anything else, in both
-directions, across every model trained - see `_CLASS_OF_INTEREST` in `src/xai_thesis/pipeline.py`.
+UNSW-NB15's `Worms` category is severely data-scarce (130 training rows, 33 test rows on the current
+full-raw-capture data) - by far the rarest class in this dataset, in the same spirit as DAPT2020's `Data
+Exfiltration` or NSL-KDD's `U2R`. Its dominant confusion pattern also doesn't funnel into `Benign` at all,
+unlike every other dataset here: `Analysis`->`Backdoor` remains a top-2 confusion for every model trained
+(18.2-69.4%), though the picture is noisier at the new scale than it was on the old 10%-sample data - the
+reverse direction isn't as consistently dominant anymore, and DoS/Reconnaissance now confuse heavily with
+Backdoor/Analysis/Exploits/Shellcode for some models too - see `_CLASS_OF_INTEREST` in
+`src/xai_thesis/pipeline.py` for exact numbers.
 
 CIC-IDS2017's native `Web Attack` labels carry a corrupted, non-ASCII separator byte baked into the raw
 files themselves (confirmed via raw byte inspection: literal UTF-8 encoding of U+FFFD, not a decoding
@@ -103,9 +125,11 @@ python scripts/preprocess.py --dataset unsw_nb15
 python scripts/preprocess.py  # all datasets
 ```
 
-UNSW-NB15 and NSL-KDD both ship with their own official train/test split, used as-is. CIC-IDS2017 and
-DAPT2020 (which ship without one) are split chronologically per source file and label, so every class
-stays represented in both splits.
+NSL-KDD ships with its own official train/test split, used as-is - the only dataset in this catalog that
+still does. CIC-IDS2017, DAPT2020, and (as of 2026-08-13) UNSW-NB15 ship without one, so they're split
+chronologically per source file and label instead, so every class stays represented in both splits.
+UNSW-NB15 sorts on `stime`, a Unix epoch integer verified genuinely chronological across its 4 raw part
+files (22 Jan - 18 Feb 2015, files 1->4 in order).
 
 ## Training
 
@@ -200,7 +224,25 @@ macro-F1 from 0.313 to **0.360**; NSL-KDD (`C=10`, search took 30 minutes) reach
 Both final fits still hit the `max_iter` cap without fully converging (visible via a
 `ConvergenceWarning`) - a real, honestly-reported quality caveat, not hidden: the safety net trades a
 small amount of potential model quality for bounded, predictable runtime, which given the alternative
-(a silent multi-hour-or-worse hang) is the right trade for this project.
+(a silent multi-hour-or-worse hang) is the right trade for this project. **These UNSW-NB15 numbers
+describe the old 10%-sample dataset** - see the next paragraph for the current, full-raw-capture data.
+
+**UNSW-NB15's `svm` is deferred on the new full-raw-capture data (2026-08-13), by explicit user
+decision.** UNSW-NB15 jumped to ~1.9M training rows when it switched from the pre-built 10%-sample to the
+full raw capture (see Datasets above) - the same scale that already caused CIC-IDS2017's `svm` to hang
+for 24+ hours (next paragraph). The other 4 models retrained fine at this scale (5-15 minutes each - see
+the tuning-hang note below), but `svm`'s final fit was skipped rather than risk repeating that incident.
+`outputs/models/unsw_nb15_svm_baseline.joblib` and its metrics are still the old model, trained on the
+old 10%-sample data; running it against the new `data/processed/unsw_nb15/test.csv` would error (its
+fitted preprocessing expects the old feature set, which included `rate` - absent from the new raw-derived
+data) rather than silently score wrong, which is an acceptable failure mode but means a real retrain is
+needed before this baseline is usable on current data. Resuming this hit its own, unrelated problem: the
+*default* `tune_hyperparameters()` budget (`subsample_size=200_000`, `n_jobs=2`) hung for 20+ hours
+tuning `gradient_boosting` on this same new data (confirmed a genuine deadlock via live CPU-time
+sampling, not slowness - see the project's HANDOVER.md for the full incident writeup); the fix that
+unblocked the other 4 models was calling `tune_hyperparameters()` directly with an explicit
+`subsample_size=40_000`, the same pattern CIC-IDS2017 already uses below. Resuming `svm` should use that
+same override rather than the `--tune` CLI's 200k default.
 
 **CIC-IDS2017's `svm` is tuned but not yet trained.** `configs/experiments/cic_ids2017_svm_baseline.yaml`
 exists and its `C` search completed (`C=10`, search took only ~8 minutes thanks to an explicit
@@ -288,9 +330,10 @@ The two curated instances per experiment (one correctly classified, one misclass
 patterns found via `scripts/confusion_matrix.py` (e.g. DAPT2020's `Reconnaissance` is confused with
 `Benign` by every model trained so far, and CIC-IDS2017's `DoS/DDoS` — its largest attack category by far
 — is confused with `Benign` by every model trained under its new 7-category scheme, 6.3-13.2% depending on
-model). UNSW-NB15 is the exception to the "confused with Benign" pattern: `Analysis` and `Backdoor` are
-confused with *each other* far more than with anything else, in both directions, across every model
-trained (27.6-66.6% one way, 15.9-66.8% the other) — `Analysis` is picked as `target_class` since it has
-the lower average recall of the two. See `_CLASS_OF_INTEREST` in `src/xai_thesis/pipeline.py`.
+model). UNSW-NB15 is the exception to the "confused with Benign" pattern: `Analysis`→`Backdoor` remains a
+top-2 confusion for every model trained on the current full-raw-capture data (18.2-69.4%), though the
+reverse direction is no longer as consistently dominant as it was on the old 10%-sample data (0-36.7%) —
+`Analysis` is still picked as `target_class`, since its average recall is still clearly the lower of the
+two (~31% vs ~56%). See `_CLASS_OF_INTEREST` in `src/xai_thesis/pipeline.py`.
 
 Plots are written to `outputs/plots/<experiment_name>/`.

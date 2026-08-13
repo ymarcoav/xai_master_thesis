@@ -342,10 +342,15 @@ def generate_label_distribution(
 # arbitrary/random instance choice.
 _CLASS_OF_INTEREST: dict[str, tuple[str, str]] = {
     # Unlike this project's other multiclass datasets, UNSW-NB15's dominant confusion doesn't
-    # funnel into Benign at all - Analysis and Backdoor are confused with each other far more
-    # than with anything else, in both directions, across every model trained (Analysis-
-    # >Backdoor 27.6-66.6%, Backdoor->Analysis 15.9-66.8%). Analysis is picked as target_class
-    # since it has the lower average recall of the two (~34% vs ~50% across models) - the
+    # funnel into Benign at all. Re-verified 2026-08-13 after switching UNSW-NB15 from the
+    # pre-built 10%-sampled training-set/testing-set files to the full raw capture (2.4M rows,
+    # ~13x the old scale - see datasets/unsw_nb15.py): Analysis->Backdoor is still a top-2
+    # confusion for every model trained (18.2-69.4%), but the picture is noisier at this scale
+    # than it was on the old data - DoS and Reconnaissance now also confuse heavily with
+    # Backdoor/Analysis/Exploits/Shellcode for some models, and the reverse direction
+    # (Backdoor->Analysis) is no longer consistently dominant (0-36.7%, actually 0% for
+    # neural_network). Analysis remains target_class regardless: its recall is still clearly
+    # the lower of the two on the new data (~31% vs ~56% average across models), the
     # harder-to-detect side of this pair.
     "unsw_nb15": ("Analysis", "Backdoor"),
     "dapt2020": ("Reconnaissance", "Benign"),
