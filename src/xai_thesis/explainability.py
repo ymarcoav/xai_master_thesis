@@ -395,7 +395,7 @@ def explain_instance_with_lime_full(
         1,
         3,
         figsize=(12, max(3, 0.4 * n + 1.5)),
-        gridspec_kw={"width_ratios": [1.1, 2, 1.6]},
+        gridspec_kw={"width_ratios": [1.1, 2, 1.2]},
     )
 
     # Left: prediction probabilities
@@ -424,15 +424,15 @@ def explain_instance_with_lime_full(
         [columns[feature_index], _format_value(value)]
         for (feature_index, _), value in zip(exp_ids, feature_values, strict=True)
     ]
-    table = ax_table.table(cellText=table_rows, colLabels=["Feature", "Value"], cellLoc="left", loc="center")
+    table = ax_table.table(
+        cellText=table_rows,
+        colLabels=["Feature", "Value"],
+        cellLoc="left",
+        colWidths=[0.6, 0.4],
+        bbox=[0, 0, 1, 1],  # fill the full axes instead of auto-centering
+    )
     table.auto_set_font_size(False)
     table.set_fontsize(9)
-    # Default column widths split the axes 50/50 regardless of content and don't wrap text,
-    # so a feature name longer than that width (common - e.g. NSL-KDD's ct_src_dport_ltm)
-    # silently clips instead of resizing. auto_set_column_width sizes each column to its
-    # actual longest cell instead of a fixed guess, since typical name length varies a lot
-    # across this project's datasets.
-    table.auto_set_column_width([0, 1])
     for row_index in range(n):
         color = "#d5f5d5" if weights[row_index] > 0 else "#f8d7d7"
         table[row_index + 1, 0].set_facecolor(color)

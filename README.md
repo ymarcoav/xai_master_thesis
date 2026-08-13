@@ -169,8 +169,7 @@ reminder that kernel SVM training time tracks how separable the data is (how man
 needed), not row count alone.
 
 As of 2026-08-09, `C` is tuned via `RandomizedSearchCV` like the other models (the reference's own
-`C=0.5` is kept only as `--tune`'s starting point), and `svm` is also now trained on **CIC-IDS2017**
-(~2M training rows) for the first time - previously skipped outright as impractical. Getting there
+`C=0.5` is kept only as `--tune`'s starting point). Getting this to run in reasonable time at all
 required two real fixes, not just patience:
 
 - **A deliberately smaller search budget** than the other models, called directly via
@@ -202,6 +201,17 @@ Both final fits still hit the `max_iter` cap without fully converging (visible v
 `ConvergenceWarning`) - a real, honestly-reported quality caveat, not hidden: the safety net trades a
 small amount of potential model quality for bounded, predictable runtime, which given the alternative
 (a silent multi-hour-or-worse hang) is the right trade for this project.
+
+**CIC-IDS2017's `svm` is tuned but not yet trained.** `configs/experiments/cic_ids2017_svm_baseline.yaml`
+exists and its `C` search completed (`C=10`, search took only ~8 minutes thanks to an explicit
+`subsample_size=40_000` override well below the shared 200k default - CIC-IDS2017 is ~2M rows). The
+final fit on the complete, un-subsampled training set is the genuinely open question: an attempt was
+started and left running unattended for 24+ hours (confirmed still actively computing throughout, not
+hung - `max_iter` bounds iteration *count*, but at this row count each individual iteration itself costs
+far more than on any other dataset here, so the cap doesn't translate to a comparable bound on
+wall-clock time) before being interrupted by an unrelated session restart with no checkpoint to resume
+from - `outputs/models/cic_ids2017_svm_baseline.joblib` does not exist yet. Deliberately not retried
+within this session; picking this back up is a deferred, explicit decision, not an oversight.
 
 ## Analysis
 
@@ -250,7 +260,19 @@ python scripts/explain.py  # all experiments
   Produces a global bar plot (mean |SHAP value| per feature, stacked by class), a global beeswarm
   for the dataset's class of interest, and local waterfall plots for two curated test instances.
 - **LIME** (`LimeTabularExplainer`): local explanations for the same two curated instances, so SHAP and
-  LIME can be compared directly on identical cases.
+  LIME can be compared directly on identical cases. Rendered as a three-panel figure reproducing LIME's
+  `show_in_notebook()` layout as a static image (`explain_instance_with_lime_full` in
+  `explainability.py`) - prediction probabilities on the left (predicted class highlighted), feature
+  weights for the predicted class in the center (green supports it, red opposes it, strongest at top),
+  and a feature-value table on the right, row-aligned and color-matched to the weights panel so which
+  value drove which bar is visible at a glance. `show_in_notebook`/`save_to_file` only produce an
+  HTML+D3 widget with no static-image path, which doesn't work in this project's headless
+  (`matplotlib.use("Agg")`) pipeline, so this rebuilds the same three panels directly from the
+  explanation object's own data (`predict_proba`, `as_list`, `local_exp`) instead. The single-panel
+  `explanation.as_pyplot_figure()` version LIME ships by default is still available as
+  `explain_instance_with_lime` (both share one `_build_lime_explanation()` helper so the explanation
+  itself is only computed once regardless of which rendering is requested) but isn't currently called
+  anywhere in the pipeline.
 - **Permutation feature importance** (`sklearn.inspection.permutation_importance`): run on the full
   pipeline, so importances are reported in terms of the original feature names, not the one-hot-expanded
   ones.
