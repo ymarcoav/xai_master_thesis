@@ -85,6 +85,17 @@ class CICIDS2017Dataset(BaseDataset):
         duration_columns = [column for column in data.columns if column == "Flow Duration" or "IAT" in column]
         data = data.loc[~(data[duration_columns] < 0).any(axis=1)]
 
+        # Fwd Header Length, Bwd Header Length, and min_seg_size_forward carry physically
+        # impossible negative values in a handful of rows (as low as -3.22e10 - a byte-length/
+        # segment-size field can never be negative), almost certainly a CICFlowMeter integer-
+        # underflow bug rather than valid traffic. Found via pairwise feature correlation:
+        # these ~30-row outliers were extreme enough to flip Fwd/Bwd Header Length's measured
+        # correlation from ~0 to ~1 depending on which rows landed in a given sample. Left in
+        # place, a single such row would anchor MinMaxScaler's global min to a nonsensical
+        # value, corrupting these otherwise-informative columns for every other row.
+        non_negative_columns = ["Fwd Header Length", "Bwd Header Length", "min_seg_size_forward"]
+        data = data.loc[~(data[non_negative_columns] < 0).any(axis=1)]
+
         # Multiclass classification: native ~15-way label collapsed into 7 categories - see
         # _ATTACK_CATEGORY/_map_to_category above.
         label_column = self.config.label_column

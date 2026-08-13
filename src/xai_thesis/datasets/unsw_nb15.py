@@ -108,7 +108,6 @@ _NUMERIC_COLUMNS = [
     "ct_state_ttl",
     "ct_flw_http_mthd",
     "is_ftp_login",
-    "ct_ftp_cmd",
     "ct_srv_src",
     "ct_srv_dst",
     "ct_dst_ltm",
@@ -118,10 +117,13 @@ _NUMERIC_COLUMNS = [
     "ct_dst_src_ltm",
 ]
 
-# ct_flw_http_mthd/is_ftp_login/ct_ftp_cmd are blank for ~54% of raw rows - verified this is
-# concentrated in non-HTTP/non-FTP flows, not missing-at-random, so blank means "not
-# applicable" (a real 0), not a value for the shared imputer to guess at from the other ~46%.
-_APPLICABILITY_ZERO_COLUMNS = ["ct_flw_http_mthd", "is_ftp_login", "ct_ftp_cmd"]
+# ct_flw_http_mthd/is_ftp_login are blank for ~54% of raw rows - verified this is concentrated
+# in non-HTTP/non-FTP flows, not missing-at-random, so blank means "not applicable" (a real
+# 0), not a value for the shared imputer to guess at from the other ~46%. ct_ftp_cmd shared
+# this same treatment previously, but is now dropped outright (see
+# configs/datasets/unsw_nb15.yaml) rather than cleaned - it turned out to be near-redundant
+# with is_ftp_login (r=0.92) and showed no per-class differentiation when nonzero.
+_APPLICABILITY_ZERO_COLUMNS = ["ct_flw_http_mthd", "is_ftp_login"]
 
 
 class UNSWNB15Dataset(BaseDataset):

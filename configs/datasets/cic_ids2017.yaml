@@ -16,6 +16,25 @@ categorical_columns: []
 # (99.97-99.996% one value) - those still carry rare-but-real signal, unlike a truly constant
 # column, and this project's severely imbalanced datasets already lean on exactly this kind of
 # rare-but-informative signal elsewhere.
+# Near-exact-duplicate columns, verified 2026-08-13 via direct pairwise correlation on the
+# full processed train.csv (not just a plotted sample - a sample-based check of this same
+# data initially also flagged Fwd/Bwd Header Length as a "duplicate" pair, which turned out
+# to be a sampling artifact caused by a handful of corrupted rows dominating whichever random
+# sample was drawn; re-verified on the full 2.83M rows before trusting any of these). Each
+# pair below is correlated at 1.000 (RST/ECE Flag Count: 0.998) on the full data - one column
+# of each pair is dropped as redundant, keeping whichever name is the more standard/
+# interpretable of the two for feature-importance write-ups:
+#   Total Fwd/Backward Packets kept over Subflow Fwd/Bwd Packets (same value, subflow==total
+#     whenever a flow has a single subflow, the common case)
+#   Fwd/Bwd Packet Length Mean kept over Avg Fwd/Bwd Segment Size (literal alias)
+#   Total Length of Fwd/Bwd Packets kept over Subflow Fwd/Bwd Bytes (same reasoning as above)
+#   SYN Flag Count kept over Fwd PSH Flags (exact 1.000 correlation in this data - plausibly
+#     another CICFlowMeter internal-counter quirk rather than a meaningful relationship, but
+#     redundant either way; SYN is the more security-interpretable of the two)
+#   RST Flag Count kept over ECE Flag Count (RST is far more relevant to scan/attack
+#     detection than the rarely-used ECN-Echo flag)
+#   Fwd URG Flags kept over CWE Flag Count (same reasoning - URG is the more interpretable
+#     name; Bwd URG Flags is already dropped below as zero-variance)
 drop_columns:
   - Bwd PSH Flags
   - Bwd URG Flags
@@ -25,3 +44,12 @@ drop_columns:
   - Bwd Avg Bytes/Bulk
   - Bwd Avg Packets/Bulk
   - Bwd Avg Bulk Rate
+  - Subflow Fwd Packets
+  - Subflow Bwd Packets
+  - Avg Fwd Segment Size
+  - Avg Bwd Segment Size
+  - Subflow Fwd Bytes
+  - Subflow Bwd Bytes
+  - Fwd PSH Flags
+  - CWE Flag Count
+  - ECE Flag Count

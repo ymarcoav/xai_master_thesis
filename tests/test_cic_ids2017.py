@@ -26,6 +26,8 @@ def _base_frame() -> pd.DataFrame:
             " Flow Packets/s": [1.0, 2.0, float("-inf"), 1.0],
             " Fwd Header Length": [20, 20, 20, 20],
             " Fwd Header Length.1": [20, 20, 20, 20],
+            "Bwd Header Length": [20, 20, 20, 20],
+            "min_seg_size_forward": [20, 20, 20, 20],
             " Label": ["BENIGN", "BENIGN", "BENIGN", "BENIGN"],
             "source_file": ["Monday", "Tuesday", "Wednesday", "Friday"],
         }
@@ -85,6 +87,24 @@ def test_cic_ids2017_clean_drops_rows_with_negative_duration_or_iat() -> None:
 
     assert (cleaned["Flow Duration"] >= 0).all()
     assert (cleaned["Flow IAT Min"] >= 0).all()
+    assert len(cleaned) == 2
+
+
+def test_cic_ids2017_clean_drops_rows_with_negative_header_length_or_segment_size() -> None:
+    # Regression test: a handful of raw rows carry physically impossible negative values in
+    # Fwd/Bwd Header Length and min_seg_size_forward (as low as -3.22e10 in the real data) -
+    # almost certainly a CICFlowMeter integer-underflow bug. Left in place, MinMaxScaler's
+    # global min/max would be anchored to the nonsensical outlier, corrupting these otherwise-
+    # informative columns for every other row.
+    dataset = _make_dataset()
+    data = _base_frame()
+    data.loc[0, "Bwd Header Length"] = -1
+    data.loc[1, "min_seg_size_forward"] = -5
+
+    cleaned = dataset.clean(data)
+
+    assert (cleaned["Bwd Header Length"] >= 0).all()
+    assert (cleaned["min_seg_size_forward"] >= 0).all()
     assert len(cleaned) == 2
 
 

@@ -26,7 +26,14 @@ categorical_columns:
 # rationale - but it's "unknown" (the raw "-"/blank placeholder) for 57.33% of rows across
 # both splits, a plausible unstated reason for their manual "not valuable" call, matching
 # that they did NOT run automated feature selection for UNSW-NB15 unlike CIC-IDS2017).
-# stime is deliberately NOT listed here - see datasets/unsw_nb15.py's clean().
+# ct_ftp_cmd: also dropped 2026-08-13 - verified via direct data inspection (not just
+# following Tai et al.'s unexplained "handled or removed" for this column) that it
+# correlates with is_ftp_login at r=0.92 (near-redundant with a feature already kept) and,
+# when nonzero (only 1.95% of rows), its mean value is ~1.0-1.06 across every attack_cat
+# that has any nonzero rows at all - no visible per-class differentiation, unlike the
+# near-constant CIC-IDS2017 flag columns kept for their datasets/cic_ids2017.yaml, where no
+# such redundancy-with-a-kept-feature was found. stime is deliberately NOT listed here -
+# see datasets/unsw_nb15.py's clean().
 drop_columns:
   - srcip
   - sport
@@ -35,3 +42,4 @@ drop_columns:
   - ltime
   - label
   - service
+  - ct_ftp_cmd

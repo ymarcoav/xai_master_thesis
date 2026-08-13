@@ -114,7 +114,7 @@ def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
                 "raw_path": raw_dir.as_posix(),
                 "processed_path": processed_dir.as_posix(),
                 "label_column": "attack_cat",
-                "drop_columns": ["srcip", "sport", "dstip", "dsport", "ltime", "label", "service"],
+                "drop_columns": ["srcip", "sport", "dstip", "dsport", "ltime", "label", "service", "ct_ftp_cmd"],
                 "categorical_columns": ["proto", "state"],
             }
         ),
@@ -134,6 +134,7 @@ def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
     assert "ltime" not in train_df.columns
     assert "label" not in train_df.columns
     assert "service" not in train_df.columns
+    assert "ct_ftp_cmd" not in train_df.columns
     assert "stime" not in train_df.columns  # dropped by the split itself, only used to order it
     assert "source_file" not in train_df.columns
     # 5 Benign + 5 Exploits in file 1 (80/20 cutoff -> 4 train/1 test each) + one more row per
