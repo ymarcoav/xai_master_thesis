@@ -1,7 +1,15 @@
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
-from xai_thesis.evaluation import _label_sort_key, evaluate_classifier, plot_confusion_matrix, plot_label_distribution
+from xai_thesis.evaluation import (
+    _label_sort_key,
+    evaluate_classifier,
+    plot_confusion_matrix,
+    plot_feature_correlation,
+    plot_label_distribution,
+    plot_missing_values,
+    plot_train_test_split_distribution,
+)
 
 
 def test_label_sort_key_orders_benign_first_then_alphabetical() -> None:

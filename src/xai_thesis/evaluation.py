@@ -8,6 +8,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 import seaborn as sns  # noqa: E402
 from matplotlib.colors import SymLogNorm  # noqa: E402
 from sklearn.metrics import (  # noqa: E402
@@ -152,6 +153,139 @@ def plot_confusion_matrix(
     ax.set_ylabel("True label")
     plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
     plt.setp(ax.get_yticklabels(), rotation=0)
+    fig.tight_layout()
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+
+    return output_path
+
+
+def plot_missing_values(data: pd.DataFrame, output_path: str | Path, *, title: str | None = None) -> Path:
+    """Plot the % of missing values per column, for columns with at least one missing value.
+
+    Sorted descending. If no column has any missing values, saves a placeholder figure
+    stating that instead of an empty chart - a "verified clean" result is still worth
+    recording, not just a silent no-op.
+    """
+    missing_percent = (data.isna().mean() * 100).sort_values(ascending=True)
+    missing_percent = missing_percent[missing_percent > 0]
+
+    if missing_percent.empty:
+        fig, ax = plt.subplots(figsize=(8, 2))
+        ax.text(
+            0.5,
+            0.5,
+            f"No missing values in any of {data.shape[1]} columns",
+            ha="center",
+            va="center",
+            fontsize=11,
+        )
+        ax.axis("off")
+    else:
+        figure_height = max(3, len(missing_percent) * 0.35)
+        fig, ax = plt.subplots(figsize=(8, figure_height))
+        bars = ax.barh(missing_percent.index.astype(str), missing_percent.to_numpy(), color="#C44E52")
+        ax.set_xlabel("Missing (%)")
+        ax.set_ylabel("Column")
+        ax.bar_label(bars, labels=[f"{value:.2f}%" for value in missing_percent], padding=3, fontsize=9)
+        ax.margins(x=0.15)
+
+    if title:
+        ax.set_title(title)
+    fig.tight_layout()
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+
+    return output_path
+
+
+def plot_train_test_split_distribution(
+    train_labels, test_labels, output_path: str | Path, *, title: str | None = None
+) -> Path:
+    """Plot per-class train vs test counts as grouped bars.
+
+    Checks that every class survives a dataset's split with reasonable representation on
+    both sides - relevant here since most datasets in this project use a custom chronological
+    split (per source file/label group), not a stratified one, so an uneven split is a real
+    possibility, not just a hypothetical.
+    """
+    train_counts = train_labels.value_counts()
+    test_counts = test_labels.value_counts()
+    classes = sorted(
+        set(train_counts.index) | set(test_counts.index),
+        key=lambda label: train_counts.get(label, 0) + test_counts.get(label, 0),
+    )
+
+    y_positions = np.arange(len(classes))
+    bar_height = 0.35
+
+    figure_height = max(3, len(classes) * 0.5)
+    fig, ax = plt.subplots(figsize=(9, figure_height))
+    ax.barh(
+        y_positions + bar_height / 2,
+        [train_counts.get(label, 0) for label in classes],
+        height=bar_height,
+        label="Train",
+        color="#4C72B0",
+    )
+    ax.barh(
+        y_positions - bar_height / 2,
+        [test_counts.get(label, 0) for label in classes],
+        height=bar_height,
+        label="Test",
+        color="#DD8452",
+    )
+    ax.set_yticks(y_positions)
+    ax.set_yticklabels([str(label) for label in classes])
+    ax.set_xscale("log")
+    ax.set_xlabel("Count (log scale)")
+    ax.set_ylabel("Class")
+    ax.legend()
+    if title:
+        ax.set_title(title)
+    ax.margins(x=0.15)
+    fig.tight_layout()
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+
+    return output_path
+
+
+def plot_feature_correlation(data: pd.DataFrame, output_path: str | Path, *, title: str | None = None) -> Path:
+    """Correlation heatmap over numeric feature columns, to spot redundant/highly correlated
+    features before modeling. Non-numeric (categorical) columns are dropped automatically.
+    """
+    numeric_data = data.select_dtypes(include=[np.number])
+    correlation = numeric_data.corr()
+
+    figure_size = min(28, max(6, len(correlation.columns) * 0.3))
+    label_size = max(4, min(9, 300 // max(1, len(correlation.columns))))
+    fig, ax = plt.subplots(figsize=(figure_size, figure_size))
+    sns.heatmap(
+        correlation,
+        ax=ax,
+        cmap="vlag",
+        vmin=-1,
+        vmax=1,
+        center=0,
+        square=True,
+        cbar_kws={"shrink": 0.7},
+        xticklabels=True,
+        yticklabels=True,
+    )
+    ax.tick_params(axis="x", labelsize=label_size, rotation=90)
+    ax.tick_params(axis="y", labelsize=label_size, rotation=0)
+    if title:
+        ax.set_title(title)
     fig.tight_layout()
 
     output_path = Path(output_path)

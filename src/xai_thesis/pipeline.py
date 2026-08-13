@@ -11,7 +11,14 @@ from sklearn.pipeline import Pipeline
 
 from xai_thesis.datasets import DATASET_REGISTRY
 from xai_thesis.datasets.base import DatasetConfig, load_dataset_config
-from xai_thesis.evaluation import evaluate_classifier, plot_confusion_matrix, plot_label_distribution
+from xai_thesis.evaluation import (
+    evaluate_classifier,
+    plot_confusion_matrix,
+    plot_feature_correlation,
+    plot_label_distribution,
+    plot_missing_values,
+    plot_train_test_split_distribution,
+)
 from xai_thesis.explainability import (
     compute_permutation_importance,
     compute_shap_values,
@@ -355,6 +362,72 @@ def generate_label_distribution(
     # experiment names) - this plot isn't tied to any one trained model.
     output_path = Path(plots_dir) / dataset_config.name / "label_distribution.png"
     return plot_label_distribution(labels, output_path, title=f"{dataset_config.name} label distribution")
+
+
+def generate_missing_value_summary(
+    dataset_config_path: str | Path,
+    *,
+    plots_dir: str | Path = "outputs/plots",
+) -> Path:
+    """Plot per-column missing-value percentages for a processed dataset's combined
+    train+test data. Imputation happens inside the sklearn Pipeline at training time (see
+    preprocessing.py's build_preprocessing_pipeline), not before - so the processed CSVs on
+    disk still carry whatever missingness survived each dataset adapter's own cleanup.
+    """
+    dataset_config = load_dataset_config(dataset_config_path)
+
+    train_df = pd.read_csv(Path(dataset_config.processed_path) / "train.csv")
+    test_df = pd.read_csv(Path(dataset_config.processed_path) / "test.csv")
+    combined = pd.concat([train_df, test_df], ignore_index=True)
+
+    output_path = Path(plots_dir) / dataset_config.name / "missing_values.png"
+    return plot_missing_values(combined, output_path, title=f"{dataset_config.name} missing values")
+
+
+def generate_train_test_split_comparison(
+    dataset_config_path: str | Path,
+    *,
+    plots_dir: str | Path = "outputs/plots",
+) -> Path:
+    """Plot per-class train vs test counts for a processed dataset's split."""
+    dataset_config = load_dataset_config(dataset_config_path)
+
+    train_df = pd.read_csv(Path(dataset_config.processed_path) / "train.csv")
+    test_df = pd.read_csv(Path(dataset_config.processed_path) / "test.csv")
+
+    output_path = Path(plots_dir) / dataset_config.name / "train_test_split.png"
+    return plot_train_test_split_distribution(
+        train_df[dataset_config.label_column],
+        test_df[dataset_config.label_column],
+        output_path,
+        title=f"{dataset_config.name} train/test split",
+    )
+
+
+def generate_feature_correlation(
+    dataset_config_path: str | Path,
+    *,
+    plots_dir: str | Path = "outputs/plots",
+    sample_size: int = 200_000,
+) -> Path:
+    """Plot a correlation heatmap over numeric feature columns for a processed dataset's
+    training split.
+
+    Sampled down to at most sample_size rows before computing correlations - this project's
+    largest datasets have 1.5-2.3M processed rows, and pandas' .corr() over that many rows at
+    80-140 columns is expensive for no real accuracy benefit (correlation structure is stable
+    well below this sample size). Same subsampling-for-cost pattern already used for
+    RandomizedSearchCV tuning on these same two datasets (see models.py/pipeline.py).
+    """
+    dataset_config = load_dataset_config(dataset_config_path)
+
+    train_df = pd.read_csv(Path(dataset_config.processed_path) / "train.csv")
+    features = train_df.drop(columns=[dataset_config.label_column])
+    if len(features) > sample_size:
+        features = features.sample(n=sample_size, random_state=42)
+
+    output_path = Path(plots_dir) / dataset_config.name / "feature_correlation.png"
+    return plot_feature_correlation(features, output_path, title=f"{dataset_config.name} feature correlation")
 
 
 # (target_class, confused_with_class) per dataset - every dataset in the catalog is multiclass as
