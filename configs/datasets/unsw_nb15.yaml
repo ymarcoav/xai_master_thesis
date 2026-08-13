@@ -17,13 +17,16 @@ exclude_files:
 # dropped in favor of this.
 categorical_columns:
   - proto
-  - service
   - state
 # srcip/dstip/sport/dsport: raw identifiers, not present in the pre-built training-set/
 # testing-set files this project used previously - dropped to avoid a model memorizing
 # attacker/victim addresses instead of learning traffic behavior. ltime: redundant with
-# dur/stime. label: native binary, dropped in favor of attack_cat. stime is deliberately
-# NOT listed here - see datasets/unsw_nb15.py's clean().
+# dur/stime. label: native binary, dropped in favor of attack_cat. service: dropped
+# 2026-08-13 following Tai et al. 2024's UNSW-NB15 preprocessing (their choice, no stated
+# rationale - but it's "unknown" (the raw "-"/blank placeholder) for 57.33% of rows across
+# both splits, a plausible unstated reason for their manual "not valuable" call, matching
+# that they did NOT run automated feature selection for UNSW-NB15 unlike CIC-IDS2017).
+# stime is deliberately NOT listed here - see datasets/unsw_nb15.py's clean().
 drop_columns:
   - srcip
   - sport
@@ -31,3 +34,4 @@ drop_columns:
   - dsport
   - ltime
   - label
+  - service

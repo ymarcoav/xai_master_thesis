@@ -164,9 +164,6 @@ class UNSWNB15Dataset(BaseDataset):
         label_column = self.config.label_column
         data[label_column] = data[label_column].str.strip().replace({"": "Benign", "Backdoors": "Backdoor"})
 
-        # "-" and "" both mark "service not identified" in the raw data.
-        data["service"] = data["service"].replace({"-": "unknown", "": "unknown"})
-
         # Drop row identifiers (srcip/dstip/sport/dsport - raw IP/port would let a model
         # memorize attacker/victim addresses instead of learning traffic behavior), ltime
         # (redundant with dur/stime), and the native binary label (attack_cat is used instead -

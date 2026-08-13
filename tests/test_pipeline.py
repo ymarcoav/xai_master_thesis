@@ -111,8 +111,8 @@ def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
                 "raw_path": raw_dir.as_posix(),
                 "processed_path": processed_dir.as_posix(),
                 "label_column": "attack_cat",
-                "drop_columns": ["srcip", "sport", "dstip", "dsport", "ltime", "label"],
-                "categorical_columns": ["proto", "service", "state"],
+                "drop_columns": ["srcip", "sport", "dstip", "dsport", "ltime", "label", "service"],
+                "categorical_columns": ["proto", "state"],
             }
         ),
         encoding="utf-8",
@@ -130,6 +130,7 @@ def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
     assert "sport" not in train_df.columns
     assert "ltime" not in train_df.columns
     assert "label" not in train_df.columns
+    assert "service" not in train_df.columns
     assert "stime" not in train_df.columns  # dropped by the split itself, only used to order it
     assert "source_file" not in train_df.columns
     # 5 Benign + 5 Exploits in file 1 (80/20 cutoff -> 4 train/1 test each) + one more row per
@@ -137,7 +138,6 @@ def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
     assert len(train_df) == 8
     assert len(test_df) == 5
     assert set(train_df["attack_cat"]) | set(test_df["attack_cat"]) == {"Benign", "Exploits", "DoS"}
-    assert "unknown" in (set(train_df["service"]) | set(test_df["service"]))  # "-" sentinel normalized
     assert pd.concat([train_df["is_ftp_login"], test_df["is_ftp_login"]]).max() == 1  # clipped from 2
 
 
