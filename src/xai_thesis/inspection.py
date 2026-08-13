@@ -19,11 +19,22 @@ def inspect_dataset_config(
     max_rows: int | None = None,
     chunksize: int = 100_000,
 ) -> dict[str, Any]:
-    """Inspect raw CSV files for one dataset config."""
+    """Inspect raw CSV files for one dataset config.
+
+    `raw_file_pattern` (default "*.csv") and `exclude_files` let a dataset config point at
+    non-standard raw files (e.g. NSL-KDD's headerless `.txt` files) or skip files that aren't
+    actual data (e.g. UNSW-NB15's `NUSW-NB15_features.csv` column-schema file). `raw_columns`
+    supplies header names for files that ship without one.
+    """
     config_path = Path(config_path)
     config = load_yaml(config_path)
     raw_path = Path(config["raw_path"])
-    csv_files = sorted(raw_path.glob("*.csv"))
+    file_pattern = config.get("raw_file_pattern", "*.csv")
+    exclude_files = set(config.get("exclude_files", []))
+    csv_files = sorted(
+        path for path in raw_path.glob(file_pattern) if path.name not in exclude_files
+    )
+    raw_columns = config.get("raw_columns")
 
     summary = {
         "dataset": config["name"],
@@ -32,7 +43,13 @@ def inspect_dataset_config(
         "configured_label_column": config.get("label_column"),
         "max_rows": max_rows,
         "files": [
-            inspect_csv_file(file_path, config.get("label_column"), max_rows, chunksize)
+            inspect_csv_file(
+                file_path,
+                config.get("label_column"),
+                max_rows,
+                chunksize,
+                header_columns=raw_columns,
+            )
             for file_path in csv_files
         ],
     }
@@ -52,8 +69,14 @@ def inspect_csv_file(
     label_column: str | None,
     max_rows: int | None = None,
     chunksize: int = 100_000,
+    *,
+    header_columns: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Inspect one CSV file without loading large datasets fully into memory."""
+    """Inspect one CSV file without loading large datasets fully into memory.
+
+    `header_columns`, if given, is used as the header for files that ship without one
+    (`header=None`).
+    """
     file_path = Path(file_path)
     row_count = 0
     columns: list[str] = []
@@ -63,7 +86,9 @@ def inspect_csv_file(
     label_counts: Counter[str] = Counter()
     label_column_found: str | None = None
 
-    for chunk in _read_csv_chunks(file_path, max_rows=max_rows, chunksize=chunksize):
+    for chunk in _read_csv_chunks(
+        file_path, max_rows=max_rows, chunksize=chunksize, columns=header_columns
+    ):
         if not columns:
             columns = list(chunk.columns)
             label_column_found = _resolve_column_name(columns, label_column)
@@ -172,14 +197,37 @@ def inspect_all_dataset_configs(
     ]
 
 
+def _detect_encoding(file_path: Path) -> str:
+    """Detect utf-8 vs cp1252 from a sample, for files with legacy Windows encoding artifacts."""
+    with open(file_path, "rb") as f:
+        sample = f.read(1_000_000)
+    try:
+        sample.decode("utf-8")
+        return "utf-8"
+    except UnicodeDecodeError:
+        return "cp1252"
+
+
 def _read_csv_chunks(
     file_path: Path,
     *,
     max_rows: int | None,
     chunksize: int,
+    columns: list[str] | None = None,
 ):
     rows_remaining = max_rows
-    reader = pd.read_csv(file_path, chunksize=chunksize, low_memory=False)
+    encoding = _detect_encoding(file_path)
+    if columns is not None:
+        reader = pd.read_csv(
+            file_path,
+            chunksize=chunksize,
+            low_memory=False,
+            encoding=encoding,
+            header=None,
+            names=columns,
+        )
+    else:
+        reader = pd.read_csv(file_path, chunksize=chunksize, low_memory=False, encoding=encoding)
 
     for chunk in reader:
         if rows_remaining is None:

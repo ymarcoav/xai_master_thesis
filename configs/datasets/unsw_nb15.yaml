@@ -3,6 +3,12 @@ raw_path: data/raw/UNSW_NB15
 processed_path: data/processed/unsw_nb15
 label_column: attack_cat
 
+# NUSW-NB15_features.csv is the column-schema/description file (Name/Type/Description per
+# feature), not traffic data - excluded from dataset_inspection so it doesn't get mixed into
+# the aggregate row/column stats for the 4 actual UNSW-NB15_*.csv data files.
+exclude_files:
+  - NUSW-NB15_features.csv
+
 # Multiclass classification: attack_cat is UNSW-NB15's own native 10-category ground
 # truth (Normal + Generic/Exploits/Fuzzers/DoS/Reconnaissance/Analysis/Backdoor/
 # Shellcode/Worms), the standard scheme used throughout UNSW-NB15 literature (Moustafa

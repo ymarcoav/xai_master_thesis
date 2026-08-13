@@ -32,6 +32,27 @@ def _base_frame() -> pd.DataFrame:
     )
 
 
+def test_cic_ids2017_clean_drops_configured_drop_columns() -> None:
+    # Regression test: clean() previously never applied self.config.drop_columns at all (every
+    # other dataset adapter does), so entries added to drop_columns silently had no effect.
+    config = DatasetConfig(
+        name="cic_ids2017",
+        raw_path="unused",
+        processed_path="unused",
+        label_column="Label",
+        drop_columns=("Fwd Avg Bytes/Bulk", "Bwd PSH Flags"),
+    )
+    dataset = CICIDS2017Dataset(config)
+    data = _base_frame()
+    data["Fwd Avg Bytes/Bulk"] = 0
+    data["Bwd PSH Flags"] = 0
+
+    cleaned = dataset.clean(data)
+
+    assert "Fwd Avg Bytes/Bulk" not in cleaned.columns
+    assert "Bwd PSH Flags" not in cleaned.columns
+
+
 def test_cic_ids2017_clean_strips_whitespace_and_drops_duplicate_column() -> None:
     dataset = _make_dataset()
     data = _base_frame()

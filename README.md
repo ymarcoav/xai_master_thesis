@@ -31,6 +31,12 @@ interface.
 > no longer part of the actual analysis the thesis reports on. Treat any DAPT2020-specific content here
 > or elsewhere in this repo as legacy/reference material, not current thesis scope.
 
+> **NSL-KDD is also out of scope for the thesis as of 2026-08-13.** Same treatment as DAPT2020: its
+> adapter, configs, trained models, and generated explanations all remain in place and fully functional -
+> nothing was removed - but it is no longer part of the actual analysis the thesis reports on. The thesis
+> now covers only **UNSW-NB15 and CIC-IDS2017**. Treat any NSL-KDD-specific content here or elsewhere in
+> this repo as legacy/reference material, not current thesis scope.
+
 **Every dataset in this catalog is multiclass as of 2026-07-31** - UNSW-NB15 was the last binary one.
 **UNSW-NB15** is multiclass over its native **10-category `attack_cat` scheme** (`Benign` + `Generic`,
 `Exploits`, `Fuzzers`, `DoS`, `Reconnaissance`, `Analysis`, `Backdoor`, `Shellcode`, `Worms`) - the

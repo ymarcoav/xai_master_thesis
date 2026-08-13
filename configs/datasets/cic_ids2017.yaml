@@ -5,4 +5,23 @@ label_column: Label
 
 # Fill in after inspecting the raw files.
 categorical_columns: []
-drop_columns: []
+# Verified zero-variance in the actual processed data (a single constant value - 0 - across
+# every row of both the train and test splits, not just an example from a third-party paper):
+# the two backward-direction PSH/URG flag counts, and all six *_Bulk/Bulk_Rate columns
+# (Fwd/Bwd Avg Bytes per Bulk, Avg Packets per Bulk, Avg Bulk Rate). Left in place, these
+# constant columns are functionally dead weight - MinMaxScaler passes a constant column
+# through as inert zeros rather than erroring, so nothing breaks, but they add noise to
+# SHAP/permutation-importance rankings and PDP plots. NOT included here: the four near-constant
+# (but not literally zero-variance) flag columns Fwd URG Flags/RST/CWE/ECE Flag Count
+# (99.97-99.996% one value) - those still carry rare-but-real signal, unlike a truly constant
+# column, and this project's severely imbalanced datasets already lean on exactly this kind of
+# rare-but-informative signal elsewhere.
+drop_columns:
+  - Bwd PSH Flags
+  - Bwd URG Flags
+  - Fwd Avg Bytes/Bulk
+  - Fwd Avg Packets/Bulk
+  - Fwd Avg Bulk Rate
+  - Bwd Avg Bytes/Bulk
+  - Bwd Avg Packets/Bulk
+  - Bwd Avg Bulk Rate

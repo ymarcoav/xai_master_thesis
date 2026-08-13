@@ -196,6 +196,22 @@ def _fit_pipeline_with_post_preprocessing_resampling(
     return Pipeline(steps=[("preprocessing", preprocessing), ("model", model)])
 
 
+# svm's final fit is intractable at these two datasets' full training-set size: CIC-IDS2017's
+# ~2M-row attempt ran 24+ hours without completing (see README.md), and UNSW-NB15 hit the same
+# risk after switching to the full raw capture (~1.9M rows) and was deferred rather than repeat
+# that incident. Unlike every other model/dataset combination in this catalog, svm's final fit
+# on these two is trained on a stratified subsample instead of the complete training set - a
+# deliberate, disclosed methodological deviation, not an oversight. min_per_class (200) is set
+# well above each dataset's rarest class's full count (CIC-IDS2017's Infiltration: 28 rows;
+# UNSW-NB15's Worms: 130 rows), so stratified_subsample's "at least min_per_class, or all of
+# them if fewer" rule keeps every rare class fully intact rather than thinning it down further
+# to a handful of rows or less.
+_FINAL_FIT_SUBSAMPLE: dict[tuple[str, str], tuple[int, int]] = {
+    ("svm", "unsw_nb15"): (150_000, 200),
+    ("svm", "cic_ids2017"): (150_000, 200),
+}
+
+
 def run_experiment(
     experiment_config_path: str | Path,
     *,
@@ -208,6 +224,13 @@ def run_experiment(
         experiment_config_path, dataset_config_dir
     )
     random_state = experiment.get("random_state", 42)
+
+    subsample = _FINAL_FIT_SUBSAMPLE.get((experiment["model"], dataset_config.name))
+    if subsample is not None:
+        target_size, min_per_class = subsample
+        x_train, y_train = stratified_subsample(
+            x_train, y_train, target_size, min_per_class=min_per_class, random_state=random_state
+        )
 
     if experiment["model"] in _MODELS_REQUIRING_RESAMPLING:
         pipeline = _fit_pipeline_with_post_preprocessing_resampling(

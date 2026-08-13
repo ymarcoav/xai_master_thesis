@@ -127,7 +127,11 @@ def _map_to_category(value: str) -> str:
 
 
 class NSLKDDDataset(BaseDataset):
-    """NSL-KDD adapter."""
+    """NSL-KDD adapter.
+
+    Out of scope for the thesis as of 2026-08-13: kept fully functional, but no longer part
+    of the actual thesis analysis - see README.md's Datasets section.
+    """
 
     def load_raw(self) -> pd.DataFrame:
         raw_path = Path(self.config.raw_path)

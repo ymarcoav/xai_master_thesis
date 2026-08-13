@@ -71,6 +71,11 @@ class CICIDS2017Dataset(BaseDataset):
         # (auto-suffixed ".1" by pandas) is byte-for-byte identical to the first.
         data = data.drop(columns=[_DUPLICATE_COLUMN], errors="ignore")
 
+        # Configured zero-variance columns (see configs/datasets/cic_ids2017.yaml) - a constant
+        # column can't inform any classifier and only adds noise to SHAP/permutation-importance
+        # rankings and PDP plots.
+        data = data.drop(columns=list(self.config.drop_columns), errors="ignore")
+
         # Flow Bytes/s and Flow Packets/s divide by a near-zero duration; treat the
         # resulting Infinity the same as any other missing value for the shared imputer.
         data = data.replace([np.inf, -np.inf], np.nan)

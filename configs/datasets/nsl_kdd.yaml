@@ -1,7 +1,63 @@
+# OUT OF SCOPE for the thesis as of 2026-08-13: kept fully functional (adapter, configs,
+# trained models, explanations all still work) but no longer part of the actual thesis
+# analysis - see README.md's Datasets section.
 name: nsl_kdd
 raw_path: data/raw/NSL_KDD
 processed_path: data/processed/nsl_kdd
 label_column: attack_category
+
+# Raw files ship as headerless *.txt, not *.csv - dataset_inspection needs both the file
+# pattern and the header names to read them. raw_columns must stay in sync with
+# datasets/nsl_kdd.py's _COLUMN_NAMES (41 named features + native "class" label + trailing
+# unnamed "difficulty_level" score). Note the raw label column is "class" here, not
+# "attack_category" - attack_category is derived later in the adapter's clean(), so
+# dataset_inspection will report the configured label column as not found in the raw files;
+# that's expected, not a bug.
+raw_file_pattern: "*.txt"
+raw_columns:
+  - duration
+  - protocol_type
+  - service
+  - flag
+  - src_bytes
+  - dst_bytes
+  - land
+  - wrong_fragment
+  - urgent
+  - hot
+  - num_failed_logins
+  - logged_in
+  - num_compromised
+  - root_shell
+  - su_attempted
+  - num_root
+  - num_file_creations
+  - num_shells
+  - num_access_files
+  - num_outbound_cmds
+  - is_host_login
+  - is_guest_login
+  - count
+  - srv_count
+  - serror_rate
+  - srv_serror_rate
+  - rerror_rate
+  - srv_rerror_rate
+  - same_srv_rate
+  - diff_srv_rate
+  - srv_diff_host_rate
+  - dst_host_count
+  - dst_host_srv_count
+  - dst_host_same_srv_rate
+  - dst_host_diff_srv_rate
+  - dst_host_same_src_port_rate
+  - dst_host_srv_diff_host_rate
+  - dst_host_serror_rate
+  - dst_host_srv_serror_rate
+  - dst_host_rerror_rate
+  - dst_host_srv_rerror_rate
+  - class
+  - difficulty_level
 
 # Multiclass over the conventional DoS/Probe/R2L/U2R categories (+ Benign) - see
 # datasets/nsl_kdd.py's _ATTACK_CATEGORY mapping and module docstring for why this grouping
