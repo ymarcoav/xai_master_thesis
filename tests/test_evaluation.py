@@ -73,3 +73,66 @@ def test_plot_label_distribution_writes_png(tmp_path) -> None:
     assert result_path == output_path
     assert output_path.exists()
     assert output_path.stat().st_size > 0
+
+
+def test_plot_missing_values_writes_png_with_missing_data(tmp_path) -> None:
+    data = pd.DataFrame({"a": [1.0, None, 3.0], "b": [1.0, 2.0, 3.0]})
+    output_path = tmp_path / "missing_values.png"
+
+    result_path = plot_missing_values(data, output_path, title="test dataset")
+
+    assert result_path == output_path
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
+
+
+def test_plot_missing_values_writes_placeholder_when_nothing_missing(tmp_path) -> None:
+    data = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [1.0, 2.0, 3.0]})
+    output_path = tmp_path / "missing_values.png"
+
+    result_path = plot_missing_values(data, output_path, title="test dataset")
+
+    assert result_path == output_path
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
+
+
+def test_plot_train_test_split_distribution_writes_png(tmp_path) -> None:
+    train_labels = pd.Series(["benign"] * 8 + ["attack"] * 2)
+    test_labels = pd.Series(["benign"] * 2 + ["attack"] * 1)
+    output_path = tmp_path / "train_test_split.png"
+
+    result_path = plot_train_test_split_distribution(train_labels, test_labels, output_path, title="test dataset")
+
+    assert result_path == output_path
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
+
+
+def test_plot_train_test_split_distribution_handles_class_absent_from_one_split(tmp_path) -> None:
+    # "rare" only appears in train, never in test - a real possibility with this project's
+    # chronological, non-stratified splits.
+    train_labels = pd.Series(["benign"] * 5 + ["rare"] * 1)
+    test_labels = pd.Series(["benign"] * 2)
+    output_path = tmp_path / "train_test_split.png"
+
+    result_path = plot_train_test_split_distribution(train_labels, test_labels, output_path)
+
+    assert result_path.exists()
+
+
+def test_plot_feature_correlation_writes_png(tmp_path) -> None:
+    data = pd.DataFrame(
+        {
+            "a": [1.0, 2.0, 3.0, 4.0],
+            "b": [4.0, 3.0, 2.0, 1.0],
+            "categorical": ["x", "y", "x", "y"],
+        }
+    )
+    output_path = tmp_path / "feature_correlation.png"
+
+    result_path = plot_feature_correlation(data, output_path, title="test dataset")
+
+    assert result_path == output_path
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0

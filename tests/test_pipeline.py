@@ -9,7 +9,10 @@ import yaml
 from xai_thesis.pipeline import (
     generate_confusion_matrix,
     generate_explanations,
+    generate_feature_correlation,
     generate_label_distribution,
+    generate_missing_value_summary,
+    generate_train_test_split_comparison,
     preprocess_dataset,
     run_experiment,
     tune_hyperparameters,
@@ -166,6 +169,91 @@ def test_generate_label_distribution_writes_png(tmp_path) -> None:
     output_path = generate_label_distribution(dataset_config_path, plots_dir=plots_dir)
 
     assert output_path == plots_dir / "toy" / "label_distribution.png"
+    assert output_path.exists()
+
+
+def _write_toy_dataset_config(tmp_path) -> tuple[Path, Path]:
+    """Shared toy processed dataset + config for the dataset-diagnostics plot tests."""
+    processed_dir = tmp_path / "processed" / "toy"
+    processed_dir.mkdir(parents=True)
+    pd.DataFrame(
+        {"feature_a": [0.0, 1.0, None], "feature_b": [1.0, 2.0, 3.0], "label": ["benign", "attack", "benign"]}
+    ).to_csv(processed_dir / "train.csv", index=False)
+    pd.DataFrame({"feature_a": [0.2], "feature_b": [4.0], "label": ["benign"]}).to_csv(
+        processed_dir / "test.csv", index=False
+    )
+
+    dataset_config_path = tmp_path / "toy.yaml"
+    dataset_config_path.write_text(
+        yaml.safe_dump(
+            {
+                "name": "toy",
+                "raw_path": "unused",
+                "processed_path": processed_dir.as_posix(),
+                "label_column": "label",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return dataset_config_path, processed_dir
+
+
+def test_generate_missing_value_summary_writes_png(tmp_path) -> None:
+    dataset_config_path, _ = _write_toy_dataset_config(tmp_path)
+
+    plots_dir = tmp_path / "plots"
+    output_path = generate_missing_value_summary(dataset_config_path, plots_dir=plots_dir)
+
+    assert output_path == plots_dir / "toy" / "missing_values.png"
+    assert output_path.exists()
+
+
+def test_generate_train_test_split_comparison_writes_png(tmp_path) -> None:
+    dataset_config_path, _ = _write_toy_dataset_config(tmp_path)
+
+    plots_dir = tmp_path / "plots"
+    output_path = generate_train_test_split_comparison(dataset_config_path, plots_dir=plots_dir)
+
+    assert output_path == plots_dir / "toy" / "train_test_split.png"
+    assert output_path.exists()
+
+
+def test_generate_feature_correlation_writes_png(tmp_path) -> None:
+    dataset_config_path, _ = _write_toy_dataset_config(tmp_path)
+
+    plots_dir = tmp_path / "plots"
+    output_path = generate_feature_correlation(dataset_config_path, plots_dir=plots_dir)
+
+    assert output_path == plots_dir / "toy" / "feature_correlation.png"
+    assert output_path.exists()
+
+
+def test_generate_feature_correlation_subsamples_large_datasets(tmp_path) -> None:
+    processed_dir = tmp_path / "processed" / "toy"
+    processed_dir.mkdir(parents=True)
+    rng = np.random.default_rng(42)
+    pd.DataFrame(
+        {
+            "feature_a": rng.normal(size=1000),
+            "feature_b": rng.normal(size=1000),
+            "label": ["benign"] * 1000,
+        }
+    ).to_csv(processed_dir / "train.csv", index=False)
+    pd.DataFrame({"feature_a": [0.0], "feature_b": [0.0], "label": ["benign"]}).to_csv(
+        processed_dir / "test.csv", index=False
+    )
+
+    dataset_config_path = tmp_path / "toy.yaml"
+    dataset_config_path.write_text(
+        yaml.safe_dump(
+            {"name": "toy", "raw_path": "unused", "processed_path": processed_dir.as_posix(), "label_column": "label"}
+        ),
+        encoding="utf-8",
+    )
+
+    plots_dir = tmp_path / "plots"
+    output_path = generate_feature_correlation(dataset_config_path, plots_dir=plots_dir, sample_size=100)
+
     assert output_path.exists()
 
 
