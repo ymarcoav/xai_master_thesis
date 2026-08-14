@@ -17,23 +17,23 @@ exclude_files:
 # dropped in favor of this.
 categorical_columns:
   - proto
+  - service
   - state
 # srcip/dstip/sport/dsport: raw identifiers, not present in the pre-built training-set/
 # testing-set files this project used previously - dropped to avoid a model memorizing
 # attacker/victim addresses instead of learning traffic behavior. ltime: redundant with
-# dur/stime. label: native binary, dropped in favor of attack_cat. service: dropped
-# 2026-08-13 following Tai et al. 2024's UNSW-NB15 preprocessing (their choice, no stated
-# rationale - but it's "unknown" (the raw "-"/blank placeholder) for 57.33% of rows across
-# both splits, a plausible unstated reason for their manual "not valuable" call, matching
-# that they did NOT run automated feature selection for UNSW-NB15 unlike CIC-IDS2017).
-# ct_ftp_cmd: also dropped 2026-08-13 - verified via direct data inspection (not just
-# following Tai et al.'s unexplained "handled or removed" for this column) that it
-# correlates with is_ftp_login at r=0.92 (near-redundant with a feature already kept) and,
-# when nonzero (only 1.95% of rows), its mean value is ~1.0-1.06 across every attack_cat
-# that has any nonzero rows at all - no visible per-class differentiation, unlike the
-# near-constant CIC-IDS2017 flag columns kept for their datasets/cic_ids2017.yaml, where no
-# such redundancy-with-a-kept-feature was found. stime is deliberately NOT listed here -
-# see datasets/unsw_nb15.py's clean().
+# dur/stime. label: native binary, dropped in favor of attack_cat.
+# ct_ftp_cmd: dropped 2026-08-13 - verified via direct data inspection that it correlates
+# with is_ftp_login at r=0.92 (near-redundant with a feature already kept) and, when nonzero
+# (only 1.95% of rows), its mean value is ~1.0-1.06 across every attack_cat that has any
+# nonzero rows at all - no visible per-class differentiation. This drop stands on its own
+# evidence, independent of the service decision below.
+# service: dropped 2026-08-13 following Tai et al. 2024's UNSW-NB15 preprocessing, then
+# RESTORED the same day once the user set explicit policy ("improve performance" wins over
+# matching a paper's own undocumented preprocessing choices when the two conflict) - dropping
+# service had measurably cost real macro-F1 (gradient_boosting 0.569->0.507, random_forest
+# 0.566->0.524), so under that policy it belongs back in the feature set. stime is
+# deliberately NOT listed here - see datasets/unsw_nb15.py's clean().
 drop_columns:
   - srcip
   - sport
@@ -41,5 +41,4 @@ drop_columns:
   - dsport
   - ltime
   - label
-  - service
   - ct_ftp_cmd

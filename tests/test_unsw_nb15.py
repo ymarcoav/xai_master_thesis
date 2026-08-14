@@ -10,7 +10,7 @@ def _make_dataset() -> UNSWNB15Dataset:
         raw_path="unused",
         processed_path="unused",
         label_column="attack_cat",
-        drop_columns=("srcip", "sport", "dstip", "dsport", "ltime", "label", "service", "ct_ftp_cmd"),
+        drop_columns=("srcip", "sport", "dstip", "dsport", "ltime", "label", "ct_ftp_cmd"),
     )
     return UNSWNB15Dataset(config)
 
@@ -75,7 +75,7 @@ def _row(**overrides: object) -> dict[str, object]:
     return base
 
 
-def test_unsw_clean_drops_identifiers_native_label_ltime_service_and_ct_ftp_cmd_but_keeps_stime() -> None:
+def test_unsw_clean_drops_identifiers_native_label_ltime_and_ct_ftp_cmd_but_keeps_stime() -> None:
     dataset = _make_dataset()
     data = pd.DataFrame([_row()])
 
@@ -87,8 +87,8 @@ def test_unsw_clean_drops_identifiers_native_label_ltime_service_and_ct_ftp_cmd_
     assert "dsport" not in cleaned.columns
     assert "ltime" not in cleaned.columns
     assert "label" not in cleaned.columns
-    assert "service" not in cleaned.columns
     assert "ct_ftp_cmd" not in cleaned.columns
+    assert "service" in cleaned.columns
     assert "stime" in cleaned.columns
 
 
@@ -117,6 +117,15 @@ def test_unsw_clean_maps_blank_attack_cat_to_benign_and_normalizes_backdoors_spe
     cleaned = dataset.clean(data)
 
     assert cleaned["attack_cat"].tolist() == ["Benign", "Backdoor", "Backdoor"]
+
+
+def test_unsw_clean_normalizes_service_sentinels() -> None:
+    dataset = _make_dataset()
+    data = pd.DataFrame([_row(service="-"), _row(service="", dur="0.2")])
+
+    cleaned = dataset.clean(data)
+
+    assert cleaned["service"].tolist() == ["unknown", "unknown"]
 
 
 def test_unsw_clean_clips_ftp_login_bug_values() -> None:
