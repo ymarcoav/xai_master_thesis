@@ -10,6 +10,7 @@ from xai_thesis.pipeline import (
     generate_confusion_matrix,
     generate_explanations,
     generate_feature_correlation,
+    generate_interview_stimuli,
     generate_label_distribution,
     generate_missing_value_summary,
     generate_train_test_split_comparison,
@@ -798,3 +799,138 @@ def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
     assert {"shap_bar", "shap_beeswarm", "permutation_importance", "partial_dependence"} <= set(paths)
     for path in paths.values():
         assert path.exists()
+
+
+def _write_dapt2020_style_fixture(tmp_path) -> tuple[Path, Path, Path]:
+    """Overlapping-classes construction like test_generate_explanations_writes_all_expected_plots
+    (protocol_type is the dominant, near-deterministic predictor of Reconnaissance-vs-Benign),
+    but with two differences that matter here: stage_train is dtype=object (np.where's dtype is
+    inferred from "Reconnaissance"/"Benign" and silently truncates the longer "Establish
+    Foothold" noise label otherwise) and test row 1 deliberately mismatches its protocol_type
+    against its true label (protocol_type="udp", Stage="Reconnaissance") so a genuine
+    misclassification is guaranteed by construction rather than left to chance - the model
+    reliably predicts "Benign" from protocol_type="udp", giving generate_interview_stimuli() a
+    real (correct, misclassified) pair for the "Reconnaissance" target class."""
+    dataset_config_dir = tmp_path / "datasets"
+    dataset_config_dir.mkdir()
+    processed_dir = tmp_path / "processed" / "dapt2020"
+    processed_dir.mkdir(parents=True)
+
+    rng = np.random.default_rng(0)
+    n = 60
+    protocol_train = rng.choice(["tcp", "udp"], n)
+    stage_train = np.where(protocol_train == "tcp", "Reconnaissance", "Benign").astype(object)
+    noisy_mask = rng.random(n) < 0.2
+    stage_train[noisy_mask] = rng.choice(["Benign", "Reconnaissance", "Establish Foothold"], noisy_mask.sum())
+    train_df = pd.DataFrame(
+        {
+            "feature_a": rng.normal(0, 1.5, n),
+            "feature_b": rng.normal(0, 1.5, n),
+            "protocol_type": protocol_train,
+            "Stage": stage_train,
+        }
+    )
+    protocol_test = rng.choice(["tcp", "udp"], 20)
+    protocol_test[0] = "tcp"
+    stage_test = np.where(protocol_test == "tcp", "Reconnaissance", "Benign").astype(object)
+    protocol_test[1] = "udp"
+    stage_test[1] = "Reconnaissance"
+    test_df = pd.DataFrame(
+        {
+            "feature_a": rng.normal(0, 1.5, 20),
+            "feature_b": rng.normal(0, 1.5, 20),
+            "protocol_type": protocol_test,
+            "Stage": stage_test,
+        }
+    )
+    train_df.to_csv(processed_dir / "train.csv", index=False)
+    test_df.to_csv(processed_dir / "test.csv", index=False)
+
+    (dataset_config_dir / "dapt2020.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "dapt2020",
+                "raw_path": "unused",
+                "processed_path": processed_dir.as_posix(),
+                "label_column": "Stage",
+                "categorical_columns": ["protocol_type"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    experiment_path = tmp_path / "experiment.yaml"
+    experiment_path.write_text(
+        yaml.safe_dump(
+            {
+                "name": "dapt2020_test_experiment",
+                "dataset": "dapt2020",
+                "model": "gradient_boosting",
+                "random_state": 42,
+                "model_params": {"max_iter": 10},
+                "preprocessing": {"strategy": "default_tabular"},
+                "metrics": ["accuracy"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return dataset_config_dir, experiment_path, tmp_path / "models"
+
+
+def test_generate_interview_stimuli_writes_plots_for_configured_classes(tmp_path, monkeypatch) -> None:
+    from xai_thesis import pipeline as pipeline_module
+
+    dataset_config_dir, experiment_path, models_dir = _write_dapt2020_style_fixture(tmp_path)
+    metrics_dir = tmp_path / "metrics"
+    plots_dir = tmp_path / "plots"
+
+    run_experiment(
+        experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=metrics_dir
+    )
+    monkeypatch.setattr(pipeline_module, "_INTERVIEW_STIMULUS_CLASSES", {"dapt2020": ["Reconnaissance"]})
+
+    results = generate_interview_stimuli(
+        experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, plots_dir=plots_dir
+    )
+
+    assert set(results) == {"Reconnaissance"}
+    paths = results["Reconnaissance"]
+    assert {"shap_waterfall_correct", "lime_correct", "shap_waterfall_misclassified", "lime_misclassified"} <= set(
+        paths
+    )
+    for path in paths.values():
+        assert path.exists()
+    assert paths["lime_correct"].parent == plots_dir / "dapt2020" / "test_experiment" / "interview_Reconnaissance"
+
+
+def test_generate_interview_stimuli_skips_class_with_no_misclassifications(tmp_path, monkeypatch) -> None:
+    from xai_thesis import pipeline as pipeline_module
+
+    dataset_config_dir, experiment_path, models_dir = _write_dapt2020_style_fixture(tmp_path)
+    metrics_dir = tmp_path / "metrics"
+    plots_dir = tmp_path / "plots"
+
+    run_experiment(
+        experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=metrics_dir
+    )
+    # "Establish Foothold" never appears in the test set at all, so the model can never
+    # misclassify it there - exercises the "no stimulus pair possible" path rather than erroring.
+    monkeypatch.setattr(pipeline_module, "_INTERVIEW_STIMULUS_CLASSES", {"dapt2020": ["Establish Foothold"]})
+
+    results = generate_interview_stimuli(
+        experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, plots_dir=plots_dir
+    )
+
+    assert results == {"Establish Foothold": {}}
+
+
+def test_generate_interview_stimuli_raises_for_unconfigured_dataset(tmp_path) -> None:
+    dataset_config_dir, experiment_path, models_dir = _write_dapt2020_style_fixture(tmp_path)
+    metrics_dir = tmp_path / "metrics"
+
+    run_experiment(
+        experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=metrics_dir
+    )
+
+    with pytest.raises(NotImplementedError):
+        generate_interview_stimuli(experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir)

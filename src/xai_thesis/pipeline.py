@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -556,38 +557,181 @@ def generate_explanations(
             random_state=random_state,
         )
 
+    paths.update(
+        _generate_instance_explanations(
+            pipeline,
+            x_train,
+            x_test,
+            y_test,
+            background_x,
+            target_class,
+            confused_with_class,
+            class_names,
+            model_name,
+            dataset_config.categorical_columns,
+            output_dir,
+            random_state,
+            discretize_continuous=dataset_config.name in _SAFE_TO_DISCRETIZE_LIME,
+        )
+    )
+
+    return paths
+
+
+def _generate_instance_explanations(
+    pipeline: Pipeline,
+    x_train: pd.DataFrame,
+    x_test: pd.DataFrame,
+    y_test: pd.Series,
+    background_x: pd.DataFrame,
+    target_class: str,
+    confused_with_class: str,
+    class_names: list[str],
+    model_name: str,
+    categorical_columns: Sequence[str],
+    output_dir: Path,
+    random_state: int,
+    *,
+    discretize_continuous: bool,
+) -> dict[str, Path]:
+    """SHAP waterfall + LIME plots for one curated (target_class, confused_with_class) instance
+    pair - a correct classification and a misclassification of target_class as
+    confused_with_class specifically. Shared by generate_explanations() (the thesis's own
+    per-experiment _CLASS_OF_INTEREST pair) and generate_interview_stimuli() (multiple
+    well-known classes per dataset, picked for interview relevance instead).
+    """
+    paths: dict[str, Path] = {}
     instances = select_curated_instances(
         pipeline, x_test, y_test, target_class, confused_with_class, random_state=random_state
     )
-    if instances:
-        instance_kinds = list(instances.keys())
-        instance_indices = list(instances.values())
-        instances_x = x_test.loc[instance_indices]
-        instance_shap_values, instance_base_values, instances_transformed, _ = compute_shap_values(
-            pipeline, model_name, instances_x, background_x, categorical_columns=dataset_config.categorical_columns
-        )
-        predicted_classes = pipeline.predict(instances_x)
+    if not instances:
+        return paths
 
-        for row_index, (kind, predicted_class) in enumerate(zip(instance_kinds, predicted_classes, strict=True)):
-            class_index = class_names.index(predicted_class)
-            paths[f"shap_waterfall_{kind}"] = plot_shap_waterfall(
-                instance_shap_values,
-                instance_base_values,
-                instances_transformed[row_index],
-                feature_names,
-                row_index,
-                class_index,
-                output_dir / f"shap_waterfall_{kind}.png",
-            )
-            paths[f"lime_{kind}"] = explain_instance_with_lime_full(
-                pipeline,
-                x_train,
-                x_test.loc[instance_indices[row_index]],
-                class_names,
-                output_dir / f"lime_{kind}.png",
-                categorical_columns=dataset_config.categorical_columns,
-                random_state=random_state,
-                discretize_continuous=dataset_config.name in _SAFE_TO_DISCRETIZE_LIME,
-            )
+    instance_kinds = list(instances.keys())
+    instance_indices = list(instances.values())
+    instances_x = x_test.loc[instance_indices]
+    instance_shap_values, instance_base_values, instances_transformed, feature_names = compute_shap_values(
+        pipeline, model_name, instances_x, background_x, categorical_columns=categorical_columns
+    )
+    predicted_classes = pipeline.predict(instances_x)
+
+    for row_index, (kind, predicted_class) in enumerate(zip(instance_kinds, predicted_classes, strict=True)):
+        class_index = class_names.index(predicted_class)
+        paths[f"shap_waterfall_{kind}"] = plot_shap_waterfall(
+            instance_shap_values,
+            instance_base_values,
+            instances_transformed[row_index],
+            feature_names,
+            row_index,
+            class_index,
+            output_dir / f"shap_waterfall_{kind}.png",
+        )
+        paths[f"lime_{kind}"] = explain_instance_with_lime_full(
+            pipeline,
+            x_train,
+            x_test.loc[instance_indices[row_index]],
+            class_names,
+            output_dir / f"lime_{kind}.png",
+            categorical_columns=categorical_columns,
+            random_state=random_state,
+            discretize_continuous=discretize_continuous,
+        )
 
     return paths
+
+
+def _most_common_confusion(y_test: pd.Series, predictions: pd.Series, target_class: str) -> str | None:
+    """The class target_class is most often predicted as, when the model gets it wrong -
+    dynamically derived from real predictions rather than hand-picked, same "grounded in real
+    evidence" principle as _CLASS_OF_INTEREST, just computed per-class on demand instead of
+    curated once upfront. None if the model never misclassifies target_class in this test set
+    (e.g. CIC-IDS2017's Bot for logistic_regression/neural_network - 100% recall via massive
+    over-prediction rather than genuine skill, so no misclassified example exists at all).
+    """
+    is_target = y_test == target_class
+    wrong = predictions[is_target & (predictions != target_class)]
+    if len(wrong) == 0:
+        return None
+    return wrong.value_counts().idxmax()
+
+
+# Well-known attack classes for interview stimulus curation - a deliberately different selection
+# criterion from _CLASS_OF_INTEREST above (that one picks the class pair with the most
+# significant cross-model *confusion*, for the thesis's own explainability-chapter analysis;
+# this one picks classes a security practitioner would recognize by name, for showing to
+# interview subjects) - a separate mechanism, not a replacement. Chosen 2026-08-17 with the
+# user, verified against real per-class recall/precision/instance-availability before finalizing
+# - ruled out: UNSW-NB15's Worms (only 130/33 train/test rows), Generic/Analysis/Backdoor/
+# Shellcode (real classes, but not recognizable security terms to a general audience), DoS
+# (well-known, but recall never exceeds 32% across any model - diagnosed as a genuine feature-
+# overlap limitation shared with Analysis/Backdoor, not something a rate-based engineered
+# feature fixed - see datasets/unsw_nb15.py); CIC-IDS2017's Web Attack (umbrella term, not a
+# specific technique) and Bot (recall looks perfect for logistic_regression/neural_network only
+# because they over-predict Bot almost everywhere - precision 0.011/0.015 - which also means
+# zero misclassified examples exist for those two models, breaking the correct/misclassified
+# stimulus pair entirely), Infiltration (only 28 training rows).
+_INTERVIEW_STIMULUS_CLASSES: dict[str, list[str]] = {
+    "unsw_nb15": ["Reconnaissance", "Exploits"],
+    "cic_ids2017": ["DoS/DDoS", "PortScan", "Brute Force"],
+}
+
+
+def generate_interview_stimuli(
+    experiment_config_path: str | Path,
+    *,
+    dataset_config_dir: str | Path = "configs/datasets",
+    models_dir: str | Path = "outputs/models",
+    plots_dir: str | Path = "outputs/plots",
+) -> dict[str, dict[str, Path]]:
+    """Generate SHAP waterfall + LIME stimuli for interview use: one correct + one misclassified
+    instance per well-known class in _INTERVIEW_STIMULUS_CLASSES, for an already-trained
+    experiment. Separate from generate_explanations()/_CLASS_OF_INTEREST (the thesis's own
+    explainability-chapter analysis) - this exists purely to curate concrete cases to show
+    interview subjects, picked for real-world recognizability rather than confusion severity.
+    Saves under plots_dir/<dataset>/<model>_baseline/interview_<class>/, keyed in the return
+    value by target class name, then by "shap_waterfall_correct"/"lime_correct"/etc. - a class
+    maps to an empty dict if the model never misclassifies it in this test set (no stimulus pair
+    possible, see _most_common_confusion).
+    """
+    experiment, dataset_config, x_train, _, x_test, y_test = _load_experiment_and_data(
+        experiment_config_path, dataset_config_dir
+    )
+    random_state = experiment.get("random_state", 42)
+    experiment_name = experiment["name"]
+    model_name = experiment["model"]
+
+    stimulus_classes = _INTERVIEW_STIMULUS_CLASSES.get(dataset_config.name, [])
+    if not stimulus_classes:
+        raise NotImplementedError(f"No interview stimulus classes configured for dataset: {dataset_config.name}")
+
+    pipeline = joblib.load(Path(models_dir) / f"{experiment_name}.joblib")
+    class_names = list(pipeline.named_steps["model"].classes_)
+    predictions = pd.Series(pipeline.predict(x_test), index=x_test.index)
+    background_x = x_train.sample(n=min(100, len(x_train)), random_state=random_state)
+    experiment_dir = _experiment_plot_dir(plots_dir, dataset_config.name, experiment_name)
+
+    results: dict[str, dict[str, Path]] = {}
+    for target_class in stimulus_classes:
+        if target_class not in class_names:
+            continue
+        confused_with_class = _most_common_confusion(y_test, predictions, target_class)
+        if confused_with_class is None:
+            results[target_class] = {}
+            continue
+        output_dir = ensure_directory(experiment_dir / f"interview_{target_class.replace('/', '-')}")
+        results[target_class] = _generate_instance_explanations(
+            pipeline,
+            x_train,
+            x_test,
+            y_test,
+            background_x,
+            target_class,
+            confused_with_class,
+            class_names,
+            model_name,
+            dataset_config.categorical_columns,
+            output_dir,
+            random_state,
+            discretize_continuous=dataset_config.name in _SAFE_TO_DISCRETIZE_LIME,
+        )
+    return results
