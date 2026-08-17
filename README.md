@@ -301,16 +301,22 @@ final feature set (`service` restored, `C=10` re-tuned): macro-F1 **0.393** (~19
 essentially flat versus the intermediate without-`service` result (0.390), unlike the tree-ensemble
 models, which recovered more macro-F1 once `service` came back.
 
-**CIC-IDS2017's `svm` is tuned but not yet trained.** `configs/experiments/cic_ids2017_svm_baseline.yaml`
-exists and its `C` search completed (`C=10`, search took only ~8 minutes thanks to an explicit
-`subsample_size=40_000` override well below the shared 200k default - CIC-IDS2017 is ~2M rows). The
-final fit on the complete, un-subsampled training set is the genuinely open question: an attempt was
-started and left running unattended for 24+ hours (confirmed still actively computing throughout, not
-hung - `max_iter` bounds iteration *count*, but at this row count each individual iteration itself costs
-far more than on any other dataset here, so the cap doesn't translate to a comparable bound on
-wall-clock time) before being interrupted by an unrelated session restart with no checkpoint to resume
-from - `outputs/models/cic_ids2017_svm_baseline.joblib` does not exist yet. Deliberately not retried
-within this session; picking this back up is a deferred, explicit decision, not an oversight.
+**CIC-IDS2017's `svm` is now trained, as of 2026-08-17.** `configs/experiments/cic_ids2017_svm_baseline.yaml`'s
+`C` search completed early on (`C=10`, ~8 minutes thanks to an explicit `subsample_size=40_000` override
+well below the shared 200k default - CIC-IDS2017 is ~2M rows), but the final fit on the complete,
+un-subsampled training set repeatedly failed to *finish* across several separate attempts, for unrelated
+reasons each time: one ran 24+ hours unattended (confirmed still actively computing throughout via rising
+CPU time, not hung - `max_iter` bounds iteration *count*, but at this row count each iteration itself
+costs far more than on any other dataset here, so the cap doesn't translate to a comparable wall-clock
+bound) before an unrelated session restart interrupted it with no checkpoint to resume from; a later
+attempt was intentionally cancelled once CIC-IDS2017's feature set was about to change again (see
+Datasets above) and would have made the result stale immediately; a third didn't survive an actual
+machine shutdown over a multi-day gap. The same `_FINAL_FIT_SUBSAMPLE` fix that resolved UNSW-NB15's
+`svm` above (stratified 150,000-row subsample for the final fit, `unsw_nb15`/`cic_ids2017` specifically)
+already applied here the whole time - it just needed one uninterrupted run to prove it out. That run
+completed cleanly: macro-F1 **0.518**, accuracy 0.855, roc_auc_macro 0.986 (~25 minutes for the final
+fit, plus ~76 minutes for permutation-based SHAP generation - the slow part of this model's explanation
+suite, not its training).
 
 ## Analysis
 
@@ -398,3 +404,26 @@ real two-way confusion for every model trained on the final feature set (`servic
 `_CLASS_OF_INTEREST` in `src/xai_thesis/pipeline.py`.
 
 Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/`.
+
+### Interview stimuli
+
+A second, separate curated-instance mechanism (`generate_interview_stimuli` in `pipeline.py`), for
+picking concrete SHAP/LIME examples to show expert-interview subjects. Unlike `_CLASS_OF_INTEREST`
+above (picks the class pair with the most significant cross-model *confusion*), this one picks classes
+a security practitioner would recognize by name, so interview time isn't spent explaining an unfamiliar
+label: `Reconnaissance`/`Exploits` for UNSW-NB15, `DoS/DDoS`/`PortScan`/`Brute Force` for CIC-IDS2017
+(`_INTERVIEW_STIMULUS_CLASSES` in `pipeline.py` — see its comment for why each excluded class,
+including the well-known `DoS`/`Bot`, was ruled out). For each configured class, the model's most
+common real misclassification target is derived dynamically from the test set (`_most_common_confusion`)
+rather than hand-picked, then one correct and one misclassified SHAP waterfall + LIME plot are generated
+via the same instance-explanation logic `generate_explanations` uses (`_generate_instance_explanations`).
+
+```powershell
+python scripts/interview_stimuli.py --experiment configs/experiments/unsw_nb15_gradient_boosting_baseline.yaml
+python scripts/interview_stimuli.py  # all experiments
+```
+
+Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/interview_<class>/` (e.g.
+`outputs/plots/unsw_nb15/gradient_boosting_baseline/interview_Reconnaissance/`). A class maps to no
+plots at all if the model never misclassifies it in the test set (no stimulus pair possible - e.g.
+CIC-IDS2017's `Bot` was excluded from the configured list for exactly this reason on two models).
