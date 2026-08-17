@@ -24,7 +24,6 @@ from xai_thesis.explainability import (
     compute_permutation_importance,
     compute_shap_values,
     explain_instance_with_lime_full,
-    plot_partial_dependence,
     plot_shap_bar,
     plot_shap_beeswarm,
     plot_shap_waterfall,
@@ -494,10 +493,14 @@ def generate_explanations(
     models_dir: str | Path = "outputs/models",
     plots_dir: str | Path = "outputs/plots",
     sample_size: int = 200,
-    pdp_top_n: int = 5,
 ) -> dict[str, Path]:
-    """Generate SHAP, LIME, permutation importance, and partial dependence explanations for
-    an already-trained experiment, saving plots under plots_dir/<dataset>/<model>_baseline/.
+    """Generate SHAP, LIME, and permutation importance explanations for an already-trained
+    experiment, saving plots under plots_dir/<dataset>/<model>_baseline/.
+
+    Partial dependence plots (PDP) are out of scope for the thesis's explainability analysis
+    as of 2026-07-31, and out of the pipeline entirely as of 2026-08-17 - plot_partial_dependence
+    in explainability.py is kept fully functional (importable/callable directly) but is no
+    longer invoked from here, so a normal run of this function no longer regenerates it.
     """
     experiment, dataset_config, x_train, _, x_test, y_test = _load_experiment_and_data(
         experiment_config_path, dataset_config_dir
@@ -536,26 +539,10 @@ def generate_explanations(
             shap_values, x_transformed, feature_names, target_index, output_dir / "shap_beeswarm.png"
         )
 
-    pfi_path, top_features = compute_permutation_importance(
+    pfi_path, _ = compute_permutation_importance(
         pipeline, sample_x, sample_y, output_dir / "permutation_importance.png", random_state=random_state
     )
     paths["permutation_importance"] = pfi_path
-
-    if target_class in class_names:
-        # sklearn's PDP computes numeric deciles for its gridlines, which breaks outright
-        # on categorical (string) columns; those would need a different plot style we
-        # haven't built, so just restrict to numeric features here.
-        numeric_top_features = [
-            feature for feature in top_features if feature not in dataset_config.categorical_columns
-        ]
-        paths["partial_dependence"] = plot_partial_dependence(
-            pipeline,
-            sample_x,
-            numeric_top_features[:pdp_top_n],
-            target_class,
-            output_dir / "partial_dependence.png",
-            random_state=random_state,
-        )
 
     paths.update(
         _generate_instance_explanations(

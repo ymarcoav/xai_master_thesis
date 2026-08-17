@@ -1,3 +1,6 @@
+# ARCHIVED as of 2026-08-17: moved out of configs/experiments/ since this model is out of
+# thesis scope - config/model/metrics/plots all untouched otherwise, still fully functional.
+# To rerun: python scripts/train.py --experiment configs/_archive/experiments/cic_ids2017_gradient_boosting_baseline.yaml
 name: cic_ids2017_gradient_boosting_baseline
 dataset: cic_ids2017
 model: gradient_boosting

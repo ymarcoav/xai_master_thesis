@@ -15,13 +15,18 @@ def main() -> None:
         action="store_true",
         help="Search for hyperparameters first and write them into the experiment's model_params before training.",
     )
+    parser.add_argument(
+        "--dataset-config-dir",
+        default="configs/datasets",
+        help="Directory containing dataset YAML configs (e.g. configs/_archive/datasets for an archived dataset).",
+    )
     args = parser.parse_args()
 
     if args.tune:
-        tuned_params = tune_hyperparameters(args.experiment)
+        tuned_params = tune_hyperparameters(args.experiment, dataset_config_dir=args.dataset_config_dir)
         print(f"Tuned model_params: {tuned_params}")
 
-    metrics = run_experiment(args.experiment)
+    metrics = run_experiment(args.experiment, dataset_config_dir=args.dataset_config_dir)
     for name, value in metrics.items():
         print(f"{name}: {value:.4f}")
 

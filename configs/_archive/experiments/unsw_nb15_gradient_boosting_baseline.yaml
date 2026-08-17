@@ -1,3 +1,6 @@
+# ARCHIVED as of 2026-08-17: moved out of configs/experiments/ since this model is out of
+# thesis scope - config/model/metrics/plots all untouched otherwise, still fully functional.
+# To rerun: python scripts/train.py --experiment configs/_archive/experiments/unsw_nb15_gradient_boosting_baseline.yaml
 name: unsw_nb15_gradient_boosting_baseline
 dataset: unsw_nb15
 model: gradient_boosting

@@ -4,13 +4,16 @@ Code for the master thesis titled "Evaluating Explainable AI Methods for Intrusi
 
 ## Structure
 
-- `configs/datasets/`: one YAML per dataset (raw/processed paths, label column, columns to drop, categorical columns).
-- `configs/experiments/`: one YAML per trained model (dataset, model type, hyperparameters, metrics to report).
+- `configs/datasets/`: one YAML per **active** dataset (raw/processed paths, label column, columns to drop, categorical columns).
+- `configs/experiments/`: one YAML per **active** trained model (dataset, model type, hyperparameters, metrics to report).
+- `configs/_archive/`: dataset/experiment configs for out-of-scope datasets/models (NSL-KDD, DAPT2020, `gradient_boosting`, `logistic_regression`) - archived 2026-08-17, still fully functional, just not touched by the default (no-args) pipeline commands. See the Datasets/Training sections below.
 - `data/`: raw and processed datasets. Data files are ignored by Git.
+- `data/_archive/`: raw/processed data for archived datasets (also gitignored).
 - `src/xai_thesis/`: reusable project code (dataset adapters, preprocessing, models, evaluation, explainability, pipeline orchestration).
 - `scripts/`: command-line entry points for inspection, preprocessing, training, and analysis.
 - `notebooks/`: exploratory analysis and thesis figures in progress.
 - `outputs/`: generated models (`models/`), metrics (`metrics/`), and plots (`plots/`).
+- `outputs/_archive/`: models/metrics/plots for archived datasets/models, plus every `partial_dependence.png` (PDP is fully out of the pipeline as of 2026-08-17 - see Explainability below). Also gitignored.
 - `tests/`: focused tests for shared code.
 
 ## Setup
@@ -26,16 +29,16 @@ has a dataset adapter in `src/xai_thesis/datasets/` implementing dataset-specifi
 deduplication, fixing known data-quality issues, dropping identifier/leakage columns) behind a shared
 interface.
 
-> **DAPT2020 is out of scope for the thesis as of 2026-07-31.** Its adapter, configs, trained models,
-> and generated explanations all remain in place and fully functional - nothing was removed - but it is
-> no longer part of the actual analysis the thesis reports on. Treat any DAPT2020-specific content here
-> or elsewhere in this repo as legacy/reference material, not current thesis scope.
-
-> **NSL-KDD is also out of scope for the thesis as of 2026-08-13.** Same treatment as DAPT2020: its
-> adapter, configs, trained models, and generated explanations all remain in place and fully functional -
-> nothing was removed - but it is no longer part of the actual analysis the thesis reports on. The thesis
-> now covers only **UNSW-NB15 and CIC-IDS2017**. Treat any NSL-KDD-specific content here or elsewhere in
-> this repo as legacy/reference material, not current thesis scope.
+> **DAPT2020 and NSL-KDD are out of scope for the thesis** (DAPT2020 since 2026-07-31, NSL-KDD since
+> 2026-08-13) **and were archived as of 2026-08-17.** Their adapter code (`src/xai_thesis/datasets/`)
+> and tests remain fully functional and unmodified - nothing was deleted - but their raw/processed data
+> moved to `data/_archive/<dataset>/`, their trained models/metrics/plots moved to
+> `outputs/_archive/<dataset>/`, and their dataset/experiment configs moved to `configs/_archive/`. The
+> thesis now covers only **UNSW-NB15 and CIC-IDS2017**, and the default (no-args) pipeline commands only
+> ever touch those two. To rerun an archived experiment: `python scripts/train.py --experiment
+> configs/_archive/experiments/nsl_kdd_random_forest_baseline.yaml --dataset-config-dir
+> configs/_archive/datasets` (the archived dataset configs' `raw_path`/`processed_path` already point at
+> the new data locations).
 
 **Every dataset in this catalog is multiclass as of 2026-07-31** - UNSW-NB15 was the last binary one.
 **UNSW-NB15** is multiclass over its native **10-category `attack_cat` scheme** (`Benign` + `Generic`,
@@ -177,11 +180,15 @@ files (22 Jan - 18 Feb 2015, files 1->4 in order).
 
 ## Training
 
-> **`logistic_regression` and `gradient_boosting` are out of scope for the thesis as of
-> 2026-08-09.** Both remain fully implemented, trained, and explained - nothing was removed - but
-> the thesis now reports on only three models: `neural_network`, `random_forest`, and `svm`. Treat
-> any `logistic_regression`/`gradient_boosting` content here or elsewhere in this repo as
-> legacy/reference material, not current thesis scope (same pattern as DAPT2020/PDP above).
+> **`logistic_regression` and `gradient_boosting` are out of scope for the thesis** (since
+> 2026-08-09) **and were archived as of 2026-08-17.** Both model factory entries in `models.py`
+> remain fully implemented and functional - nothing was removed - but their trained
+> models/metrics/plots (for UNSW-NB15 and CIC-IDS2017; NSL-KDD/DAPT2020's copies moved as part of
+> those datasets' own archival above) moved to `outputs/_archive/<model>/`, and their experiment
+> configs moved to `configs/_archive/experiments/`. The thesis now reports on only three models:
+> `neural_network`, `random_forest`, and `svm`. To rerun an archived one: `python scripts/train.py
+> --experiment configs/_archive/experiments/unsw_nb15_gradient_boosting_baseline.yaml` (no
+> `--dataset-config-dir` needed here - UNSW-NB15/CIC-IDS2017's dataset configs are still active).
 
 Each experiment config in `configs/experiments/` names a dataset and a model
 (`logistic_regression`, `neural_network`, `gradient_boosting`, `random_forest`, or `svm`). Train one:
@@ -348,14 +355,15 @@ folders and 4 dataset folders sharing one namespace, as it was before.
 
 ## Explainability
 
-Four techniques are implemented in `src/xai_thesis/explainability.py`, generated per trained experiment
-(or all of them) via:
+Three techniques are generated per trained experiment (or all of them) via:
 
 > **Partial dependence plots (PDP) are out of scope for the thesis's explainability analysis as of
-> 2026-07-31.** The implementation, ICE-curve overlay, and generated plots all remain in place and
-> fully functional - nothing was removed - but PDP output is no longer part of what the thesis actually
-> reports on. Treat it as legacy/reference material, not current analysis scope; see the PDP bullet
-> below for what it still produces.
+> 2026-07-31, and out of the pipeline entirely as of 2026-08-17.** `plot_partial_dependence` in
+> `explainability.py` (ICE-curve overlay included) is still fully implemented and directly callable -
+> nothing was removed - but `generate_explanations()` no longer calls it, so a normal
+> `scripts/explain.py` run doesn't regenerate `partial_dependence.png` anymore. Every existing PDP plot
+> (all 20 experiments) was moved to `outputs/_archive/partial_dependence/`. See the PDP bullet below for
+> what the function still produces if called directly.
 
 ```powershell
 python scripts/explain.py --experiment configs/experiments/unsw_nb15_gradient_boosting_baseline.yaml
@@ -385,8 +393,9 @@ python scripts/explain.py  # all experiments
 - **Permutation feature importance** (`sklearn.inspection.permutation_importance`): run on the full
   pipeline, so importances are reported in terms of the original feature names, not the one-hot-expanded
   ones.
-- **Partial dependence plots** *(implemented, but out of scope for the thesis's analysis - see note
-  above)* (`sklearn.inspection.PartialDependenceDisplay`, with individual conditional expectation curves
+- **Partial dependence plots** *(implemented, but out of the pipeline as of 2026-08-17 - see note
+  above; call `plot_partial_dependence` in `explainability.py` directly to still generate one)*
+  (`sklearn.inspection.PartialDependenceDisplay`, with individual conditional expectation curves
   overlaid): for the top numeric features by permutation importance. The
   ICE curves show one line per sampled instance alongside the usual average PDP line, so a feature whose
   effect is heterogeneous (pushing some instances toward the target class and others away from it) reads

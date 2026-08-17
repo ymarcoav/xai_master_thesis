@@ -1,0 +1,19 @@
+# ARCHIVED as of 2026-08-17: moved out of configs/experiments/ since this model is out of
+# thesis scope - config/model/metrics/plots all untouched otherwise, still fully functional.
+# To rerun: python scripts/train.py --experiment configs/_archive/experiments/cic_ids2017_logistic_regression_baseline.yaml
+name: cic_ids2017_logistic_regression_baseline
+dataset: cic_ids2017
+model: logistic_regression
+random_state: 42
+model_params:
+  max_iter: 1000
+  C: 1000
+preprocessing:
+  strategy: default_tabular
+metrics:
+- accuracy
+- precision_macro
+- recall_macro
+- f1_macro
+- roc_auc_macro
+- pr_auc_macro

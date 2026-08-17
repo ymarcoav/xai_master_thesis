@@ -728,8 +728,7 @@ def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
     # Reconnaissance instances correctly and confuses others with Benign - exercising both
     # the "correct" and "misclassified" curated-instance paths (see _CLASS_OF_INTEREST).
     # protocol_type is categorical and strongly predictive, so it ranks high in permutation
-    # importance - a regression check that PDP correctly excludes categorical columns from
-    # its numeric-only feature selection (sklearn's PDP errors outright on string columns).
+    # importance.
     rng = np.random.default_rng(0)
     n = 60
     protocol_train = rng.choice(["tcp", "udp"], n)
@@ -796,7 +795,8 @@ def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, plots_dir=plots_dir
     )
 
-    assert {"shap_bar", "shap_beeswarm", "permutation_importance", "partial_dependence"} <= set(paths)
+    assert {"shap_bar", "shap_beeswarm", "permutation_importance"} <= set(paths)
+    assert "partial_dependence" not in paths
     for path in paths.values():
         assert path.exists()
 

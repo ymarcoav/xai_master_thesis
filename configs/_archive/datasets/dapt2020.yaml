@@ -1,9 +1,12 @@
-# OUT OF SCOPE for the thesis as of 2026-07-31: kept fully functional (adapter, configs,
-# trained models, explanations all still work) but no longer part of the actual thesis
-# analysis - see README.md's Datasets section.
+# ARCHIVED as of 2026-08-17: moved out of configs/datasets/ (and its data/outputs out of the
+# active data/ and outputs/ trees into the _archive/ mirrors below) since DAPT2020 is out of
+# thesis scope. raw_path/processed_path below already point at the new archive locations, so
+# this config is still fully functional if run explicitly (e.g. `--config-dir
+# configs/_archive/datasets`) - nothing was deleted, just moved out of what the default
+# (no-args) pipeline commands touch.
 name: dapt2020
-raw_path: data/raw/dapt2020
-processed_path: data/processed/dapt2020
+raw_path: data/_archive/dapt2020/raw
+processed_path: data/_archive/dapt2020/processed
 label_column: Stage
 
 # Fill in after inspecting the raw files.

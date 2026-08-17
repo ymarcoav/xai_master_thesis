@@ -1,4 +1,4 @@
-"""Generate explainability artifacts (SHAP, LIME, PFI, PDP) for a trained model."""
+"""Generate explainability artifacts (SHAP, LIME, PFI) for a trained model."""
 
 from __future__ import annotations
 
@@ -19,6 +19,11 @@ def main() -> None:
         default="configs/experiments",
         help="Directory containing experiment YAML configs.",
     )
+    parser.add_argument(
+        "--dataset-config-dir",
+        default="configs/datasets",
+        help="Directory containing dataset YAML configs (e.g. configs/_archive/datasets for an archived dataset).",
+    )
     args = parser.parse_args()
 
     if args.experiment:
@@ -27,7 +32,7 @@ def main() -> None:
         config_paths = sorted(Path(args.config_dir).glob("*.yaml"))
 
     for config_path in config_paths:
-        paths = generate_explanations(config_path)
+        paths = generate_explanations(config_path, dataset_config_dir=args.dataset_config_dir)
         for kind, path in paths.items():
             print(f"Wrote {kind}: {path}")
 

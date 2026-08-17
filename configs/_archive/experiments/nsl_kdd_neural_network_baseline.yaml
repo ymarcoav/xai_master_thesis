@@ -1,3 +1,6 @@
+# ARCHIVED as of 2026-08-17: moved out of configs/experiments/ since this dataset is out of
+# thesis scope - config/model/metrics/plots all untouched otherwise, still fully functional.
+# To rerun: python scripts/train.py --experiment configs/_archive/experiments/nsl_kdd_neural_network_baseline.yaml --dataset-config-dir configs/_archive/datasets
 name: nsl_kdd_neural_network_baseline
 dataset: nsl_kdd
 model: neural_network

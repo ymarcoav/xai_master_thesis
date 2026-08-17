@@ -1,0 +1,19 @@
+# ARCHIVED as of 2026-08-17: moved out of configs/experiments/ since this dataset is out of
+# thesis scope - config/model/metrics/plots all untouched otherwise, still fully functional.
+# To rerun: python scripts/train.py --experiment configs/_archive/experiments/dapt2020_logistic_regression_baseline.yaml --dataset-config-dir configs/_archive/datasets
+name: dapt2020_logistic_regression_baseline
+dataset: dapt2020
+model: logistic_regression
+random_state: 42
+model_params:
+  max_iter: 5000
+  C: 1000
+preprocessing:
+  strategy: default_tabular
+metrics:
+- accuracy
+- precision_macro
+- recall_macro
+- f1_macro
+- roc_auc_macro
+- pr_auc_macro
