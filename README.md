@@ -61,18 +61,27 @@ feature the original paper authors derived only for the pre-built files). The da
 official train/test split (the pre-built files provided one; the raw capture doesn't), so it's split
 chronologically like CIC-IDS2017/DAPT2020 instead - see Preprocessing below.
 
-**Two more UNSW-NB15 features were dropped outright as of 2026-08-13, on top of the above:** `service`
-and `ct_ftp_cmd`. `service` follows Tai et al. 2024 ("A Robust and Trustworthy Intrusion Detection
-System Using Adversarial Machine Learning and XAI", ATC), whose UNSW-NB15 preprocessing drops it among
-7 features with no stated rationale - checked directly against this project's own data first: it's
-`"unknown"` (the raw `-`/blank placeholder) for 57.33% of rows across both splits, a plausible
-unstated reason for their manual "not valuable" call (they explicitly did not run automated feature
-selection for UNSW-NB15, unlike their CIC-IDS2017 pipeline, so this was a human judgment call, not an
-algorithm's output). `ct_ftp_cmd` is a follow-up finding of this project's own, not from that paper:
-verified to correlate with `is_ftp_login` at r=0.92 (near-redundant with a feature already kept) and,
-when nonzero (only 1.95% of rows), to show no per-class differentiation - its mean value is ~1.0-1.06
-across every `attack_cat` with any nonzero rows at all. The current feature set is otherwise a superset
-of the old pre-built-file feature set, identifiers aside.
+**Two more UNSW-NB15 features were reconsidered on 2026-08-13/17, on top of the above: `service` and
+`ct_ftp_cmd`.** Both were dropped outright on 2026-08-13. `service` followed Tai et al. 2024 ("A Robust
+and Trustworthy Intrusion Detection System Using Adversarial Machine Learning and XAI", ATC), whose
+UNSW-NB15 preprocessing drops it among 7 features with no stated rationale - checked directly against
+this project's own data first: it's `"unknown"` (the raw `-`/blank placeholder) for 57.33% of rows
+across both splits, a plausible unstated reason for their manual "not valuable" call (they explicitly
+did not run automated feature selection for UNSW-NB15, unlike their CIC-IDS2017 pipeline, so this was a
+human judgment call, not an algorithm's output). `ct_ftp_cmd` was a follow-up finding of this project's
+own, not from that paper: verified to correlate with `is_ftp_login` at r=0.92 (near-redundant with a
+feature already kept) and, when nonzero (only 1.95% of rows), to show no per-class differentiation -
+its mean value is ~1.0-1.06 across every `attack_cat` with any nonzero rows at all.
+
+**`service` was restored the same week once explicit policy was set: "improve performance" wins over
+matching a reference paper's own unexplained preprocessing choices, when the two conflict.** Dropping
+`service` had measurably cost real macro-F1 for `gradient_boosting`/`random_forest` (0.569→0.507,
+0.566→0.524) for no performance reason of its own - once that tradeoff was surfaced and the priority
+set, `service` went back into `categorical_columns` and all 5 models were retrained again. `ct_ftp_cmd`
+stays dropped - that decision was evidence-based (redundant with `is_ftp_login`, no per-class signal),
+independent of the paper-matching question, so the new policy doesn't reopen it. The current feature
+set (41 columns) is a superset of the old pre-built-file feature set, identifiers and `ct_ftp_cmd`
+aside.
 
 **CIC-IDS2017** is multiclass over **7 categories** (`Benign` + 6 attack families: `DoS/DDoS`,
 `PortScan`, `Brute Force`, `Web Attack`, `Infiltration`, `Bot`), collapsed from its native ~15-way label -
@@ -91,9 +100,10 @@ UNSW-NB15's `Worms` category is severely data-scarce (130 training rows, 33 test
 full-raw-capture data) - by far the rarest class in this dataset, in the same spirit as DAPT2020's `Data
 Exfiltration` or NSL-KDD's `U2R`. Its dominant confusion pattern also doesn't funnel into `Benign` at all,
 unlike every other dataset here: `Analysis`<->`Backdoor` remains a real two-way confusion for every model
-trained on the final feature set (15.9-60.8% one way, 14.7-40.8% the other) - narrower ranges than
-immediately after the raw-data switch, but still present across the board - see `_CLASS_OF_INTEREST` in
-`src/xai_thesis/pipeline.py` for exact numbers.
+trained on the final feature set (`service` restored, `ct_ftp_cmd` still dropped - see above), 7.8-62.5%
+one way and 10.9-49.7% the other - present across the board, though the exact ranges have shifted with
+each of this dataset's feature-set changes - see `_CLASS_OF_INTEREST` in `src/xai_thesis/pipeline.py`
+for exact numbers.
 
 CIC-IDS2017's native `Web Attack` labels carry a corrupted, non-ASCII separator byte baked into the raw
 files themselves (confirmed via raw byte inspection: literal UTF-8 encoding of U+FFFD, not a decoding
@@ -287,7 +297,9 @@ train on everything" infeasible (CIC-IDS2017's 24-hour non-completion below is t
 (`min_per_class=200`, comfortably above every class's full row count so no class gets thinned further -
 UNSW-NB15's rarest, `Worms`, has 130) before fitting, for `unsw_nb15`/`cic_ids2017` specifically - a
 deliberate, disclosed methodological deviation, not an oversight. Current UNSW-NB15 `svm` result on the
-final feature set (`C=10`, tuned): macro-F1 **0.390** (24m44s for the final fit).
+final feature set (`service` restored, `C=10` re-tuned): macro-F1 **0.393** (~19min for the final fit) -
+essentially flat versus the intermediate without-`service` result (0.390), unlike the tree-ensemble
+models, which recovered more macro-F1 once `service` came back.
 
 **CIC-IDS2017's `svm` is tuned but not yet trained.** `configs/experiments/cic_ids2017_svm_baseline.yaml`
 exists and its `C` search completed (`C=10`, search took only ~8 minutes thanks to an explicit
@@ -313,7 +325,7 @@ python scripts/confusion_matrix.py --experiment configs/experiments/unsw_nb15_gr
 python scripts/confusion_matrix.py  # all experiments
 ```
 
-Plots are written to `outputs/plots/<experiment_name>/confusion_matrix.png`.
+Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/confusion_matrix.png`.
 
 Label class distribution for a dataset, or all datasets:
 
@@ -322,7 +334,11 @@ python scripts/label_distribution.py --dataset unsw_nb15
 python scripts/label_distribution.py  # all datasets
 ```
 
-Plots are written to `outputs/plots/<dataset_name>/label_distribution.png`.
+Plots are written to `outputs/plots/<dataset_name>/label_distribution.png` - as of 2026-08-17,
+`outputs/plots/` is organized per dataset first (`outputs/plots/<dataset_name>/`), holding
+dataset-level plots like this one directly and one `<model>_baseline/` subfolder per trained
+experiment for its confusion matrix and explanation plots - not a flat mix of ~20 experiment
+folders and 4 dataset folders sharing one namespace, as it was before.
 
 ## Explainability
 
@@ -376,8 +392,9 @@ patterns found via `scripts/confusion_matrix.py` (e.g. DAPT2020's `Reconnaissanc
 `Benign` by every model trained so far, and CIC-IDS2017's `DoS/DDoS` — its largest attack category by far
 — is confused with `Benign` by every model trained under its new 7-category scheme, 6.3-13.2% depending on
 model). UNSW-NB15 is the exception to the "confused with Benign" pattern: `Analysis`↔`Backdoor` remains a
-real two-way confusion for every model trained on the final feature set (15.9-60.8% one way, 14.7-40.8%
-the other) — `Analysis` is still picked as `target_class`, since its average recall is still (narrowly)
-the lower of the two (~43% vs ~47%). See `_CLASS_OF_INTEREST` in `src/xai_thesis/pipeline.py`.
+real two-way confusion for every model trained on the final feature set (`service` restored,
+`ct_ftp_cmd` still dropped — 7.8-62.5% one way, 10.9-49.7% the other) — `Analysis` is still picked as
+`target_class`, since its average recall is still the lower of the two (~41% vs ~47%). See
+`_CLASS_OF_INTEREST` in `src/xai_thesis/pipeline.py`.
 
-Plots are written to `outputs/plots/<experiment_name>/`.
+Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/`.

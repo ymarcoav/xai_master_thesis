@@ -544,7 +544,7 @@ def test_generate_confusion_matrix_writes_png_for_trained_experiment(tmp_path) -
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, plots_dir=plots_dir
     )
 
-    assert output_path == plots_dir / "toy_experiment" / "confusion_matrix.png"
+    assert output_path == plots_dir / "toy" / "experiment" / "confusion_matrix.png"
     assert output_path.exists()
 
 

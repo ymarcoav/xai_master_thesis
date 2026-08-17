@@ -324,6 +324,18 @@ def tune_hyperparameters(
     return tuned_params
 
 
+def _experiment_plot_dir(plots_dir: str | Path, dataset_name: str, experiment_name: str) -> Path:
+    """Per-experiment plot folder, nested under its dataset (plots_dir/<dataset>/<model>_baseline/)
+    rather than flat (plots_dir/<dataset>_<model>_baseline/) - keeps outputs/plots/ organized by
+    dataset instead of mixing ~20 experiment folders and 4 dataset-level folders (label
+    distribution, missing values, etc. - see generate_label_distribution and friends) in one flat
+    namespace. Every experiment name in this project follows "<dataset>_<model>_baseline", so
+    stripping the dataset prefix leaves just the model-identifying part as the subfolder name.
+    """
+    model_folder = experiment_name.removeprefix(f"{dataset_name}_")
+    return Path(plots_dir) / dataset_name / model_folder
+
+
 def generate_confusion_matrix(
     experiment_config_path: str | Path,
     *,
@@ -333,7 +345,9 @@ def generate_confusion_matrix(
     normalize: bool = False,
 ) -> Path:
     """Plot a confusion matrix for an already-trained experiment's test predictions."""
-    experiment, _, _, _, x_test, y_test = _load_experiment_and_data(experiment_config_path, dataset_config_dir)
+    experiment, dataset_config, _, _, x_test, y_test = _load_experiment_and_data(
+        experiment_config_path, dataset_config_dir
+    )
 
     experiment_name = experiment["name"]
     model = joblib.load(Path(models_dir) / f"{experiment_name}.joblib")
@@ -341,7 +355,7 @@ def generate_confusion_matrix(
 
     # Same per-experiment folder generate_explanations() writes into, so every plot for one
     # trained experiment (confusion matrix and explanations alike) lives in one place.
-    output_path = Path(plots_dir) / experiment_name / "confusion_matrix.png"
+    output_path = _experiment_plot_dir(plots_dir, dataset_config.name, experiment_name) / "confusion_matrix.png"
     return plot_confusion_matrix(y_test, predictions, output_path, normalize=normalize)
 
 
@@ -438,17 +452,17 @@ def generate_feature_correlation(
 # arbitrary/random instance choice.
 _CLASS_OF_INTEREST: dict[str, tuple[str, str]] = {
     # Unlike this project's other multiclass datasets, UNSW-NB15's dominant confusion doesn't
-    # funnel into Benign at all. Re-verified 2026-08-13, twice: first after switching UNSW-NB15
-    # from the pre-built 10%-sampled training-set/testing-set files to the full raw capture
-    # (2.4M rows, ~13x the old scale), then again after dropping service (57% "unknown",
-    # matching Tai et al. 2024's UNSW-NB15 preprocessing) and ct_ftp_cmd (near-redundant with
-    # is_ftp_login, r=0.92, no per-class differentiation - see datasets/unsw_nb15.py) from the
-    # feature set entirely. Analysis->Backdoor remains a real confusion for every model trained
-    # (15.9-60.8%), and so does the reverse direction (14.7-40.8%) - both narrower ranges than
-    # immediately after the raw-data switch, but still present across the board. Analysis
-    # remains target_class: its average recall is still the lower of the two on the final
-    # feature set (~43% vs ~47% - a much narrower gap than earlier in this dataset's history,
-    # but still the harder-to-detect side of this pair).
+    # funnel into Benign at all. Re-verified 2026-08-13/17 across three feature-set changes:
+    # the raw-capture switch, dropping service+ct_ftp_cmd, then restoring service once
+    # "improve performance" was set as the explicit priority over matching a reference paper's
+    # unexplained preprocessing (service's removal had cost real macro-F1 - see
+    # datasets/unsw_nb15.py; ct_ftp_cmd stayed dropped, that one evidence-based independent of
+    # this policy). On the final feature set (service back in, ct_ftp_cmd out):
+    # Analysis->Backdoor 7.8-62.5%, Backdoor->Analysis 10.9-49.7% - both directions present for
+    # every model trained, ranges shifted per model but the two-way confusion itself hasn't
+    # gone away across any of these feature-set changes. Analysis remains target_class: its
+    # average recall is still the lower of the two (~41% vs ~47%), the harder-to-detect side
+    # of this pair.
     "unsw_nb15": ("Analysis", "Backdoor"),
     "dapt2020": ("Reconnaissance", "Benign"),
     # R2L is confused with Benign more heavily than any other pair in this dataset, and by a
@@ -482,7 +496,7 @@ def generate_explanations(
     pdp_top_n: int = 5,
 ) -> dict[str, Path]:
     """Generate SHAP, LIME, permutation importance, and partial dependence explanations for
-    an already-trained experiment, saving plots under plots_dir/<experiment_name>/.
+    an already-trained experiment, saving plots under plots_dir/<dataset>/<model>_baseline/.
     """
     experiment, dataset_config, x_train, _, x_test, y_test = _load_experiment_and_data(
         experiment_config_path, dataset_config_dir
@@ -496,7 +510,7 @@ def generate_explanations(
     target_class, confused_with_class = _CLASS_OF_INTEREST[dataset_config.name]
 
     pipeline = joblib.load(Path(models_dir) / f"{experiment_name}.joblib")
-    output_dir = ensure_directory(Path(plots_dir) / experiment_name)
+    output_dir = ensure_directory(_experiment_plot_dir(plots_dir, dataset_config.name, experiment_name))
     class_names = list(pipeline.named_steps["model"].classes_)
 
     if len(x_test) > sample_size:
