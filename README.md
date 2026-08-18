@@ -137,6 +137,30 @@ be a testbed-specific identity leak rather than a generalizable signal. Retraini
 measurably more coherent explanations (SHAP-vs-permutation-importance agreement improved), not just
 better metrics.
 
+**The same port-leak pattern resurfaced in CIC-IDS2017 itself, 2026-08-17/18** - user-flagged this time
+("Destination Port... regularly appears in the explainability plots, but I believe it is an identifier
+that needs to be removed"), then verified directly before acting on it: `Destination Port` was carrying
+34% of `random_forest`'s total feature importance alone (>2.5x the next-highest feature, the #1 SHAP
+feature for every class), and per-class port concentration was near-total - `DoS/DDoS` 99.999% port 80,
+`Web Attack` 100% port 80, `Infiltration` 100% port 444, `Brute Force` 81%/19% port 21/22, `Bot` 55% port
+8080 - because the CICIDS2017 testbed launched each attack scenario against one fixed target service, the
+same kind of testbed-identity leak as DAPT2020's `Src Port`/`Dst Port` above, not generalizable traffic
+behavior. A broader per-class value-concentration scan across the other 57 columns found nothing else
+structurally identifier-like (no Source/Destination IP, Flow ID, or Protocol column exists in this raw
+CICIDS2017 variant at all); the many other high-concentration columns it flagged turned out to be
+genuine attack-traffic behavior (e.g. `PortScan`'s near-empty single-packet probes), not artifacts, and
+were deliberately left in place. Dropped from `configs/datasets/cic_ids2017.yaml`'s `drop_columns`
+(feature set now 60 columns, was 61), and - learning from this project's own `max_features="log2"`
+column-count-sensitivity incident above - all 5 CIC-IDS2017 models (the 3 in-scope plus the 2 archived
+`gradient_boosting`/`logistic_regression` copies) were re-tuned, not just re-fit, and had their confusion
+matrices, explanations, and interview stimuli fully regenerated. The macro-F1 cost was large and is the
+honest, expected result, not a bug: `random_forest` 0.916→0.605, `svm` 0.518→0.366, `neural_network`
+0.510→0.354, `logistic_regression` 0.527→0.368, `gradient_boosting` 0.881→0.753 (the tree ensembles held
+up best, still noticeably degraded). The dominant cross-model confusion pair didn't change
+(`DoS/DDoS`→`Benign`, see `_CLASS_OF_INTEREST` below) but got dramatically more pronounced - 68.9-89.3%
+now, up from 6.3-13.2% before - itself strong independent evidence that the old numbers were substantially
+propped up by the port leak rather than reflecting genuine separability.
+
 **NSL-KDD**'s raw `KDDTrain+.txt`/`KDDTest+.txt` files ship with no header row and one undocumented
 trailing column (a KDD-Cup-era per-record "difficulty level" score, not a traffic feature - confirmed by
 checking actual row lengths against the dataset's documented 41 named attributes + class label, which

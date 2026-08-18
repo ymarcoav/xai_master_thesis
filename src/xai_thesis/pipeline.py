@@ -469,11 +469,16 @@ _CLASS_OF_INTEREST: dict[str, tuple[str, str]] = {
     # wide margin - confirmed across both models trained so far (82.5% of R2L misclassified
     # as Benign for gradient_boosting, 64.8% for logistic_regression).
     "nsl_kdd": ("R2L", "Benign"),
-    # DoS/DDoS is misclassified as Benign by every model trained under the new 7-category
-    # multiclass scheme (6.3-13.2% depending on model), the only confusion pattern that shows
-    # up for all 4 - and it's also this dataset's largest attack category by far (64,319 of
+    # DoS/DDoS is misclassified as Benign by every model, the only confusion pattern that shows
+    # up for all 5 - and it's also this dataset's largest attack category by far (64,319 of
     # 485,902 test rows), making a missed DoS/DDoS attack the single highest-volume false
-    # negative this dataset can produce.
+    # negative this dataset can produce. Re-verified 2026-08-18 after Destination Port was
+    # dropped (see configs/datasets/cic_ids2017.yaml - it was leaking each attack scenario's
+    # fixed testbed target port, not generalizable behavior): the pair itself didn't change, but
+    # the confusion got dramatically worse once that shortcut was removed - 68.9-89.3% now,
+    # up from 6.3-13.2% on the old feature set. That jump is itself strong independent evidence
+    # for how much the old numbers were propped up by the port leak rather than genuine
+    # DoS/DDoS-vs-Benign separability.
     "cic_ids2017": ("DoS/DDoS", "Benign"),
 }
 
