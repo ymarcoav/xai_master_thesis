@@ -19,6 +19,11 @@ def main() -> None:
         default="configs/experiments",
         help="Directory containing experiment YAML configs.",
     )
+    parser.add_argument(
+        "--dataset-config-dir",
+        default="configs/datasets",
+        help="Directory containing dataset YAML configs (e.g. configs/_archive/datasets for an archived dataset).",
+    )
     args = parser.parse_args()
 
     if args.experiment:
@@ -27,7 +32,7 @@ def main() -> None:
         config_paths = sorted(Path(args.config_dir).glob("*.yaml"))
 
     for config_path in config_paths:
-        results = generate_interview_stimuli(config_path)
+        results = generate_interview_stimuli(config_path, dataset_config_dir=args.dataset_config_dir)
         for target_class, paths in results.items():
             if not paths:
                 print(f"{config_path.stem}: skipped {target_class} (no misclassified example in test set)")

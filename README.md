@@ -218,14 +218,14 @@ Each experiment config in `configs/experiments/` names a dataset and a model
 (`logistic_regression`, `neural_network`, `gradient_boosting`, `random_forest`, or `svm`). Train one:
 
 ```powershell
-python scripts/train.py --experiment configs/experiments/unsw_nb15_gradient_boosting_baseline.yaml
+python scripts/train.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml
 ```
 
 Add `--tune` to search for hyperparameters first (`RandomizedSearchCV`, stratified CV) and write the
 best ones back into the experiment's `model_params` before training on the full training set:
 
 ```powershell
-python scripts/train.py --experiment configs/experiments/unsw_nb15_gradient_boosting_baseline.yaml --tune
+python scripts/train.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml --tune
 ```
 
 Trained pipelines (preprocessing + model) are saved to `outputs/models/<experiment_name>.joblib`,
@@ -318,8 +318,8 @@ when it switched from the pre-built 10%-sample to the full raw capture (see Data
 scale that already caused CIC-IDS2017's `svm` to hang for 24+ hours (next paragraph). Getting there also
 hit its own, unrelated problem first: the *default* `tune_hyperparameters()` budget
 (`subsample_size=200_000`, `n_jobs=2`) hung for 20+ hours tuning `gradient_boosting` on this same new
-data (confirmed a genuine deadlock via live CPU-time sampling, not slowness - see the project's
-HANDOVER.md for the full incident writeup); fixed by calling `tune_hyperparameters()` directly with an
+data (confirmed a genuine deadlock via live CPU-time sampling - zero CPU usage across repeated
+5-second samples - not slowness); fixed by calling `tune_hyperparameters()` directly with an
 explicit `subsample_size=40_000`, the same pattern CIC-IDS2017 already uses below - this unblocked
 tuning for all 5 models. The final-fit problem is separate and was still real: `svm`'s final fit is the
 one step in this whole pipeline that scales badly enough with row count to make "just tune smaller,
@@ -358,7 +358,7 @@ cell doesn't compress every other cell's shade into the same dark band) for a tr
 experiments in `configs/experiments/`:
 
 ```powershell
-python scripts/confusion_matrix.py --experiment configs/experiments/unsw_nb15_gradient_boosting_baseline.yaml
+python scripts/confusion_matrix.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml
 python scripts/confusion_matrix.py  # all experiments
 ```
 
@@ -390,7 +390,7 @@ Three techniques are generated per trained experiment (or all of them) via:
 > what the function still produces if called directly.
 
 ```powershell
-python scripts/explain.py --experiment configs/experiments/unsw_nb15_gradient_boosting_baseline.yaml
+python scripts/explain.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml
 python scripts/explain.py  # all experiments
 ```
 
@@ -452,7 +452,7 @@ rather than hand-picked, then one correct and one misclassified SHAP waterfall +
 via the same instance-explanation logic `generate_explanations` uses (`_generate_instance_explanations`).
 
 ```powershell
-python scripts/interview_stimuli.py --experiment configs/experiments/unsw_nb15_gradient_boosting_baseline.yaml
+python scripts/interview_stimuli.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml
 python scripts/interview_stimuli.py  # all experiments
 ```
 
