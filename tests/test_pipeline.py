@@ -318,6 +318,72 @@ def test_run_experiment_trains_and_saves_model_and_metrics(tmp_path) -> None:
     assert (metrics_dir / "toy_experiment.json").exists()
 
 
+def test_run_experiment_trains_xgboost_and_passes_balanced_sample_weight(tmp_path) -> None:
+    # xgboost has no class_weight constructor param (see models.py) - pipeline.py must compute
+    # and forward sample_weight instead (_MODELS_REQUIRING_SAMPLE_WEIGHT). Spies on
+    # compute_sample_weight rather than re-deriving the expected array, so this test breaks if
+    # the call is ever dropped without depending on the exact weighting formula.
+    from xai_thesis import pipeline as pipeline_module
+
+    dataset_config_dir = tmp_path / "datasets"
+    dataset_config_dir.mkdir()
+    processed_dir = tmp_path / "processed" / "toy"
+    processed_dir.mkdir(parents=True)
+
+    train_df = pd.DataFrame(
+        {
+            "feature": [0.0, 1.0, 0.0, 1.0, 0.5, 0.6],
+            "label": ["benign", "attack", "benign", "attack", "benign", "attack"],
+        }
+    )
+    test_df = pd.DataFrame({"feature": [0.1, 0.9], "label": ["benign", "attack"]})
+    train_df.to_csv(processed_dir / "train.csv", index=False)
+    test_df.to_csv(processed_dir / "test.csv", index=False)
+
+    (dataset_config_dir / "toy.yaml").write_text(
+        yaml.safe_dump(
+            {"name": "toy", "raw_path": "unused", "processed_path": processed_dir.as_posix(), "label_column": "label"}
+        ),
+        encoding="utf-8",
+    )
+    experiment_path = tmp_path / "experiment.yaml"
+    experiment_path.write_text(
+        yaml.safe_dump(
+            {
+                "name": "toy_xgboost_experiment",
+                "dataset": "toy",
+                "model": "xgboost",
+                "random_state": 42,
+                "model_params": {"n_estimators": 5, "max_depth": 2},
+                "preprocessing": {"strategy": "default_tabular"},
+                "metrics": ["accuracy"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    calls = []
+    real_compute_sample_weight = pipeline_module.compute_sample_weight
+
+    def spy(*args, **kwargs):
+        result = real_compute_sample_weight(*args, **kwargs)
+        calls.append(result)
+        return result
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(pipeline_module, "compute_sample_weight", spy)
+        run_experiment(
+            experiment_path,
+            dataset_config_dir=dataset_config_dir,
+            models_dir=tmp_path / "models",
+            metrics_dir=tmp_path / "metrics",
+        )
+
+    assert len(calls) == 1
+    assert len(calls[0]) == len(train_df)
+    assert (tmp_path / "models" / "toy_xgboost_experiment.joblib").exists()
+
+
 def _write_svm_subsample_fixture(tmp_path: Path, *, dataset_name: str, model: str) -> Path:
     """A toy (dataset, model) experiment set up the same way `run_experiment` would see it for
     a real (model, dataset) pair possibly in `_FINAL_FIT_SUBSAMPLE` - the actual row counts don't

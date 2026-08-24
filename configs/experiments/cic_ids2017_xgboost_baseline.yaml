@@ -1,0 +1,21 @@
+name: cic_ids2017_xgboost_baseline
+dataset: cic_ids2017
+model: xgboost
+random_state: 42
+preprocessing:
+  strategy: default_tabular
+metrics:
+- accuracy
+- precision_macro
+- recall_macro
+- f1_macro
+- roc_auc_macro
+- pr_auc_macro
+model_params:
+  subsample: 1.0
+  reg_lambda: 5.0
+  n_estimators: 500
+  min_child_weight: 1
+  max_depth: 7
+  learning_rate: 0.3
+  colsample_bytree: 1.0

@@ -23,8 +23,10 @@ from sklearn.pipeline import Pipeline  # noqa: E402
 # gets LinearExplainer (uses the linear coefficients directly). Anything else
 # (neural_network, svm) falls back to a model-agnostic permutation explainer, which is far
 # slower since it makes many repeated calls to the model rather than reading its structure
-# directly.
-_TREE_MODELS = ("gradient_boosting", "random_forest")
+# directly. xgboost is one of TreeExplainer's best-supported cases (verified directly against
+# the installed shap/xgboost versions) - the label-encoding subclass in models.py doesn't
+# interfere, since it's a real XGBClassifier subclass, not a wrapper.
+_TREE_MODELS = ("gradient_boosting", "random_forest", "xgboost")
 
 
 def predict_proba_fn(model: Any) -> Callable[[np.ndarray], np.ndarray]:

@@ -5,7 +5,45 @@ from sklearn.base import ClassifierMixin
 from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
+from sklearn.preprocessing import LabelEncoder
 from sklearn.svm import SVC
+from xgboost import XGBClassifier as _XGBClassifier
+
+
+class _StringLabelXGBClassifier(_XGBClassifier):
+    """XGBClassifier as of xgboost>=1.6 requires y already integer-encoded 0..n_classes-1 and
+    raises ValueError otherwise (verified directly against the installed xgboost 3.4.1: fitting
+    on this project's raw string labels, e.g. "Benign"/"Analysis", fails outright) - unlike
+    every other model in this catalog, which is fit on those raw string labels straight from
+    preprocessing.py's split_features_target, with .classes_ exposing them as-is afterward
+    (evaluate_classifier, compute_shap_values, select_curated_instances, and _CLASS_OF_INTEREST's
+    string lookups all assume this). This subclass (not a wrapper - shap.TreeExplainer needs to
+    recognize the object directly, verified) label-encodes internally so it's a drop-in
+    replacement matching that same string-label contract.
+
+    Ordering matters in fit(): xgboost's own fit() validates np.unique(y) against self.classes_
+    (a read-only property) *during* the call, so the encoder must not be visible on self yet at
+    that point - it's assigned to self._label_encoder only after super().fit() returns
+    successfully, and the classes_ property below falls back to the base (integer-arange)
+    behavior via super().classes_ until then. Setting self._label_encoder up front instead
+    would make classes_ report strings while xgboost's own internal check still expects the
+    encoded integers, reproducing the exact ValueError this exists to avoid.
+    """
+
+    def fit(self, X, y, **kwargs: Any) -> "_StringLabelXGBClassifier":
+        encoder = LabelEncoder().fit(y)
+        super().fit(X, encoder.transform(y), **kwargs)
+        self._label_encoder = encoder
+        return self
+
+    @property
+    def classes_(self) -> Any:
+        encoder = self.__dict__.get("_label_encoder")
+        return encoder.classes_ if encoder is not None else super().classes_
+
+    def predict(self, X, **kwargs: Any) -> Any:
+        return self._label_encoder.inverse_transform(super().predict(X, **kwargs).astype(int))
+
 
 # MLPClassifier has no class_weight/sample_weight support, so it can't be rebalanced here
 # like the rest; instead, pipeline.py resamples its training data (balance_classes) before
@@ -17,6 +55,22 @@ from sklearn.svm import SVC
 # and svm. Do not include logistic_regression/gradient_boosting results in methodology/results
 # writing going forward unless the user explicitly reverses this (same pattern as DAPT2020/PDP
 # being flagged out of scope elsewhere in this project - see README.md).
+#
+# ⚠️ xgboost added 2026-08-24, same out-of-scope-but-fully-functional treatment, at explicit
+# user request/confirmation - not part of the thesis's own reported results. Unlike every other
+# model here, XGBClassifier has no class_weight constructor param at all (not even an unsupported
+# one to omit - it simply isn't in xgboost's sklearn API), only per-sample weights at fit() time.
+# pipeline.py's _MODELS_REQUIRING_SAMPLE_WEIGHT computes those via
+# sklearn.utils.class_weight.compute_sample_weight("balanced", y) - mathematically the same
+# per-class weighting class_weight="balanced" applies internally for the other models - and
+# passes them through at fit time, rather than reusing neural_network's resampling fallback
+# below: resampling duplicates/drops rows and so shifts the effective class prior the model
+# trains on (this project's own smote_balance_classes experiment, tried and reverted for
+# neural_network, found evidence this prior shift - not the oversampling method - was the likely
+# cause of a precision regression), whereas sample weighting reweights the loss without touching
+# which rows exist. tree_method="hist" and eval_metric="mlogloss" are fixed for speed/determinism
+# on this project's largest datasets (~2M rows) and to silence an eval_metric-at-fit-time
+# deprecation warning respectively; neither is searched.
 #
 # random_forest was previously dropped from the catalog (shared gradient_boosting's
 # tree-ensemble family and TreeExplainer, with near-highest cross-model SHAP agreement of
@@ -79,6 +133,10 @@ _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
         kernel="linear",
         **{"probability": True, "max_iter": 50_000, **kwargs},
     ),
+    "xgboost": lambda random_state, **kwargs: _StringLabelXGBClassifier(
+        random_state=random_state,
+        **{"tree_method": "hist", "eval_metric": "mlogloss", **kwargs},
+    ),
 }
 
 # Hyperparameter search spaces for RandomizedSearchCV, keyed by model name. Parameter names
@@ -126,6 +184,21 @@ PARAM_DISTRIBUTIONS: dict[str, dict[str, list[Any]]] = {
     "svm": {
         "model__C": [0.01, 0.03, 0.1, 0.3, 0.5, 1, 3, 10],
     },
+    # reg_lambda's minimum is 0.1, not 0: gradient_boosting's l2_regularization=0 incident above
+    # showed zero regularization combined with extreme per-sample weights under this project's
+    # severe imbalance can produce a near-degenerate model - xgboost's sample-weight-based
+    # balancing (see _MODEL_FACTORIES' xgboost comment) creates the same kind of extreme weights,
+    # so this grid avoids the analogous zero-regularization combination proactively rather than
+    # rediscovering the same failure mode.
+    "xgboost": {
+        "model__n_estimators": [100, 200, 300, 500],
+        "model__max_depth": [3, 5, 7, 10, 15],
+        "model__learning_rate": [0.01, 0.03, 0.05, 0.1, 0.2, 0.3],
+        "model__subsample": [0.6, 0.8, 1.0],
+        "model__colsample_bytree": [0.6, 0.8, 1.0],
+        "model__min_child_weight": [1, 3, 5, 10],
+        "model__reg_lambda": [0.1, 0.5, 1.0, 2.0, 5.0],
+    },
 }
 
 
@@ -138,6 +211,8 @@ def build_model(model_name: str, random_state: int = 42, **kwargs: Any) -> Class
     return factory(random_state=random_state, **kwargs)
 
 
-def train_model(model: ClassifierMixin, x_train, y_train) -> ClassifierMixin:
-    """Fit a model and return it."""
-    return model.fit(x_train, y_train)
+def train_model(model: ClassifierMixin, x_train, y_train, **fit_params: Any) -> ClassifierMixin:
+    """Fit a model (or Pipeline) and return it. fit_params are forwarded to .fit() as-is - e.g.
+    sample_weight for a bare model, or model__sample_weight for a Pipeline (see pipeline.py's
+    _MODELS_REQUIRING_SAMPLE_WEIGHT)."""
+    return model.fit(x_train, y_train, **fit_params)

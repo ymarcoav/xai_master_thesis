@@ -213,9 +213,17 @@ files (22 Jan - 18 Feb 2015, files 1->4 in order).
 > `neural_network`, `random_forest`, and `svm`. To rerun an archived one: `python scripts/train.py
 > --experiment configs/_archive/experiments/unsw_nb15_gradient_boosting_baseline.yaml` (no
 > `--dataset-config-dir` needed here - UNSW-NB15/CIC-IDS2017's dataset configs are still active).
+>
+> **`xgboost` (added 2026-08-24) gets the same out-of-scope-but-fully-functional treatment**,
+> at explicit user request/confirmation - trained, tuned, and explained like every in-scope
+> model, but not part of the thesis's own reported results. Unlike every other model here,
+> `XGBClassifier` has no `class_weight` constructor parameter at all - see the imbalance-handling
+> paragraph below for how it's balanced instead. Not archived (unlike `gradient_boosting`/
+> `logistic_regression`) - its configs stay in `configs/experiments/` like every in-scope model.
 
 Each experiment config in `configs/experiments/` names a dataset and a model
-(`logistic_regression`, `neural_network`, `gradient_boosting`, `random_forest`, or `svm`). Train one:
+(`logistic_regression`, `neural_network`, `gradient_boosting`, `random_forest`, `svm`, or
+`xgboost`). Train one:
 
 ```powershell
 python scripts/train.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml
@@ -238,6 +246,25 @@ All four datasets are severely class-imbalanced (NSL-KDD's `U2R` category has on
 (`balance_classes` in `preprocessing.py` oversamples rare classes and undersamples common ones to the
 median class count, applied only to the training fold, both during hyperparameter search and the final
 fit).
+
+`xgboost`'s `XGBClassifier` has no `class_weight` constructor parameter at all (not even an
+unsupported one to omit - it simply isn't part of xgboost's sklearn API), only per-sample weights
+at fit time. `pipeline.py`'s `_MODELS_REQUIRING_SAMPLE_WEIGHT` computes those via
+`sklearn.utils.class_weight.compute_sample_weight("balanced", y)` - mathematically the same
+per-class weighting `class_weight="balanced"` applies internally for the other models - rather
+than reusing `neural_network`'s resampling fallback: resampling changes which/how many rows the
+model actually trains on, shifting the effective class prior (this project's own
+`smote_balance_classes` experiment, tried and reverted for `neural_network`, found evidence this
+prior shift - not the oversampling method itself - was the likely cause of a precision
+regression), whereas sample weighting reweights the loss without touching which rows exist,
+closer to what every non-resampled model here already does. Separately, `XGBClassifier` also
+rejects this project's raw string class labels outright (verified directly: fitting on
+`"Benign"`/`"Analysis"`/etc. raises `ValueError`, unlike every other model here, which accepts
+them natively) - `models.py`'s `_StringLabelXGBClassifier` subclasses it to label-encode
+internally, so `.classes_`/`.predict()` still return the original string labels like every other
+model's contract requires (`evaluate_classifier`, `compute_shap_values`, `_CLASS_OF_INTEREST`'s
+string lookups, etc. all assume this). It's a real subclass, not a wrapper, specifically so
+`shap.TreeExplainer` still recognizes it directly (verified).
 
 `random_forest` was originally dropped from the model catalog (shares `gradient_boosting`'s
 tree-ensemble family and `TreeExplainer`, consistently showed the highest cross-model SHAP agreement
@@ -349,6 +376,17 @@ completed cleanly: macro-F1 **0.518**, accuracy 0.855, roc_auc_macro 0.986 (~25 
 fit, plus ~76 minutes for permutation-based SHAP generation - the slow part of this model's explanation
 suite, not its training).
 
+**`xgboost` added 2026-08-24** (out of scope for the thesis, same treatment as `gradient_boosting`/
+`logistic_regression` - see the blockquote above). Tuned (`RandomizedSearchCV`, `subsample_size=40_000`
+for tractability on both large datasets, same pattern already used for `svm`/`gradient_boosting`
+above) and trained on the complete, un-subsampled training set for both - no `_FINAL_FIT_SUBSAMPLE`
+exception needed, unlike `svm`: `tree_method="hist"` finishes CIC-IDS2017's ~1.8M-row final fit
+(500 trees) in well under 4 minutes. Results: UNSW-NB15 accuracy 0.971, macro-F1 **0.566**
+(competitive with `random_forest`'s 0.563, ahead of `neural_network`'s 0.475 and `svm`'s 0.393);
+CIC-IDS2017 accuracy 0.983, macro-F1 **0.753** (clearly ahead of every other model on this dataset -
+`random_forest` 0.605, `svm` 0.366, `neural_network` 0.354). Full tuning/training/confusion-matrix/
+SHAP-LIME-PFI/interview-stimuli generation took under 15 minutes total across both datasets combined.
+
 ## Analysis
 
 Confusion matrix (absolute counts, colored on a symmetric-log scale so cells of very different
@@ -394,7 +432,7 @@ python scripts/explain.py --experiment configs/experiments/unsw_nb15_random_fore
 python scripts/explain.py  # all experiments
 ```
 
-- **SHAP**: `TreeExplainer` for `gradient_boosting` and `random_forest`, `LinearExplainer` for
+- **SHAP**: `TreeExplainer` for `gradient_boosting`, `random_forest`, and `xgboost`, `LinearExplainer` for
   `logistic_regression`, and a permutation-based `Explainer` for `neural_network` and `svm` (no fast
   structural explainer exists for sklearn MLPs or kernel SVMs - this path is markedly slower for both,
   and slower still for `svm` specifically, since its own predictions are more expensive to compute).

@@ -9,6 +9,7 @@ import joblib
 import pandas as pd
 from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold, train_test_split
 from sklearn.pipeline import Pipeline
+from sklearn.utils.class_weight import compute_sample_weight
 
 from xai_thesis.datasets import DATASET_REGISTRY
 from xai_thesis.datasets.base import DatasetConfig, load_dataset_config
@@ -47,6 +48,15 @@ from xai_thesis.utils import dump_yaml, ensure_directory, load_yaml
 # - it made both models measurably worse (LR f1_macro 0.352->0.318, GB 0.644->0.601), so
 # it's restricted back to just the one model that has no other option.
 _MODELS_REQUIRING_RESAMPLING = {"neural_network"}
+
+# xgboost's XGBClassifier has no class_weight constructor param at all (see models.py) - it
+# only supports per-sample weights at fit() time. compute_sample_weight("balanced", y) computes
+# the same per-class weighting class_weight="balanced" applies internally for the other models,
+# just passed through fit's sample_weight instead of set on the model itself. Deliberately not
+# folded into _MODELS_REQUIRING_RESAMPLING above: resampling changes which/how many rows the
+# model actually trains on (shifting the effective class prior), while sample weighting only
+# reweights the loss - closer to what every non-resampled model here already does.
+_MODELS_REQUIRING_SAMPLE_WEIGHT = {"xgboost"}
 
 _METRIC_EXTRACTORS = {
     "accuracy": lambda report: report["accuracy"],
@@ -243,6 +253,9 @@ def run_experiment(
         pipeline = _fit_pipeline_with_post_preprocessing_resampling(
             experiment, dataset_config, x_train, y_train, random_state
         )
+    elif experiment["model"] in _MODELS_REQUIRING_SAMPLE_WEIGHT:
+        pipeline = _build_pipeline(experiment, dataset_config, x_train)
+        train_model(pipeline, x_train, y_train, model__sample_weight=compute_sample_weight("balanced", y_train))
     else:
         pipeline = _build_pipeline(experiment, dataset_config, x_train)
         train_model(pipeline, x_train, y_train)
@@ -314,7 +327,15 @@ def tune_hyperparameters(
         random_state=random_state,
         n_jobs=n_jobs,
     )
-    search.fit(x_search, y_search)
+    # RandomizedSearchCV/Pipeline re-slice any fit_param whose length matches len(x_search) per
+    # CV fold automatically (a standard, well-supported sklearn mechanism - not special-cased
+    # here), so this is safe to compute once over the full search set rather than per fold.
+    fit_params = (
+        {"model__sample_weight": compute_sample_weight("balanced", y_search)}
+        if experiment["model"] in _MODELS_REQUIRING_SAMPLE_WEIGHT
+        else {}
+    )
+    search.fit(x_search, y_search, **fit_params)
 
     tuned_params = {key.removeprefix("model__"): value for key, value in search.best_params_.items()}
 
