@@ -13,7 +13,7 @@ Code for the master thesis titled "Evaluating Explainable AI Methods for Intrusi
 - `scripts/`: command-line entry points for inspection, preprocessing, training, and analysis.
 - `notebooks/`: exploratory analysis and thesis figures in progress.
 - `outputs/`: generated models (`models/`), metrics (`metrics/`), and plots (`plots/`).
-- `outputs/_archive/`: models/metrics/plots for archived datasets/models, plus every `partial_dependence.png` (PDP is fully out of the pipeline as of 2026-08-17 - see Explainability below). Also gitignored.
+- `outputs/_archive/`: models/metrics/plots for archived datasets/models. Also gitignored.
 - `tests/`: focused tests for shared code.
 
 ## Setup
@@ -443,13 +443,12 @@ Plots are written alongside `label_distribution.png` in the same per-dataset fol
 
 Three techniques are generated per trained experiment (or all of them) via:
 
-> **Partial dependence plots (PDP) are out of scope for the thesis's explainability analysis as of
-> 2026-07-31, and out of the pipeline entirely as of 2026-08-17.** `plot_partial_dependence` in
-> `explainability.py` (ICE-curve overlay included) is still fully implemented and directly callable -
-> nothing was removed - but `generate_explanations()` no longer calls it, so a normal
-> `scripts/explain.py` run doesn't regenerate `partial_dependence.png` anymore. Every existing PDP plot
-> (all 20 experiments) was moved to `outputs/_archive/partial_dependence/`. See the PDP bullet below for
-> what the function still produces if called directly.
+> **Partial dependence plots (PDP) were removed entirely on 2026-08-27** (had been out of the
+> thesis's explainability scope since 2026-07-31, and out of `generate_explanations()`
+> specifically since 2026-08-17, but kept as a still-callable function until now).
+> `plot_partial_dependence` no longer exists in `explainability.py` - not just unused, deleted -
+> along with its tests and every `partial_dependence.png` file that existed anywhere in
+> `outputs/`.
 
 ```powershell
 python scripts/explain.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml
@@ -479,13 +478,6 @@ python scripts/explain.py  # all experiments
 - **Permutation feature importance** (`sklearn.inspection.permutation_importance`): run on the full
   pipeline, so importances are reported in terms of the original feature names, not the one-hot-expanded
   ones.
-- **Partial dependence plots** *(implemented, but out of the pipeline as of 2026-08-17 - see note
-  above; call `plot_partial_dependence` in `explainability.py` directly to still generate one)*
-  (`sklearn.inspection.PartialDependenceDisplay`, with individual conditional expectation curves
-  overlaid): for the top numeric features by permutation importance. The
-  ICE curves show one line per sampled instance alongside the usual average PDP line, so a feature whose
-  effect is heterogeneous (pushing some instances toward the target class and others away from it) reads
-  as heterogeneous, rather than averaging out to look flat or negligible.
 
 The two curated instances per experiment (one correctly classified, one misclassified) are chosen from a
 `(target_class, confused_with_class)` pair per dataset — not randomly — based on the cross-model confusion

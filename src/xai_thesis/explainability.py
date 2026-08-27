@@ -16,7 +16,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import shap  # noqa: E402
 from lime.lime_tabular import LimeTabularExplainer  # noqa: E402
-from sklearn.inspection import PartialDependenceDisplay, permutation_importance  # noqa: E402
+from sklearn.inspection import permutation_importance  # noqa: E402
 from sklearn.pipeline import Pipeline  # noqa: E402
 
 # Models with a fast, exact structural SHAP explainer (tree ensembles). Everything else
@@ -525,57 +525,6 @@ def compute_permutation_importance(
     plot_path = _save_figure(fig, output_path)
 
     return plot_path, top_features
-
-
-def plot_partial_dependence(
-    pipeline: Pipeline,
-    x_data: pd.DataFrame,
-    features: list[str],
-    target_class: str,
-    output_path: str | Path,
-    *,
-    random_state: int = 42,
-) -> Path:
-    """Partial dependence plots for a handful of features, for one target class.
-
-    Out of scope for the thesis's explainability analysis as of 2026-07-31, and out of the
-    pipeline entirely as of 2026-08-17: kept fully functional and directly callable, but no
-    longer invoked from generate_explanations - existing partial_dependence.png files were
-    archived to outputs/_archive/ - see README.md's Explainability section.
-
-    Numeric columns are cast to float first: sklearn's PDP rejects integer dtypes outright.
-    response_method="auto" falls back to decision_function for models without predict_proba.
-
-    kind="both" overlays individual conditional expectation (ICE) curves - one line per
-    sampled instance - underneath the usual average PDP line. The average alone can look
-    flat or negligible even when a feature has a real but heterogeneous effect (pushing some
-    instances toward the target class and others away from it); that distinction matters
-    here specifically, since "this feature matters, but only for some traffic" is a
-    materially different finding than "this feature doesn't matter" for a thesis about
-    explanations informing security decisions. subsample caps how many individual lines are
-    drawn - plotting all of x_data would overplot into an unreadable smear - and random_state
-    makes which instances get drawn reproducible, matching every other sampling step in this
-    pipeline.
-    """
-    x_data = x_data.copy()
-    numeric_columns = x_data.select_dtypes(include="number").columns
-    x_data[numeric_columns] = x_data[numeric_columns].astype(float)
-
-    display = PartialDependenceDisplay.from_estimator(
-        pipeline,
-        x_data,
-        features=features,
-        target=target_class,
-        response_method="auto",
-        kind="both",
-        subsample=50,
-        random_state=random_state,
-    )
-    n_cols = min(3, len(features))
-    n_rows = -(-len(features) // n_cols)
-    display.figure_.set_size_inches(4.5 * n_cols, 3.5 * n_rows)
-    display.figure_.tight_layout()
-    return _save_figure(display.figure_, output_path)
 
 
 def select_curated_instances(

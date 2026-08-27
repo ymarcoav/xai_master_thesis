@@ -10,7 +10,6 @@ from xai_thesis.explainability import (
     compute_shap_values,
     explain_instance_with_lime,
     explain_instance_with_lime_full,
-    plot_partial_dependence,
     plot_shap_bar,
     plot_shap_beeswarm,
     plot_shap_waterfall,
@@ -297,25 +296,6 @@ def test_compute_permutation_importance_writes_png_and_ranks_features(tmp_path) 
 
     assert output_path.exists()
     assert set(top_features) == {"feature_a", "feature_b"}
-
-
-def test_plot_partial_dependence_writes_png(tmp_path) -> None:
-    x, y = _make_dataset()
-    pipeline = _fitted_pipeline("random_forest", x, y)
-
-    output_path = plot_partial_dependence(pipeline, x, ["feature_a"], "class_0", tmp_path / "pdp.png")
-
-    assert output_path.exists()
-
-
-def test_plot_partial_dependence_works_without_predict_proba_via_decision_function(tmp_path) -> None:
-    x, y = _make_dataset()
-    pipeline = _fitted_pipeline_without_predict_proba(x, y)
-    assert not hasattr(pipeline.named_steps["model"], "predict_proba")
-
-    output_path = plot_partial_dependence(pipeline, x, ["feature_a"], "class_0", tmp_path / "pdp_no_proba.png")
-
-    assert output_path.exists()
 
 
 def test_select_curated_instances_finds_correct_and_misclassified() -> None:

@@ -755,7 +755,6 @@ def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
     )
 
     assert {"shap_bar", "shap_beeswarm", "permutation_importance"} <= set(paths)
-    assert "partial_dependence" not in paths
     for path in paths.values():
         assert path.exists()
 

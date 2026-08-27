@@ -498,10 +498,10 @@ def generate_explanations(
     """Generate SHAP, LIME, and permutation importance explanations for an already-trained
     experiment, saving plots under plots_dir/<dataset>/<model>_baseline/.
 
-    Partial dependence plots (PDP) are out of scope for the thesis's explainability analysis
-    as of 2026-07-31, and out of the pipeline entirely as of 2026-08-17 - plot_partial_dependence
-    in explainability.py is kept fully functional (importable/callable directly) but is no
-    longer invoked from here, so a normal run of this function no longer regenerates it.
+    Partial dependence plots (PDP) were removed entirely on 2026-08-27 (had been out of the
+    thesis's explainability scope since 2026-07-31, and out of this function specifically
+    since 2026-08-17) - explainability.py no longer has a plot_partial_dependence function at
+    all, not just an unused one.
     """
     experiment, dataset_config, x_train, _, x_test, y_test = _load_experiment_and_data(
         experiment_config_path, dataset_config_dir
