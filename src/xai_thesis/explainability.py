@@ -19,21 +19,24 @@ from lime.lime_tabular import LimeTabularExplainer  # noqa: E402
 from sklearn.inspection import PartialDependenceDisplay, permutation_importance  # noqa: E402
 from sklearn.pipeline import Pipeline  # noqa: E402
 
-# Models with a fast, exact structural SHAP explainer (tree ensembles). logistic_regression
-# gets LinearExplainer (uses the linear coefficients directly). Anything else
+# Models with a fast, exact structural SHAP explainer (tree ensembles). Everything else
 # (neural_network, svm) falls back to a model-agnostic permutation explainer, which is far
 # slower since it makes many repeated calls to the model rather than reading its structure
 # directly. xgboost is one of TreeExplainer's best-supported cases (verified directly against
 # the installed shap/xgboost versions) - the label-encoding subclass in models.py doesn't
 # interfere, since it's a real XGBClassifier subclass, not a wrapper.
-_TREE_MODELS = ("gradient_boosting", "random_forest", "xgboost")
+#
+# gradient_boosting (also TreeExplainer) and logistic_regression (its own dedicated
+# shap.LinearExplainer branch, since removed) were both removed from the model catalog
+# entirely on 2026-08-24 (explicit user request) - see models.py for the full removal note.
+_TREE_MODELS = ("random_forest", "xgboost")
 
 
 def predict_proba_fn(model: Any) -> Callable[[np.ndarray], np.ndarray]:
     """Return a predict_proba-like callable for any classifier, even ones without one.
 
-    No model currently in the catalog actually lacks predict_proba (LinearSVC, the one
-    that did, was dropped in favor of logistic regression - see models.py), but this stays
+    No model currently in the catalog actually lacks predict_proba (LinearSVC, the one that
+    did, was dropped early on - see models.py), but this stays
     generic rather than assuming that always holds: softmax(decision_function) is a
     deterministic, argmax-preserving stand-in for a margin-only classifier (the predicted
     class is always identical to model.predict()), unlike CalibratedClassifierCV, which was
@@ -98,12 +101,6 @@ def compute_shap_values(
         expected_value = np.atleast_1d(np.asarray(explainer.expected_value))
         shap_values, expected_value = _expand_binary_class_dimension(shap_values, expected_value, n_classes)
         base_values = np.broadcast_to(expected_value, (n_samples, expected_value.shape[0]))
-    elif model_name == "logistic_regression":
-        explainer = shap.LinearExplainer(model, background_transformed)
-        shap_values = np.asarray(explainer.shap_values(x_transformed))
-        expected_value = np.atleast_1d(np.asarray(explainer.expected_value))
-        shap_values, expected_value = _expand_binary_class_dimension(shap_values, expected_value, n_classes)
-        base_values = np.broadcast_to(expected_value, (n_samples, expected_value.shape[0]))
     else:
         background_summary = shap.sample(background_transformed, min(50, len(background_transformed)))
         explainer = shap.Explainer(predict_proba_fn(model), background_summary, algorithm="permutation")
@@ -120,14 +117,19 @@ def compute_shap_values(
 def _expand_binary_class_dimension(
     shap_values: np.ndarray, expected_value: np.ndarray, n_classes: int
 ) -> tuple[np.ndarray, np.ndarray]:
-    """TreeExplainer/LinearExplainer collapse a binary classifier's output to a single column
-    (the positive class, model.classes_[1]) rather than one per class, since the other class's
-    contribution is just its negation - unlike the multiclass case, or the permutation
-    explainer, which always gets one column per class from predict_proba regardless of class
-    count. Expand back to a uniform (..., n_classes) shape so downstream code (which assumes
-    one SHAP value per class) doesn't need two code paths. The sign convention (index 1 as-is,
-    index 0 negated) was verified empirically against the model's own predict_proba output,
-    not assumed.
+    """Some binary classifiers' TreeExplainer/LinearExplainer output collapses to a single raw
+    margin/log-odds column (the positive class, model.classes_[1]) rather than one per class,
+    since the other class's contribution there is just its negation - unlike the multiclass
+    case, the permutation explainer (always one column per class from predict_proba regardless
+    of class count), or - verified directly, not assumed - RandomForestClassifier's own
+    TreeExplainer output, which is already 3D/per-class for a binary problem (expected_value
+    already something like [0.4996, 0.5004], summing to ~1 like real complementary
+    probabilities, not [-x, x]). The ndim==3 check below is what tells these two cases apart;
+    the sign convention this function applies (index 1 as-is, index 0 negated) only holds for
+    the collapsed, margin-space case and was verified empirically against that model's own
+    predict_proba output, not assumed - don't assume it generalizes to every future model
+    without checking shap_values.ndim / expected_value's own shape first, the way random_forest
+    already disproved it would.
     """
     if n_classes != 2 or shap_values.ndim == 3:
         return shap_values, expected_value

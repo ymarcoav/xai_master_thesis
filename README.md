@@ -6,7 +6,7 @@ Code for the master thesis titled "Evaluating Explainable AI Methods for Intrusi
 
 - `configs/datasets/`: one YAML per **active** dataset (raw/processed paths, label column, columns to drop, categorical columns).
 - `configs/experiments/`: one YAML per **active** trained model (dataset, model type, hyperparameters, metrics to report).
-- `configs/_archive/`: dataset/experiment configs for out-of-scope datasets/models (NSL-KDD, DAPT2020, `gradient_boosting`, `logistic_regression`) - archived 2026-08-17, still fully functional, just not touched by the default (no-args) pipeline commands. See the Datasets/Training sections below.
+- `configs/_archive/`: dataset/experiment configs for out-of-scope datasets (NSL-KDD, DAPT2020) - archived 2026-08-17, still fully functional, just not touched by the default (no-args) pipeline commands. See the Datasets/Training sections below. (`gradient_boosting`/`logistic_regression` were archived here too for a while, then removed from the project entirely on 2026-08-24 - see Training below.)
 - `data/`: raw and processed datasets. Data files are ignored by Git.
 - `data/_archive/`: raw/processed data for archived datasets (also gitignored).
 - `src/xai_thesis/`: reusable project code (dataset adapters, preprocessing, models, evaluation, explainability, pipeline orchestration).
@@ -204,26 +204,27 @@ files (22 Jan - 18 Feb 2015, files 1->4 in order).
 
 ## Training
 
-> **`logistic_regression` and `gradient_boosting` are out of scope for the thesis** (since
-> 2026-08-09) **and were archived as of 2026-08-17.** Both model factory entries in `models.py`
-> remain fully implemented and functional - nothing was removed - but their trained
-> models/metrics/plots (for UNSW-NB15 and CIC-IDS2017; NSL-KDD/DAPT2020's copies moved as part of
-> those datasets' own archival above) moved to `outputs/_archive/<model>/`, and their experiment
-> configs moved to `configs/_archive/experiments/`. The thesis now reports on only three models:
-> `neural_network`, `random_forest`, and `svm`. To rerun an archived one: `python scripts/train.py
-> --experiment configs/_archive/experiments/unsw_nb15_gradient_boosting_baseline.yaml` (no
-> `--dataset-config-dir` needed here - UNSW-NB15/CIC-IDS2017's dataset configs are still active).
+> **`logistic_regression` and `gradient_boosting` were removed from this project entirely on
+> 2026-08-24** (explicit user request). Both had been flagged out-of-scope-for-the-thesis since
+> 2026-08-09 and archived (models/metrics/plots/configs moved to `outputs/_archive/`/
+> `configs/_archive/`) since 2026-08-17, then deleted outright rather than kept around unused:
+> their model factory entries and tuning grids (`models.py`), every archived config/model/
+> metrics/plot file (for UNSW-NB15, CIC-IDS2017, and their bundled copies within the archived
+> NSL-KDD/DAPT2020 datasets), and now-dead explanation code (`logistic_regression`'s dedicated
+> `shap.LinearExplainer` branch) are all gone, not just hidden. Historical numbers/results
+> elsewhere in this document that reference these two models are kept as-is - they describe real
+> findings from when the models existed, not a claim that they still do. The thesis reports on
+> three models: `neural_network`, `random_forest`, and `svm`.
 >
-> **`xgboost` (added 2026-08-24) gets the same out-of-scope-but-fully-functional treatment**,
-> at explicit user request/confirmation - trained, tuned, and explained like every in-scope
-> model, but not part of the thesis's own reported results. Unlike every other model here,
-> `XGBClassifier` has no `class_weight` constructor parameter at all - see the imbalance-handling
-> paragraph below for how it's balanced instead. Not archived (unlike `gradient_boosting`/
-> `logistic_regression`) - its configs stay in `configs/experiments/` like every in-scope model.
+> **`xgboost` (added 2026-08-24) is out-of-scope-but-fully-functional**, at explicit user
+> request/confirmation - trained, tuned, and explained like every in-scope model, but not part
+> of the thesis's own reported results. Unlike every other model here, `XGBClassifier` has no
+> `class_weight` constructor parameter at all - see the imbalance-handling paragraph below for
+> how it's balanced instead. Not archived - its configs stay in `configs/experiments/` like
+> every in-scope model.
 
-Each experiment config in `configs/experiments/` names a dataset and a model
-(`logistic_regression`, `neural_network`, `gradient_boosting`, `random_forest`, `svm`, or
-`xgboost`). Train one:
+Each experiment config in `configs/experiments/` names a dataset and a model (`neural_network`,
+`random_forest`, `svm`, or `xgboost`). Train one:
 
 ```powershell
 python scripts/train.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml
@@ -240,8 +241,8 @@ Trained pipelines (preprocessing + model) are saved to `outputs/models/<experime
 and metrics to `outputs/metrics/<experiment_name>.json`.
 
 All four datasets are severely class-imbalanced (NSL-KDD's `U2R` category has only 52 training rows and
-67 test rows, against 67,343/9,711 `Benign`). `logistic_regression`, `gradient_boosting`,
-`random_forest`, and `svm` all use `class_weight="balanced"`; `neural_network` (`MLPClassifier`) has no
+67 test rows, against 67,343/9,711 `Benign`). `random_forest` and `svm` both use
+`class_weight="balanced"`; `neural_network` (`MLPClassifier`) has no
 `class_weight`/`sample_weight` support in scikit-learn, so its training data is resampled instead
 (`balance_classes` in `preprocessing.py` oversamples rare classes and undersamples common ones to the
 median class count, applied only to the training fold, both during hyperparameter search and the final
@@ -266,14 +267,16 @@ model's contract requires (`evaluate_classifier`, `compute_shap_values`, `_CLASS
 string lookups, etc. all assume this). It's a real subclass, not a wrapper, specifically so
 `shap.TreeExplainer` still recognizes it directly (verified).
 
-`random_forest` was originally dropped from the model catalog (shares `gradient_boosting`'s
+`random_forest` was originally dropped from the model catalog (shared `gradient_boosting`'s
 tree-ensemble family and `TreeExplainer`, consistently showed the highest cross-model SHAP agreement
-with it of any model pair, and underperformed it on 2 of 3 datasets) - re-added by explicit request
-despite that redundancy concern still applying. It gets the same `class_weight="balanced"` and
-`TreeExplainer` treatment as `gradient_boosting`.
+with it of any model pair, and underperformed it on 2 of 3 datasets - `gradient_boosting` has since
+been removed from the catalog entirely, see the blockquote above) - `random_forest` was re-added by
+explicit request despite that redundancy concern still applying. It uses `class_weight="balanced"`
+and `TreeExplainer`, same as `xgboost`.
 
 An earlier `svm` (`LinearSVC`) was dropped for substantially worse macro-F1 than the other models,
-replaced by `logistic_regression` as the catalog's linear model. The current `svm` entry is a
+replaced at the time by `logistic_regression` as the catalog's linear model (itself later removed
+entirely, see the blockquote above). The current `svm` entry is a
 different, later addition: `SVC` with a **linear kernel** and `probability=True`, matching an external
 reference configuration exactly for those two settings. `probability=True` is kept despite the extra
 internal Platt-scaling cost it adds on top of the kernel fit, to match that reference configuration
@@ -376,10 +379,19 @@ completed cleanly: macro-F1 **0.518**, accuracy 0.855, roc_auc_macro 0.986 (~25 
 fit, plus ~76 minutes for permutation-based SHAP generation - the slow part of this model's explanation
 suite, not its training).
 
-**`xgboost` added 2026-08-24** (out of scope for the thesis, same treatment as `gradient_boosting`/
-`logistic_regression` - see the blockquote above). Tuned (`RandomizedSearchCV`, `subsample_size=40_000`
-for tractability on both large datasets, same pattern already used for `svm`/`gradient_boosting`
-above) and trained on the complete, un-subsampled training set for both - no `_FINAL_FIT_SUBSAMPLE`
+**`_FINAL_FIT_SUBSAMPLE` was removed entirely on 2026-08-27** (explicit user request): `svm`'s final fit
+on `unsw_nb15`/`cic_ids2017` now trains on the complete training set, same as every other model in this
+catalog, rather than the 150,000-row stratified subsample described in the two paragraphs above - a
+deliberate reversal of that deviation so `svm`'s reported metrics are trained the same way as every other
+model's and stay directly comparable, accepting the reintroduced risk of a repeat of CIC-IDS2017's
+24+-hour non-completion history. **The UNSW-NB15 (0.393) and CIC-IDS2017 (0.518) macro-F1 numbers above
+are therefore stale as of this change** - both still reflect the now-removed subsample and need a full
+retrain (deliberately not run yet; queued alongside the other pending changes from this same session).
+
+**`xgboost` added 2026-08-24** (out of scope for the thesis - see the blockquote above). Tuned
+(`RandomizedSearchCV`, `subsample_size=40_000` for tractability on both large datasets, same
+pattern already used for `svm` above) and trained on the complete, un-subsampled training set
+for both - no `_FINAL_FIT_SUBSAMPLE`
 exception needed, unlike `svm`: `tree_method="hist"` finishes CIC-IDS2017's ~1.8M-row final fit
 (500 trees) in well under 4 minutes. Results: UNSW-NB15 accuracy 0.971, macro-F1 **0.566**
 (competitive with `random_forest`'s 0.563, ahead of `neural_network`'s 0.475 and `svm`'s 0.393);
@@ -415,6 +427,18 @@ dataset-level plots like this one directly and one `<model>_baseline/` subfolder
 experiment for its confusion matrix and explanation plots - not a flat mix of ~20 experiment
 folders and 4 dataset folders sharing one namespace, as it was before.
 
+Missing-value summary, train/test split balance, and feature correlation, for a dataset or all
+datasets:
+
+```powershell
+python scripts/dataset_diagnostics.py --dataset unsw_nb15
+python scripts/dataset_diagnostics.py  # all datasets
+```
+
+Plots are written alongside `label_distribution.png` in the same per-dataset folder:
+`outputs/plots/<dataset_name>/missing_values.png`, `train_test_split.png`, and
+`feature_correlation.png`.
+
 ## Explainability
 
 Three techniques are generated per trained experiment (or all of them) via:
@@ -432,8 +456,8 @@ python scripts/explain.py --experiment configs/experiments/unsw_nb15_random_fore
 python scripts/explain.py  # all experiments
 ```
 
-- **SHAP**: `TreeExplainer` for `gradient_boosting`, `random_forest`, and `xgboost`, `LinearExplainer` for
-  `logistic_regression`, and a permutation-based `Explainer` for `neural_network` and `svm` (no fast
+- **SHAP**: `TreeExplainer` for `random_forest` and `xgboost`, and a permutation-based `Explainer`
+  for `neural_network` and `svm` (no fast
   structural explainer exists for sklearn MLPs or kernel SVMs - this path is markedly slower for both,
   and slower still for `svm` specifically, since its own predictions are more expensive to compute).
   Produces a global bar plot (mean |SHAP value| per feature, stacked by class), a global beeswarm
@@ -495,6 +519,6 @@ python scripts/interview_stimuli.py  # all experiments
 ```
 
 Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/interview_<class>/` (e.g.
-`outputs/plots/unsw_nb15/gradient_boosting_baseline/interview_Reconnaissance/`). A class maps to no
+`outputs/plots/unsw_nb15/random_forest_baseline/interview_Reconnaissance/`). A class maps to no
 plots at all if the model never misclassifies it in the test set (no stimulus pair possible - e.g.
 CIC-IDS2017's `Bot` was excluded from the configured list for exactly this reason on two models).

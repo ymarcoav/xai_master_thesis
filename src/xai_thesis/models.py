@@ -2,8 +2,7 @@ from collections.abc import Callable
 from typing import Any
 
 from sklearn.base import ClassifierMixin
-from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.svm import SVC
@@ -49,14 +48,18 @@ class _StringLabelXGBClassifier(_XGBClassifier):
 # like the rest; instead, pipeline.py resamples its training data (balance_classes) before
 # fit. The other models get class_weight="balanced" given how imbalanced these datasets are.
 #
-# ⚠️ THESIS SCOPE, as of 2026-08-09: logistic_regression and gradient_boosting are out of
-# scope for the thesis. Both stay fully implemented, trained, and explained here - nothing was
-# removed - but the thesis now reports on only three models: neural_network, random_forest,
-# and svm. Do not include logistic_regression/gradient_boosting results in methodology/results
-# writing going forward unless the user explicitly reverses this (same pattern as DAPT2020/PDP
-# being flagged out of scope elsewhere in this project - see README.md).
+# ⚠️ logistic_regression and gradient_boosting removed entirely 2026-08-24 (explicit user
+# request) - both had been flagged out-of-scope-but-functional since 2026-08-09 and archived
+# 2026-08-17, then removed outright rather than kept around unused. Their model factory
+# entries, tuning grids, archived configs/models/metrics/plots (for unsw_nb15/cic_ids2017;
+# their NSL-KDD/DAPT2020 copies too, bundled inside those datasets' own archives), and every
+# now-dead code path (explainability.py's LinearExplainer branch, _TREE_MODELS entry) were
+# deleted, not just hidden. Historical comments elsewhere in this project that reference
+# results from these two models (e.g. _CLASS_OF_INTEREST's rationale comments in pipeline.py)
+# are kept as-is - they document real findings from when those models existed, not a claim
+# that the models are still in the catalog.
 #
-# ⚠️ xgboost added 2026-08-24, same out-of-scope-but-fully-functional treatment, at explicit
+# ⚠️ xgboost added 2026-08-24, out-of-scope-but-fully-functional treatment, at explicit
 # user request/confirmation - not part of the thesis's own reported results. Unlike every other
 # model here, XGBClassifier has no class_weight constructor param at all (not even an unsupported
 # one to omit - it simply isn't in xgboost's sklearn API), only per-sample weights at fit() time.
@@ -74,8 +77,9 @@ class _StringLabelXGBClassifier(_XGBClassifier):
 #
 # random_forest was previously dropped from the catalog (shared gradient_boosting's
 # tree-ensemble family and TreeExplainer, with near-highest cross-model SHAP agreement of
-# any pair in this project, while underperforming it) - re-added by explicit request despite
-# that redundancy concern still applying.
+# any pair in this project, while underperforming it - gradient_boosting has since been
+# removed entirely, see above) - re-added by explicit request despite that redundancy
+# concern still applying.
 #
 # svm here means SVC with a linear kernel, not the LinearSVC previously tried under this same
 # catalog key and dropped for substantially worse macro-F1 than the other models. kernel stays
@@ -85,6 +89,14 @@ class _StringLabelXGBClassifier(_XGBClassifier):
 # overwritten once a search actually runs. An earlier RBF-kernel attempt was abandoned after
 # measuring ~5.5 minutes for a single untuned fit on UNSW-NB15 alone (~101k rows) - the linear
 # kernel was adopted for tractability as much as to match the reference.
+#
+# 2026-08-24: revisited RBF specifically to fix a taxonomy inconsistency (a linear-kernel SVM
+# is a linear decision function in the input space, same family as the removed
+# logistic_regression) - abandoned again after ~46 min of active (confirmed non-hung, CPU
+# climbing) RandomizedSearchCV time on just a 40k-row UNSW-NB15 subsample without finishing a
+# single search, worse than the original linear-kernel search took on 5x the rows (200k). The
+# taxonomy inconsistency is real but accepted; the compute cost isn't worth it for this
+# project's scope.
 #
 # probability defaults to True (matching the reference configuration) but is deliberately left
 # overridable via **kwargs (hence not hardcoded after it below, unlike every other fixed
@@ -103,8 +115,9 @@ class _StringLabelXGBClassifier(_XGBClassifier):
 # hung for over 19 hours of CPU time on what should have been a multi-minute fit, almost
 # certainly libsvm's QP solver failing to converge for some (C, fold) combination under
 # class_weight="balanced"'s extreme per-sample weights on this project's severely imbalanced
-# data - the same class of failure already documented for gradient_boosting's
-# l2_regularization=0 (see PARAM_DISTRIBUTIONS below), just silent instead of producing an
+# data - the same class of failure already documented for the (now-removed) gradient_boosting
+# model's l2_regularization=0 incident (see the xgboost reg_lambda comment in
+# PARAM_DISTRIBUTIONS below for the full story), just silent instead of producing an
 # obviously-bad model. Without a cap, sklearn's default (-1, unlimited) has no way to fail fast
 # on a pathological fit - it can only hang. With the cap, a fit that would have hung instead
 # stops early with a ConvergenceWarning and returns whatever (possibly suboptimal) solution it
@@ -113,17 +126,7 @@ class _StringLabelXGBClassifier(_XGBClassifier):
 # converge normally (a handful of minutes each), while still bounding worst-case time to
 # something finite.
 _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
-    "logistic_regression": lambda random_state, **kwargs: LogisticRegression(
-        random_state=random_state, class_weight="balanced", **kwargs
-    ),
     "neural_network": lambda random_state, **kwargs: MLPClassifier(random_state=random_state, **kwargs),
-    # early_stopping defaults to "auto" in sklearn, which does its own internal
-    # stratified train/validation split; combined with hyperparameter-search subsampling
-    # that can leave an already-rare class down to 1 member in a fold, which fails to
-    # stratify. max_iter is already tuned directly, so early stopping is redundant here.
-    "gradient_boosting": lambda random_state, **kwargs: HistGradientBoostingClassifier(
-        random_state=random_state, class_weight="balanced", early_stopping=False, **kwargs
-    ),
     "random_forest": lambda random_state, **kwargs: RandomForestClassifier(
         random_state=random_state, class_weight="balanced", **kwargs
     ),
@@ -143,27 +146,10 @@ _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
 # are prefixed "model__" to match the ("model", ...) step name in the sklearn Pipeline that
 # wraps preprocessing + model together (see pipeline.py).
 PARAM_DISTRIBUTIONS: dict[str, dict[str, list[Any]]] = {
-    "logistic_regression": {
-        "model__C": [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000],
-    },
     "neural_network": {
         "model__hidden_layer_sizes": [(50,), (100,), (100, 50), (128, 64), (256, 128), (256, 128, 64)],
         "model__alpha": [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1],
         "model__learning_rate_init": [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05],
-    },
-    "gradient_boosting": {
-        "model__learning_rate": [0.01, 0.03, 0.05, 0.1, 0.2, 0.3],
-        "model__max_iter": [100, 200, 300, 500],
-        "model__max_leaf_nodes": [7, 15, 31, 63, 100, 127],
-        "model__max_depth": [None, 3, 5, 10, 15, 20],
-        # l2_regularization=0.0 is excluded: HistGradientBoostingClassifier's leaf value is
-        # sum(gradient)/(sum(hessian) + l2_regularization), and class_weight="balanced"
-        # produces extreme per-sample weights under this project's severe class imbalance
-        # (e.g. a ~334,000x weight ratio between CIC-IDS2017's Heartbleed and BENIGN
-        # classes) - with zero regularization that combination produced a model with 3.7%
-        # accuracy (vs. 99.5% with l2_regularization=0.1, identical everything else).
-        "model__l2_regularization": [0.1, 0.3, 0.5, 0.7, 1.0],
-        "model__min_samples_leaf": [10, 20, 30, 50],
     },
     "random_forest": {
         "model__n_estimators": [100, 200, 300, 500],
@@ -184,11 +170,14 @@ PARAM_DISTRIBUTIONS: dict[str, dict[str, list[Any]]] = {
     "svm": {
         "model__C": [0.01, 0.03, 0.1, 0.3, 0.5, 1, 3, 10],
     },
-    # reg_lambda's minimum is 0.1, not 0: gradient_boosting's l2_regularization=0 incident above
-    # showed zero regularization combined with extreme per-sample weights under this project's
-    # severe imbalance can produce a near-degenerate model - xgboost's sample-weight-based
-    # balancing (see _MODEL_FACTORIES' xgboost comment) creates the same kind of extreme weights,
-    # so this grid avoids the analogous zero-regularization combination proactively rather than
+    # reg_lambda's minimum is 0.1, not 0: the now-removed gradient_boosting model had an
+    # analogous "model__l2_regularization" grid that once included 0.0 and, under
+    # class_weight="balanced"'s extreme per-sample weights on this project's severe class
+    # imbalance (e.g. a ~334,000x weight ratio between CIC-IDS2017's Heartbleed and BENIGN
+    # classes at the time), produced a near-degenerate model - 3.7% accuracy vs. 99.5% with
+    # l2_regularization=0.1, identical everything else. xgboost's sample-weight-based balancing
+    # (see _MODEL_FACTORIES' xgboost comment) creates the same kind of extreme weights, so this
+    # grid avoids the analogous zero-regularization combination proactively rather than
     # rediscovering the same failure mode.
     "xgboost": {
         "model__n_estimators": [100, 200, 300, 500],

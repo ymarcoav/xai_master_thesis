@@ -1,25 +1,9 @@
 import pytest
-from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import SVC
 
 from xai_thesis.models import _StringLabelXGBClassifier, build_model, train_model
-
-
-def test_build_model_logistic_regression_is_balanced_and_seeded() -> None:
-    model = build_model("logistic_regression", random_state=7)
-
-    assert isinstance(model, LogisticRegression)
-    assert model.random_state == 7
-    assert model.class_weight == "balanced"
-
-
-def test_build_model_logistic_regression_forwards_kwargs() -> None:
-    model = build_model("logistic_regression", random_state=7, C=10, max_iter=5000)
-
-    assert model.C == 10
-    assert model.max_iter == 5000
 
 
 def test_build_model_neural_network_has_no_class_weight() -> None:
@@ -28,15 +12,6 @@ def test_build_model_neural_network_has_no_class_weight() -> None:
     assert isinstance(model, MLPClassifier)
     assert model.random_state == 7
     assert not hasattr(model, "class_weight")
-
-
-def test_build_model_gradient_boosting_is_balanced_and_seeded() -> None:
-    model = build_model("gradient_boosting", random_state=7)
-
-    assert isinstance(model, HistGradientBoostingClassifier)
-    assert model.random_state == 7
-    assert model.class_weight == "balanced"
-    assert model.early_stopping is False
 
 
 def test_build_model_random_forest_is_balanced_and_seeded() -> None:
@@ -72,9 +47,9 @@ def test_build_model_svm_probability_and_max_iter_are_overridable() -> None:
 
 
 def test_build_model_forwards_extra_kwargs() -> None:
-    model = build_model("gradient_boosting", random_state=7, max_iter=50)
+    model = build_model("random_forest", random_state=7, n_estimators=50)
 
-    assert model.max_iter == 50
+    assert model.n_estimators == 50
 
 
 def test_build_model_xgboost_is_seeded_with_hist_tree_method() -> None:
@@ -122,7 +97,7 @@ def test_build_model_raises_for_unknown_model() -> None:
 
 
 def test_train_model_fits_and_returns_the_model() -> None:
-    model = build_model("gradient_boosting", random_state=7, max_iter=5)
+    model = build_model("random_forest", random_state=7, n_estimators=5)
     x_train = [[0, 0], [1, 1], [0, 1], [1, 0]]
     y_train = ["benign", "attack", "benign", "attack"]
 

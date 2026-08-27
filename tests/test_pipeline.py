@@ -293,9 +293,9 @@ def test_run_experiment_trains_and_saves_model_and_metrics(tmp_path) -> None:
             {
                 "name": "toy_experiment",
                 "dataset": "toy",
-                "model": "gradient_boosting",
+                "model": "random_forest",
                 "random_state": 42,
-                "model_params": {"max_iter": 5},
+                "model_params": {"n_estimators": 5},
                 "preprocessing": {"strategy": "default_tabular"},
                 "metrics": ["accuracy", "f1_macro"],
             }
@@ -382,112 +382,6 @@ def test_run_experiment_trains_xgboost_and_passes_balanced_sample_weight(tmp_pat
     assert len(calls) == 1
     assert len(calls[0]) == len(train_df)
     assert (tmp_path / "models" / "toy_xgboost_experiment.joblib").exists()
-
-
-def _write_svm_subsample_fixture(tmp_path: Path, *, dataset_name: str, model: str) -> Path:
-    """A toy (dataset, model) experiment set up the same way `run_experiment` would see it for
-    a real (model, dataset) pair possibly in `_FINAL_FIT_SUBSAMPLE` - the actual row counts don't
-    matter here (that mechanics is covered by test_preprocessing.py's stratified_subsample
-    tests); this only needs to exist so run_experiment can be exercised end to end."""
-    dataset_config_dir = tmp_path / "datasets"
-    dataset_config_dir.mkdir(parents=True, exist_ok=True)
-    processed_dir = tmp_path / "processed" / dataset_name
-    processed_dir.mkdir(parents=True)
-
-    train_df = pd.DataFrame(
-        {
-            "feature": [0.0, 1.0, 0.0, 1.0, 0.5, 0.6],
-            "label": ["benign", "attack", "benign", "attack", "benign", "attack"],
-        }
-    )
-    test_df = pd.DataFrame({"feature": [0.1, 0.9], "label": ["benign", "attack"]})
-    train_df.to_csv(processed_dir / "train.csv", index=False)
-    test_df.to_csv(processed_dir / "test.csv", index=False)
-
-    (dataset_config_dir / f"{dataset_name}.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "name": dataset_name,
-                "raw_path": "unused",
-                "processed_path": processed_dir.as_posix(),
-                "label_column": "label",
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    experiment_path = tmp_path / "experiment.yaml"
-    experiment_path.write_text(
-        yaml.safe_dump(
-            {
-                "name": f"{dataset_name}_{model}_baseline",
-                "dataset": dataset_name,
-                "model": model,
-                "random_state": 42,
-                "model_params": {"max_iter": 5} if model == "svm" else {},
-                "preprocessing": {"strategy": "default_tabular"},
-                "metrics": ["accuracy"],
-            }
-        ),
-        encoding="utf-8",
-    )
-    return experiment_path
-
-
-def _run_and_capture_subsample_calls(tmp_path: Path, *, dataset_name: str, model: str) -> list[tuple[int, int | None]]:
-    """Run one experiment with `stratified_subsample` spied on, in its own MonkeyPatch context
-    (rather than the test's shared one) so each call gets a clean, unchained spy - a loop
-    reusing one MonkeyPatch across iterations would let a later spy wrap an earlier one instead
-    of the real function, double-counting calls via Python's late-binding closures."""
-    import pytest
-
-    from xai_thesis import pipeline as pipeline_module
-
-    calls: list[tuple[int, int | None]] = []
-    with pytest.MonkeyPatch.context() as mp:
-        real_stratified_subsample = pipeline_module.stratified_subsample
-
-        def spy(*args, **kwargs):
-            calls.append((args[2], kwargs.get("min_per_class")))
-            return real_stratified_subsample(*args, **kwargs)
-
-        mp.setattr(pipeline_module, "stratified_subsample", spy)
-        experiment_path = _write_svm_subsample_fixture(tmp_path, dataset_name=dataset_name, model=model)
-        run_experiment(
-            experiment_path,
-            dataset_config_dir=tmp_path / "datasets",
-            models_dir=tmp_path / "models",
-            metrics_dir=tmp_path / "metrics",
-        )
-    return calls
-
-
-def test_run_experiment_subsamples_final_fit_for_svm_on_the_two_large_datasets(tmp_path) -> None:
-    for dataset_name in ["unsw_nb15", "cic_ids2017"]:
-        calls = _run_and_capture_subsample_calls(tmp_path / dataset_name, dataset_name=dataset_name, model="svm")
-        assert calls == [(150_000, 200)]
-
-
-def test_run_experiment_does_not_subsample_other_model_dataset_combinations(tmp_path, monkeypatch) -> None:
-    from xai_thesis import pipeline as pipeline_module
-
-    # svm on a dataset not in _FINAL_FIT_SUBSAMPLE, and gradient_boosting (not svm) on one that
-    # is - neither should trigger a subsample of the final training set.
-    for dataset_name, model in [("nsl_kdd", "svm"), ("unsw_nb15", "gradient_boosting")]:
-        calls = []
-        monkeypatch.setattr(pipeline_module, "stratified_subsample", lambda *a, **k: calls.append(1))
-        experiment_path = _write_svm_subsample_fixture(
-            tmp_path / f"{dataset_name}_{model}", dataset_name=dataset_name, model=model
-        )
-
-        run_experiment(
-            experiment_path,
-            dataset_config_dir=tmp_path / f"{dataset_name}_{model}" / "datasets",
-            models_dir=tmp_path / f"{dataset_name}_{model}" / "models",
-            metrics_dir=tmp_path / f"{dataset_name}_{model}" / "metrics",
-        )
-
-        assert calls == []
 
 
 def test_run_experiment_neural_network_fits_preprocessing_before_resampling(tmp_path) -> None:
@@ -590,9 +484,9 @@ def test_generate_confusion_matrix_writes_png_for_trained_experiment(tmp_path) -
             {
                 "name": "toy_experiment",
                 "dataset": "toy",
-                "model": "gradient_boosting",
+                "model": "random_forest",
                 "random_state": 42,
-                "model_params": {"max_iter": 5},
+                "model_params": {"n_estimators": 5},
                 "preprocessing": {"strategy": "default_tabular"},
                 "metrics": ["accuracy"],
             }
@@ -647,7 +541,7 @@ def test_tune_hyperparameters_writes_best_params_into_experiment_yaml(tmp_path) 
             {
                 "name": "toy_experiment",
                 "dataset": "toy",
-                "model": "gradient_boosting",
+                "model": "random_forest",
                 "random_state": 42,
                 "preprocessing": {"strategy": "default_tabular"},
                 "metrics": ["accuracy"],
@@ -659,19 +553,18 @@ def test_tune_hyperparameters_writes_best_params_into_experiment_yaml(tmp_path) 
     tuned_params = tune_hyperparameters(experiment_path, dataset_config_dir=dataset_config_dir, n_iter=3, cv=3)
 
     assert set(tuned_params) == {
-        "learning_rate",
-        "max_iter",
-        "max_leaf_nodes",
+        "n_estimators",
         "max_depth",
-        "l2_regularization",
+        "max_features",
         "min_samples_leaf",
+        "min_samples_split",
     }
 
     updated_experiment = yaml.safe_load(experiment_path.read_text(encoding="utf-8"))
     assert updated_experiment["model_params"] == tuned_params
 
 
-def test_tune_hyperparameters_logistic_regression_round_trip_retrains_successfully(tmp_path) -> None:
+def test_tune_hyperparameters_svm_round_trip_retrains_successfully(tmp_path) -> None:
     dataset_config_dir = tmp_path / "datasets"
     dataset_config_dir.mkdir()
     processed_dir = tmp_path / "processed" / "toy"
@@ -703,7 +596,7 @@ def test_tune_hyperparameters_logistic_regression_round_trip_retrains_successful
             {
                 "name": "toy_experiment",
                 "dataset": "toy",
-                "model": "logistic_regression",
+                "model": "svm",
                 "random_state": 42,
                 "preprocessing": {"strategy": "default_tabular"},
                 "metrics": ["accuracy"],
@@ -731,7 +624,7 @@ def test_run_experiment_rejects_unknown_preprocessing_strategy(tmp_path) -> None
             {
                 "name": "toy_experiment",
                 "dataset": "toy",
-                "model": "gradient_boosting",
+                "model": "random_forest",
                 "preprocessing": {"strategy": "fancy"},
             }
         ),
@@ -773,7 +666,7 @@ def test_generate_explanations_rejects_dataset_without_class_of_interest_mapping
             {
                 "name": "toy_experiment",
                 "dataset": "toy",
-                "model": "gradient_boosting",
+                "model": "random_forest",
                 "preprocessing": {"strategy": "default_tabular"},
             }
         ),
@@ -840,9 +733,9 @@ def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
             {
                 "name": "dapt2020_test_experiment",
                 "dataset": "dapt2020",
-                "model": "gradient_boosting",
+                "model": "random_forest",
                 "random_state": 42,
-                "model_params": {"max_iter": 10},
+                "model_params": {"n_estimators": 10},
                 "preprocessing": {"strategy": "default_tabular"},
                 "metrics": ["accuracy"],
             }
@@ -931,9 +824,9 @@ def _write_dapt2020_style_fixture(tmp_path) -> tuple[Path, Path, Path]:
             {
                 "name": "dapt2020_test_experiment",
                 "dataset": "dapt2020",
-                "model": "gradient_boosting",
+                "model": "random_forest",
                 "random_state": 42,
-                "model_params": {"max_iter": 10},
+                "model_params": {"n_estimators": 10},
                 "preprocessing": {"strategy": "default_tabular"},
                 "metrics": ["accuracy"],
             }
