@@ -59,10 +59,11 @@ class _StringLabelXGBClassifier(_XGBClassifier):
 # are kept as-is - they document real findings from when those models existed, not a claim
 # that the models are still in the catalog.
 #
-# ⚠️ xgboost added 2026-08-24, out-of-scope-but-fully-functional treatment, at explicit
-# user request/confirmation - not part of the thesis's own reported results. Unlike every other
-# model here, XGBClassifier has no class_weight constructor param at all (not even an unsupported
-# one to omit - it simply isn't in xgboost's sklearn API), only per-sample weights at fit() time.
+# ⚠️ xgboost added 2026-08-24; in scope for the thesis's own reported results (corrected
+# 2026-08-27 - this comment previously called it out-of-scope-but-functional, which was wrong
+# as of this date). Unlike every other model here, XGBClassifier has no class_weight
+# constructor param at all (not even an unsupported one to omit - it simply isn't in
+# xgboost's sklearn API), only per-sample weights at fit() time.
 # pipeline.py's _MODELS_REQUIRING_SAMPLE_WEIGHT computes those via
 # sklearn.utils.class_weight.compute_sample_weight("balanced", y) - mathematically the same
 # per-class weighting class_weight="balanced" applies internally for the other models - and

@@ -213,15 +213,13 @@ files (22 Jan - 18 Feb 2015, files 1->4 in order).
 > NSL-KDD/DAPT2020 datasets), and now-dead explanation code (`logistic_regression`'s dedicated
 > `shap.LinearExplainer` branch) are all gone, not just hidden. Historical numbers/results
 > elsewhere in this document that reference these two models are kept as-is - they describe real
-> findings from when the models existed, not a claim that they still do. The thesis reports on
-> three models: `neural_network`, `random_forest`, and `svm`.
+> findings from when the models existed, not a claim that they still do.
 >
-> **`xgboost` (added 2026-08-24) is out-of-scope-but-fully-functional**, at explicit user
-> request/confirmation - trained, tuned, and explained like every in-scope model, but not part
-> of the thesis's own reported results. Unlike every other model here, `XGBClassifier` has no
-> `class_weight` constructor parameter at all - see the imbalance-handling paragraph below for
-> how it's balanced instead. Not archived - its configs stay in `configs/experiments/` like
-> every in-scope model.
+> **`xgboost` (added 2026-08-24) is in scope for the thesis** (corrected 2026-08-27 - earlier
+> text here called it out-of-scope-but-functional, which was wrong as of this date). The thesis
+> now reports on four models: `neural_network`, `random_forest`, `svm`, and `xgboost`. Unlike
+> every other model here, `XGBClassifier` has no `class_weight` constructor parameter at all -
+> see the imbalance-handling paragraph below for how it's balanced instead.
 
 Each experiment config in `configs/experiments/` names a dataset and a model (`neural_network`,
 `random_forest`, `svm`, or `xgboost`). Train one:
@@ -388,7 +386,7 @@ model's and stay directly comparable, accepting the reintroduced risk of a repea
 are therefore stale as of this change** - both still reflect the now-removed subsample and need a full
 retrain (deliberately not run yet; queued alongside the other pending changes from this same session).
 
-**`xgboost` added 2026-08-24** (out of scope for the thesis - see the blockquote above). Tuned
+**`xgboost` added 2026-08-24, in scope for the thesis (see the blockquote above).** Tuned
 (`RandomizedSearchCV`, `subsample_size=40_000` for tractability on both large datasets, same
 pattern already used for `svm` above) and trained on the complete, un-subsampled training set
 for both - no `_FINAL_FIT_SUBSAMPLE`
