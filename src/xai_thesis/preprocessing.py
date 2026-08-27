@@ -29,12 +29,17 @@ def split_chronologically_by_source(
     data: pd.DataFrame,
     source_column: str,
     label_column: str,
-    test_fraction: float = 0.2,
+    test_fraction: float = 0.3,
     *,
     timestamp_column: str | None = None,
     timestamp_format: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Split data by holding out the last rows of each (source file, label) group as test.
+
+    test_fraction defaults to 0.3 (70/30), changed from 0.2 (80/20) on 2026-08-27 to match
+    the split ratio used by most of the reference papers this project's methodology otherwise
+    follows - not tuned or otherwise motivated by this project's own data, a direct
+    convention-matching choice.
 
     Attack categories in CIC-IDS2017 and DAPT2020 are concentrated in specific source files
     and, within a file, in a contiguous time burst. Splitting per source file alone can drop
