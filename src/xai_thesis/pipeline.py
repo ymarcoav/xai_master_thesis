@@ -63,13 +63,11 @@ _METRIC_EXTRACTORS = {
     "precision_macro": lambda report: report["macro avg"]["precision"],
     "recall_macro": lambda report: report["macro avg"]["recall"],
     "f1_macro": lambda report: report["macro avg"]["f1-score"],
-    # Only well-defined for the binary Attack/Benign datasets - see evaluate_classifier().
-    "precision_attack": lambda report: report["Attack"]["precision"],
-    "recall_attack": lambda report: report["Attack"]["recall"],
-    "f1_attack": lambda report: report["Attack"]["f1-score"],
-    "roc_auc": lambda report: report["roc_auc"],
-    "pr_auc": lambda report: report["pr_auc"],
-    # Multiclass counterparts to roc_auc/pr_auc, only well-defined for DAPT2020 - see evaluate_classifier().
+    # Every dataset in this project's catalog is multiclass (see evaluate_classifier()) - only
+    # the macro variants exist. A prior binary Attack/Benign framing had its own
+    # precision_attack/recall_attack/f1_attack/roc_auc/pr_auc entries here; removed 2026-08-27
+    # since no config has requested them since that framing was dropped project-wide
+    # (2026-07-31) and evaluate_classifier() no longer produces the report keys they read.
     "roc_auc_macro": lambda report: report["roc_auc_macro"],
     "pr_auc_macro": lambda report: report["pr_auc_macro"],
 }

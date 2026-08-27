@@ -9,7 +9,8 @@ raw_path: data/_archive/dapt2020/raw
 processed_path: data/_archive/dapt2020/processed
 label_column: Stage
 
-# Fill in after inspecting the raw files.
+# Empty, not unset: DAPT2020, like CIC-IDS2017, is CICFlowMeter output - purely numeric flow
+# statistics, no native categorical fields.
 categorical_columns: []
 drop_columns:
   - Flow ID
