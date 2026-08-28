@@ -228,14 +228,26 @@ def _fit_pipeline_with_post_preprocessing_resampling(
 # than "whichever happened to finish in time gets the full set" - the same
 # comparability-across-models argument that motivated removing this mechanism entirely a few
 # sessions ago now argues for comparability-across-datasets instead, given unsw_nb15's svm
-# cannot reliably train on its complete set at all. min_per_class (200) sits comfortably above
-# both datasets' rarest class's full row count (unsw_nb15's Worms: 174 total, ~122 in a 70/30
-# train split; cic_ids2017's Infiltration: 35 total, ~24 in a 70/30 train split), so
-# stratified_subsample's "at least min_per_class, or all of them if fewer" rule keeps both
-# fully intact.
+# cannot reliably train on its complete set at all.
+#
+# target_size raised 150_000->200_000 and min_per_class raised 200->500 on 2026-08-28, at
+# explicit user request, after svm's first subsampled retrain (150k/200) came in below
+# neural_network on macro-F1 (0.413 vs 0.449) on unsw_nb15. Checked directly before changing
+# anything: raising target_size alone (150k->200k, min_per_class held at 200) adds rows almost
+# entirely to the classes already well-represented (unsw_nb15's Benign alone absorbs ~90% of
+# the increase) - every class sitting at the min_per_class floor gets zero additional rows
+# either way, so target_size alone was very unlikely to move macro-F1, which weights every
+# class equally including the weak ones. Raising min_per_class to 500 is the lever that
+# actually changes anything for the floored classes: unsw_nb15's Analysis/Backdoor/Shellcode
+# and cic_ids2017's Web Attack/PortScan/Bot all go from 200 to a full 500 rows each (verified
+# directly - all six have well over 500 available in the complete training set). unsw_nb15's
+# Worms (118 total) and cic_ids2017's Infiltration (24 total) are unaffected by either
+# parameter - both floors already exceed their entire natural supply, so they're included in
+# full regardless. Whether this actually closes the gap with neural_network is not guaranteed;
+# it's the more targeted of the two available levers, not a proven fix.
 _FINAL_FIT_SUBSAMPLE: dict[tuple[str, str], tuple[int, int]] = {
-    ("svm", "unsw_nb15"): (150_000, 200),
-    ("svm", "cic_ids2017"): (150_000, 200),
+    ("svm", "unsw_nb15"): (200_000, 500),
+    ("svm", "cic_ids2017"): (200_000, 500),
 }
 
 

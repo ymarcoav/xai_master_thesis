@@ -6,9 +6,10 @@ random_state: 42
 # (5,000) was tried on the full, un-subsampled training set and still took 4h8m without
 # finishing - iteration count alone isn't what bounds wall-clock time at that row count, so
 # lowering it further wasn't a reliable lever. pipeline.py's _FINAL_FIT_SUBSAMPLE now handles
-# tractability instead (150k-row stratified subsample for this experiment specifically), the
-# same mechanism that worked reliably (~19-25 min) before it was removed for full-dataset
-# comparability - see _FINAL_FIT_SUBSAMPLE's own comment for the full history.
+# tractability instead (a stratified subsample for this experiment specifically, sized
+# 200k/min_per_class=500 as of the same day, raised from an initial 150k/200 after that first
+# subsampled run came in below neural_network on macro-F1) - see _FINAL_FIT_SUBSAMPLE's own
+# comment for the full history.
 model_params:
   C: 10
 preprocessing:

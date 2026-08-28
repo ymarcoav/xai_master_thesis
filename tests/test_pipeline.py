@@ -464,7 +464,7 @@ def _run_and_capture_subsample_calls(tmp_path: Path, *, dataset_name: str, model
 def test_run_experiment_subsamples_final_fit_for_svm_on_unsw_and_cic(tmp_path) -> None:
     for dataset_name in ["unsw_nb15", "cic_ids2017"]:
         calls = _run_and_capture_subsample_calls(tmp_path / dataset_name, dataset_name=dataset_name, model="svm")
-        assert calls == [(150_000, 200)]
+        assert calls == [(200_000, 500)]
 
 
 def test_run_experiment_does_not_subsample_other_model_dataset_combinations(tmp_path, monkeypatch) -> None:
