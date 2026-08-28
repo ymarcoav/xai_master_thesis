@@ -384,6 +384,111 @@ def test_run_experiment_trains_xgboost_and_passes_balanced_sample_weight(tmp_pat
     assert (tmp_path / "models" / "toy_xgboost_experiment.joblib").exists()
 
 
+def _write_svm_subsample_fixture(tmp_path: Path, *, dataset_name: str, model: str) -> Path:
+    """A toy (dataset, model) experiment set up the same way `run_experiment` would see it for
+    a real (model, dataset) pair possibly in `_FINAL_FIT_SUBSAMPLE` - the actual row counts
+    don't matter here (that mechanics is covered by test_preprocessing.py's
+    stratified_subsample tests); this only needs to exist so run_experiment can be exercised
+    end to end."""
+    dataset_config_dir = tmp_path / "datasets"
+    dataset_config_dir.mkdir(parents=True, exist_ok=True)
+    processed_dir = tmp_path / "processed" / dataset_name
+    processed_dir.mkdir(parents=True)
+
+    train_df = pd.DataFrame(
+        {
+            "feature": [0.0, 1.0, 0.0, 1.0, 0.5, 0.6],
+            "label": ["benign", "attack", "benign", "attack", "benign", "attack"],
+        }
+    )
+    test_df = pd.DataFrame({"feature": [0.1, 0.9], "label": ["benign", "attack"]})
+    train_df.to_csv(processed_dir / "train.csv", index=False)
+    test_df.to_csv(processed_dir / "test.csv", index=False)
+
+    (dataset_config_dir / f"{dataset_name}.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": dataset_name,
+                "raw_path": "unused",
+                "processed_path": processed_dir.as_posix(),
+                "label_column": "label",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    experiment_path = tmp_path / "experiment.yaml"
+    experiment_path.write_text(
+        yaml.safe_dump(
+            {
+                "name": f"{dataset_name}_{model}_baseline",
+                "dataset": dataset_name,
+                "model": model,
+                "random_state": 42,
+                "model_params": {"max_iter": 5} if model == "svm" else {},
+                "preprocessing": {"strategy": "default_tabular"},
+                "metrics": ["accuracy"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return experiment_path
+
+
+def _run_and_capture_subsample_calls(tmp_path: Path, *, dataset_name: str, model: str) -> list[tuple[int, int | None]]:
+    """Run one experiment with `stratified_subsample` spied on, in its own MonkeyPatch context
+    (rather than the test's shared one) so each call gets a clean, unchained spy - a loop
+    reusing one MonkeyPatch across iterations would let a later spy wrap an earlier one instead
+    of the real function, double-counting calls via Python's late-binding closures."""
+    from xai_thesis import pipeline as pipeline_module
+
+    calls: list[tuple[int, int | None]] = []
+    with pytest.MonkeyPatch.context() as mp:
+        real_stratified_subsample = pipeline_module.stratified_subsample
+
+        def spy(*args, **kwargs):
+            calls.append((args[2], kwargs.get("min_per_class")))
+            return real_stratified_subsample(*args, **kwargs)
+
+        mp.setattr(pipeline_module, "stratified_subsample", spy)
+        experiment_path = _write_svm_subsample_fixture(tmp_path, dataset_name=dataset_name, model=model)
+        run_experiment(
+            experiment_path,
+            dataset_config_dir=tmp_path / "datasets",
+            models_dir=tmp_path / "models",
+            metrics_dir=tmp_path / "metrics",
+        )
+    return calls
+
+
+def test_run_experiment_subsamples_final_fit_for_svm_on_unsw_and_cic(tmp_path) -> None:
+    for dataset_name in ["unsw_nb15", "cic_ids2017"]:
+        calls = _run_and_capture_subsample_calls(tmp_path / dataset_name, dataset_name=dataset_name, model="svm")
+        assert calls == [(150_000, 200)]
+
+
+def test_run_experiment_does_not_subsample_other_model_dataset_combinations(tmp_path, monkeypatch) -> None:
+    from xai_thesis import pipeline as pipeline_module
+
+    # svm on a dataset not in _FINAL_FIT_SUBSAMPLE, and random_forest (not svm) on one that
+    # is - neither should trigger a subsample of the final training set.
+    for dataset_name, model in [("nsl_kdd", "svm"), ("unsw_nb15", "random_forest")]:
+        calls = []
+        monkeypatch.setattr(pipeline_module, "stratified_subsample", lambda *a, **k: calls.append(1))
+        experiment_path = _write_svm_subsample_fixture(
+            tmp_path / f"{dataset_name}_{model}", dataset_name=dataset_name, model=model
+        )
+
+        run_experiment(
+            experiment_path,
+            dataset_config_dir=tmp_path / f"{dataset_name}_{model}" / "datasets",
+            models_dir=tmp_path / f"{dataset_name}_{model}" / "models",
+            metrics_dir=tmp_path / f"{dataset_name}_{model}" / "metrics",
+        )
+
+        assert calls == []
+
+
 def test_run_experiment_neural_network_fits_preprocessing_before_resampling(tmp_path) -> None:
     # 8 "benign" rows with feature=1.0 and 2 "attack" rows with feature=100.0. The true,
     # unresampled median of this column is 1.0. balance_classes resamples both classes to

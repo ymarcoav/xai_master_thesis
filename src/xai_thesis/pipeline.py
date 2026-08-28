@@ -211,6 +211,34 @@ def _fit_pipeline_with_post_preprocessing_resampling(
     return Pipeline(steps=[("preprocessing", preprocessing), ("model", model)])
 
 
+# svm's final fit on unsw_nb15 is intractable at the complete training-set size, re-confirmed
+# 2026-08-28 after two separate attempts on the fully-corrected raw data (128k more rows, no
+# more truncation/boundary duplicates than before): the first ran 18+ hours uncapped; a second
+# attempt with max_iter=5000 (a fix that worked in principle - it does eventually stop) still
+# ran 4h8m without finishing, worse than the run that prompted adding the cap in the first
+# place. Lowering max_iter alone is not a reliable lever at this row count - each libsvm
+# iteration itself is the expensive part, not just the iteration count - so the cap was removed
+# in favor of this subsample, the one approach with an actual proven fast (~20 min) track
+# record on this project's own history.
+#
+# cic_ids2017 is included here too, by explicit user request for consistency, even though its
+# svm final fit had already completed successfully on the complete training set (see README.md
+# for that run's numbers - now stale under this change and pending a retrain). The rationale:
+# svm's final-fit methodology should be uniform across both datasets in this catalog rather
+# than "whichever happened to finish in time gets the full set" - the same
+# comparability-across-models argument that motivated removing this mechanism entirely a few
+# sessions ago now argues for comparability-across-datasets instead, given unsw_nb15's svm
+# cannot reliably train on its complete set at all. min_per_class (200) sits comfortably above
+# both datasets' rarest class's full row count (unsw_nb15's Worms: 174 total, ~122 in a 70/30
+# train split; cic_ids2017's Infiltration: 35 total, ~24 in a 70/30 train split), so
+# stratified_subsample's "at least min_per_class, or all of them if fewer" rule keeps both
+# fully intact.
+_FINAL_FIT_SUBSAMPLE: dict[tuple[str, str], tuple[int, int]] = {
+    ("svm", "unsw_nb15"): (150_000, 200),
+    ("svm", "cic_ids2017"): (150_000, 200),
+}
+
+
 def run_experiment(
     experiment_config_path: str | Path,
     *,
@@ -223,6 +251,13 @@ def run_experiment(
         experiment_config_path, dataset_config_dir
     )
     random_state = experiment.get("random_state", 42)
+
+    subsample = _FINAL_FIT_SUBSAMPLE.get((experiment["model"], dataset_config.name))
+    if subsample is not None:
+        target_size, min_per_class = subsample
+        x_train, y_train = stratified_subsample(
+            x_train, y_train, target_size, min_per_class=min_per_class, random_state=random_state
+        )
 
     if experiment["model"] in _MODELS_REQUIRING_RESAMPLING:
         pipeline = _fit_pipeline_with_post_preprocessing_resampling(

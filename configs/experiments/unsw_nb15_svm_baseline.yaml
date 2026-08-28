@@ -2,16 +2,15 @@ name: unsw_nb15_svm_baseline
 dataset: unsw_nb15
 model: svm
 random_state: 42
-# max_iter capped well below models.py's default 50_000 safety cap, specifically for this
-# experiment's final fit: at the full ~1.36M-row training set (no subsample as of 2026-08-27),
-# a single fit ran 18+ hours without converging or hitting the default cap - each libsvm
-# iteration itself costs far more at this scale, so the iteration cap alone didn't bound
-# wall-clock time. 5,000 trades convergence quality for a fit that actually finishes in
-# bounded time; expect a ConvergenceWarning and a less-converged model than a full run would
-# give, disclosed as a real tradeoff, not hidden.
+# 2026-08-28: reverted to the models.py default 50_000 max_iter safety cap. A lower cap
+# (5,000) was tried on the full, un-subsampled training set and still took 4h8m without
+# finishing - iteration count alone isn't what bounds wall-clock time at that row count, so
+# lowering it further wasn't a reliable lever. pipeline.py's _FINAL_FIT_SUBSAMPLE now handles
+# tractability instead (150k-row stratified subsample for this experiment specifically), the
+# same mechanism that worked reliably (~19-25 min) before it was removed for full-dataset
+# comparability - see _FINAL_FIT_SUBSAMPLE's own comment for the full history.
 model_params:
   C: 10
-  max_iter: 5000
 preprocessing:
   strategy: default_tabular
 metrics:
