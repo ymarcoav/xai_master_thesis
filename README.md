@@ -51,18 +51,30 @@ this.
 **As of 2026-08-13, UNSW-NB15 is built from the full raw capture, not the pre-built 10%-sample.** The
 `UNSW_NB15_training-set.csv`/`testing-set.csv` files used previously (a pre-cleaned, already-split 10%
 sample published separately by the dataset's authors) are gone; the adapter now reads the 4 headerless
-raw part files (`UNSW-NB15_1.csv`..`_4.csv`, 2,411,053 rows total - roughly 13x the old scale, comparable
-to CIC-IDS2017) plus `NUSW-NB15_features.csv` for the column schema. This surfaced real raw-data quality
-issues the pre-built files had already cleaned up: `attack_cat` is blank for benign rows (not the string
-`"Normal"`) and inconsistently spelled `"Backdoor"`/`"Backdoors"` across the 4 files (normalized to
-`"Backdoor"`); `is_ftp_login`/`ct_flw_http_mthd` are blank for ~54% of rows, verified to mean "not
-applicable" rather than missing-at-random (filled with 0 directly, not left to the shared median
-imputer); exactly one row across all 2.4M is truncated mid-record (dropped generically, via `label` not
-being a valid 0/1, rather than a hardcoded row index). `srcip`/`dstip`/`sport`/`dsport` are dropped as
-identifiers (not present in the old pre-built files either); the raw data also has no `rate` column (a
-feature the original paper authors derived only for the pre-built files). The dataset now has no
-official train/test split (the pre-built files provided one; the raw capture doesn't), so it's split
-chronologically like CIC-IDS2017/DAPT2020 instead - see Preprocessing below.
+raw part files (`UNSW-NB15_1.csv`..`_4.csv`) plus `NUSW-NB15_features.csv` for the column schema. This
+surfaced real raw-data quality issues the pre-built files had already cleaned up: `attack_cat` is blank
+for benign rows (not the string `"Normal"`) and inconsistently spelled `"Backdoor"`/`"Backdoors"` across
+the 4 files (normalized to `"Backdoor"`); `is_ftp_login`/`ct_flw_http_mthd` are blank for ~54% of rows,
+verified to mean "not applicable" rather than missing-at-random (filled with 0 directly, not left to the
+shared median imputer). `srcip`/`dstip`/`sport`/`dsport` are dropped as identifiers (not present in the
+old pre-built files either); the raw data also has no `rate` column (a feature the original paper authors
+derived only for the pre-built files). The dataset now has no official train/test split (the pre-built
+files provided one; the raw capture doesn't), so it's split chronologically like CIC-IDS2017/DAPT2020
+instead - see Preprocessing below.
+
+**2026-08-28: the raw capture itself was found and fixed to be incomplete, not just differently-scaled
+from the old pre-built files.** The initially-downloaded `UNSW-NB15_4.csv` was truncated mid-record at
+its very last line and the whole set totaled only 2,411,053 rows, ~129k short of the dataset's own
+officially published total (2,540,044). Re-downloading file 4 fixed the truncation; separately, each
+consecutive pair of raw files was found to overlap by exactly one byte-identical row at the file boundary
+(confirmed at all three 1↔2/2↔3/3↔4 boundaries) - the true, undocumented reason the per-file line counts
+were 700,001 rather than the documented 700,000. Both raw-file issues are now fixed directly (the
+duplicate boundary row removed from the start of files 2-4), and the raw capture now totals exactly
+2,540,044 rows, matching the official figure exactly. This project's own row-level dedup step already
+collapsed the boundary duplicates in the final processed data before this was even noticed (dedup ignores
+which source file a row came from by design), so fixing the raw files changed nothing about model
+inputs/outputs - it only corrected the raw file counts and the truncated final row, which previously
+silently dropped ~129k real rows' worth of training/test data.
 
 **Two more UNSW-NB15 features were reconsidered on 2026-08-13/17, on top of the above: `service` and
 `ct_ftp_cmd`.** Both were dropped outright on 2026-08-13. `service` followed Tai et al. 2024 ("A Robust
@@ -99,9 +111,9 @@ multiclass, but not at its native ~40-way specific attack-type granularity: it's
 conventional **DoS/Probe/R2L/U2R categories** (+ `Benign`) used throughout NSL-KDD literature -
 structurally similar to DAPT2020's multi-stage setup.
 
-UNSW-NB15's `Worms` category is severely data-scarce (130 training rows, 33 test rows on the current
-full-raw-capture data) - by far the rarest class in this dataset, in the same spirit as DAPT2020's `Data
-Exfiltration` or NSL-KDD's `U2R`. Its dominant confusion pattern also doesn't funnel into `Benign` at all,
+UNSW-NB15's `Worms` category is severely data-scarce (174 total rows across the full raw capture, as of
+the 2026-08-28 raw-data fix above) - by far the rarest class in this dataset, in the same spirit as
+DAPT2020's `Data Exfiltration` or NSL-KDD's `U2R`. Its dominant confusion pattern also doesn't funnel into `Benign` at all,
 unlike every other dataset here: `Analysis`<->`Backdoor` remains a real two-way confusion for every model
 trained on the final feature set (`service` restored, `ct_ftp_cmd` still dropped - see above), 7.8-62.5%
 one way and 10.9-49.7% the other - present across the board, though the exact ranges have shifted with
@@ -201,6 +213,16 @@ still does. CIC-IDS2017, DAPT2020, and (as of 2026-08-13) UNSW-NB15 ship without
 chronologically per source file and label instead, so every class stays represented in both splits.
 UNSW-NB15 sorts on `stime`, a Unix epoch integer verified genuinely chronological across its 4 raw part
 files (22 Jan - 18 Feb 2015, files 1->4 in order).
+
+**The chronological split's default ratio changed from 80/20 to 70/30 on 2026-08-27**, to match the
+ratio used by most of the reference papers this project's methodology otherwise follows -
+`split_chronologically_by_source`'s `test_fraction` default in `preprocessing.py`, not motivated by
+anything in this project's own data. Affects `unsw_nb15`/`cic_ids2017` (the two datasets that use this
+split path); `nsl_kdd` is unaffected (its own official split has no ratio parameter to change). All
+active datasets and experiments were reprocessed/retrained under the new ratio the same day; per-model
+results moved only marginally (CIC-IDS2017 nudged up ~2-3 points of macro-F1 across the board, UNSW-NB15
+stayed essentially flat), consistent with a slightly smaller training set traded for a larger, more
+stable test set rather than any instability from the change itself.
 
 ## Training
 
@@ -378,13 +400,27 @@ fit, plus ~76 minutes for permutation-based SHAP generation - the slow part of t
 suite, not its training).
 
 **`_FINAL_FIT_SUBSAMPLE` was removed entirely on 2026-08-27** (explicit user request): `svm`'s final fit
-on `unsw_nb15`/`cic_ids2017` now trains on the complete training set, same as every other model in this
-catalog, rather than the 150,000-row stratified subsample described in the two paragraphs above - a
-deliberate reversal of that deviation so `svm`'s reported metrics are trained the same way as every other
-model's and stay directly comparable, accepting the reintroduced risk of a repeat of CIC-IDS2017's
-24+-hour non-completion history. **The UNSW-NB15 (0.393) and CIC-IDS2017 (0.518) macro-F1 numbers above
-are therefore stale as of this change** - both still reflect the now-removed subsample and need a full
-retrain (deliberately not run yet; queued alongside the other pending changes from this same session).
+on `unsw_nb15`/`cic_ids2017` was made to train on the complete training set, same as every other model in
+this catalog, rather than the 150,000-row stratified subsample described in the two paragraphs above - a
+deliberate reversal of that deviation so `svm`'s reported metrics would be trained the same way as every
+other model's and stay directly comparable, accepting the reintroduced risk of a repeat of CIC-IDS2017's
+24+-hour non-completion history.
+
+**That reversal was itself reverted the next day, 2026-08-28, after `unsw_nb15`'s `svm` final fit failed
+to complete twice in a row on the (also newly-corrected) full raw data** - once uncapped (18+ hours,
+confirmed still actively computing via CPU-time sampling, not hung), once capped at `max_iter=5000` (a
+lower iteration ceiling intended to bound wall-clock time), which still ran 4h8m without finishing. The
+conclusion: at this row count, each individual libsvm iteration is itself the expensive part, so capping
+iteration count alone isn't a reliable lever - `_FINAL_FIT_SUBSAMPLE` (same 150,000-row stratified
+subsample, `min_per_class=200`) is back, and this time it also covers `cic_ids2017`, at explicit user
+request, even though that dataset's `svm` had already trained successfully on its complete set - for
+methodological consistency across both datasets rather than "whichever finished in time keeps the full
+set." Rare classes are unaffected either way: `min_per_class=200` sits above both datasets' rarest class's
+full training-set size (`unsw_nb15`'s `Worms`, `cic_ids2017`'s `Infiltration`), so the floor logic keeps
+them fully intact rather than thinning them further - verified directly against the actual subsample
+output, not just reasoned about. **Every macro-F1 number for `svm` anywhere in this document is stale as
+of this change** and pending a fresh retrain under the restored subsample (in progress as of this
+writing).
 
 **`xgboost` added 2026-08-24, in scope for the thesis (see the blockquote above).** Tuned
 (`RandomizedSearchCV`, `subsample_size=40_000` for tractability on both large datasets, same
