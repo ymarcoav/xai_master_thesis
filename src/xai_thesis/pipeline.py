@@ -24,7 +24,7 @@ from xai_thesis.evaluation import (
 from xai_thesis.explainability import (
     compute_permutation_importance,
     compute_shap_values,
-    explain_instance_with_lime_full,
+    explain_instance_with_lime,
     plot_shap_bar,
     plot_shap_beeswarm,
     plot_shap_waterfall,
@@ -649,7 +649,7 @@ def _generate_instance_explanations(
             class_index,
             output_dir / f"shap_waterfall_{kind}.png",
         )
-        paths[f"lime_{kind}"] = explain_instance_with_lime_full(
+        paths[f"lime_{kind}"] = explain_instance_with_lime(
             pipeline,
             x_train,
             x_test.loc[instance_indices[row_index]],
