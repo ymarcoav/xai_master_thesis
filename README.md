@@ -496,22 +496,22 @@ python scripts/explain.py  # all experiments
   Produces a global bar plot (mean |SHAP value| per feature, stacked by class), a global beeswarm
   for the dataset's class of interest, and local waterfall plots for two curated test instances.
 - **LIME** (`LimeTabularExplainer`): local explanations for the same two curated instances, so SHAP and
-  LIME can be compared directly on identical cases. Rendered as a three-panel figure reproducing LIME's
-  `show_in_notebook()` layout as a static image (`explain_instance_with_lime_full` in
-  `explainability.py`) - prediction probabilities on the left (predicted class highlighted), feature
-  weights for the predicted class in the center (green supports it, red opposes it, strongest at top),
-  and a feature-value table on the right, row-aligned and color-matched to the weights panel so which
-  value drove which bar is visible at a glance. `show_in_notebook`/`save_to_file` only produce an
-  HTML+D3 widget with no static-image path, which doesn't work in this project's headless
-  (`matplotlib.use("Agg")`) pipeline, so this rebuilds the same three panels directly from the
-  explanation object's own data (`predict_proba`, `as_list`, `local_exp`) instead. The single-panel
-  `explanation.as_pyplot_figure()` version LIME ships by default is still available as
-  `explain_instance_with_lime` (both share one `_build_lime_explanation()` helper so the explanation
-  itself is only computed once regardless of which rendering is requested) but isn't currently called
-  anywhere in the pipeline.
+  LIME can be compared directly on identical cases. Rendered via `explain_instance_with_lime` in
+  `explainability.py`, LIME's own unmodified `explanation.as_pyplot_figure()` - the single-panel
+  horizontal bar chart LIME ships by default, not a custom reproduction of anything. A custom three-panel
+  reproduction of LIME's `show_in_notebook()` layout (`explain_instance_with_lime_full`) existed briefly
+  and was used by the pipeline for a while, but was removed entirely on 2026-08-28 at explicit user
+  request, once it became clear this project should only ship each library's own native, standardized
+  plot types rather than custom reconstructions of a view that library doesn't itself export as a static
+  image. LIME's real native plotting surface is just this one function -
+  `show_in_notebook`/`save_to_file` only produce an HTML+D3 widget with no static-image path, and there
+  is no other LIME-native alternative to fall back on.
 - **Permutation feature importance** (`sklearn.inspection.permutation_importance`): run on the full
   pipeline, so importances are reported in terms of the original feature names, not the one-hot-expanded
-  ones.
+  ones. Rendered as a hand-built horizontal bar chart, unlike the SHAP/LIME plots above - checked directly
+  against `sklearn.inspection`'s actual contents (2026-08-28) and confirmed there is no native display
+  class for this technique the way `PartialDependenceDisplay` exists for PDP, so a custom chart is the
+  established way to visualize this, not a deviation from one.
 
 The two curated instances per experiment (one correctly classified, one misclassified) are chosen from a
 `(target_class, confused_with_class)` pair per dataset — not randomly — based on the cross-model confusion
