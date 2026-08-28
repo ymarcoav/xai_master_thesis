@@ -371,7 +371,7 @@ def generate_label_distribution(
     # confusion matrices/explanations, since a dataset name is never equal to one of its own
     # experiment names) - this plot isn't tied to any one trained model.
     output_path = Path(plots_dir) / dataset_config.name / "label_distribution.png"
-    return plot_label_distribution(labels, output_path, title=f"{dataset_config.name} label distribution")
+    return plot_label_distribution(labels, output_path)
 
 
 def generate_missing_value_summary(
