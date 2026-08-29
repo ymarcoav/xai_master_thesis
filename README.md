@@ -411,27 +411,57 @@ to complete twice in a row on the (also newly-corrected) full raw data** - once 
 confirmed still actively computing via CPU-time sampling, not hung), once capped at `max_iter=5000` (a
 lower iteration ceiling intended to bound wall-clock time), which still ran 4h8m without finishing. The
 conclusion: at this row count, each individual libsvm iteration is itself the expensive part, so capping
-iteration count alone isn't a reliable lever - `_FINAL_FIT_SUBSAMPLE` (same 150,000-row stratified
-subsample, `min_per_class=200`) is back, and this time it also covers `cic_ids2017`, at explicit user
-request, even though that dataset's `svm` had already trained successfully on its complete set - for
-methodological consistency across both datasets rather than "whichever finished in time keeps the full
-set." Rare classes are unaffected either way: `min_per_class=200` sits above both datasets' rarest class's
-full training-set size (`unsw_nb15`'s `Worms`, `cic_ids2017`'s `Infiltration`), so the floor logic keeps
-them fully intact rather than thinning them further - verified directly against the actual subsample
-output, not just reasoned about. **Every macro-F1 number for `svm` anywhere in this document is stale as
-of this change** and pending a fresh retrain under the restored subsample (in progress as of this
-writing).
+iteration count alone isn't a reliable lever - `_FINAL_FIT_SUBSAMPLE` is back, and this time it also
+covers `cic_ids2017`, at explicit user request, even though that dataset's `svm` had already trained
+successfully on its complete set - for methodological consistency across both datasets rather than
+"whichever finished in time keeps the full set."
+
+**The subsample was raised again the same day, 150,000/`min_per_class=200` -> 200,000/`min_per_class=500`**,
+after the first subsampled retrain put `unsw_nb15`'s `svm` (macro-F1 0.413) behind `neural_network`
+(0.449). Checked before changing anything, not assumed: raising `target_size` alone adds rows almost
+entirely to already-well-represented classes (`unsw_nb15`'s `Benign` absorbs ~90% of a 150k->200k
+increase), since every class sitting at the `min_per_class` floor gets zero extra rows regardless of
+`target_size` - not a lever likely to move macro-F1, which weights every class equally including the
+weak ones. `min_per_class` is what actually matters for the floored classes: raising it 200->500 gives
+`unsw_nb15`'s `Analysis`/`Backdoor`/`Shellcode` and `cic_ids2017`'s `Web Attack`/`PortScan`/`Bot` a full
+500 rows each (all six have well over 500 available). `unsw_nb15`'s `Worms` (118 total) and
+`cic_ids2017`'s `Infiltration` (24 total) are unaffected by either parameter - both floors already
+exceed their entire natural supply.
+
+**A real config bug surfaced during this retrain, not just a data/methodology question**: both
+`unsw_nb15_svm_baseline.yaml` and `cic_ids2017_svm_baseline.yaml` had picked up a `max_iter=5000`
+override during the earlier convergence investigation above; when that approach was abandoned in favor
+of the subsample, only `unsw_nb15`'s override was cleaned up. `cic_ids2017`'s stale `max_iter=5000`
+survived into the 200k/500 retrain and, on a now-larger and more imbalanced-in-absolute-terms subsample,
+produced a badly degenerate fit (accuracy 0.182, macro-F1 0.135 - confirmed via `ConvergenceWarning` in
+the run log, not a real finding about the larger subsample). Fixed and retrained again with the correct
+default `max_iter=50_000` cap.
+
+**Final results, both datasets, all four models, on the corrected raw data / 70-30 split / (for `svm`)
+the 200k/`min_per_class=500` subsample:**
+
+| Model | UNSW-NB15 macro-F1 | UNSW-NB15 accuracy | CIC-IDS2017 macro-F1 | CIC-IDS2017 accuracy |
+| --- | --- | --- | --- | --- |
+| `xgboost` | **0.576** | 0.972 | **0.787** | 0.988 |
+| `random_forest` | 0.572 | 0.972 | 0.630 | 0.958 |
+| `neural_network` | 0.449 | 0.964 | 0.374 | 0.822 |
+| `svm` | 0.411 | 0.965 | 0.371 | 0.822 |
+
+`svm` did **not** end up outperforming `neural_network` on UNSW-NB15 (0.411 vs 0.449, essentially
+unchanged by the 150k/200 -> 200k/500 raise - 0.4126 -> 0.4112, a wash) - a linear-kernel SVM landing
+last among four models on a severely imbalanced 10-class problem with real class-overlap (see
+`Analysis`<->`Backdoor` above) isn't overturned by subsample tuning alone. On CIC-IDS2017, `svm` and
+`neural_network` landed close enough to call a tie (0.371 vs 0.374) - once the `max_iter` bug was fixed,
+the larger subsample's macro-F1 (0.371) is a real improvement over the original 150k/200 run's 0.293,
+even though it didn't reach `neural_network`. `svm` remains the weakest model on both datasets; `xgboost`
+is the strongest on both.
 
 **`xgboost` added 2026-08-24, in scope for the thesis (see the blockquote above).** Tuned
 (`RandomizedSearchCV`, `subsample_size=40_000` for tractability on both large datasets, same
 pattern already used for `svm` above) and trained on the complete, un-subsampled training set
-for both - no `_FINAL_FIT_SUBSAMPLE`
-exception needed, unlike `svm`: `tree_method="hist"` finishes CIC-IDS2017's ~1.8M-row final fit
-(500 trees) in well under 4 minutes. Results: UNSW-NB15 accuracy 0.971, macro-F1 **0.566**
-(competitive with `random_forest`'s 0.563, ahead of `neural_network`'s 0.475 and `svm`'s 0.393);
-CIC-IDS2017 accuracy 0.983, macro-F1 **0.753** (clearly ahead of every other model on this dataset -
-`random_forest` 0.605, `svm` 0.366, `neural_network` 0.354). Full tuning/training/confusion-matrix/
-SHAP-LIME-PFI/interview-stimuli generation took under 15 minutes total across both datasets combined.
+for both - no `_FINAL_FIT_SUBSAMPLE` exception needed, unlike `svm`: `tree_method="hist"` finishes
+CIC-IDS2017's final fit (500 trees) in well under 4 minutes regardless of dataset size. See the results
+table above for current numbers.
 
 ## Analysis
 
