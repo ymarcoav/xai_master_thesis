@@ -177,14 +177,25 @@ def plot_shap_bar(
     feature_names: list[str],
     class_names: list[str],
     output_path: str | Path,
+    max_display: int = 10,
 ) -> Path:
-    """Global bar plot of mean |SHAP value| per feature, stacked across all classes."""
+    """Global bar plot of mean |SHAP value| per feature, stacked across all classes.
+
+    max_display defaults to 10 to match every other explanation plot in this project (SHAP
+    waterfall's own max_display, and - as of 2026-08-29 - plot_shap_beeswarm/
+    compute_permutation_importance below), not shap.summary_plot's own default. Left
+    unspecified, summary_plot silently defaults max_display to 7 here specifically (the
+    multi-class/list-of-arrays code path this function's plot_type="bar" call takes) but 20 for
+    plot_shap_beeswarm below (the single-array path) - two "global" plots in this project's own
+    suite showing a different number of features from each other by accident, not by design.
+    """
     shap.summary_plot(
         [shap_values[:, :, class_idx] for class_idx in range(shap_values.shape[2])],
         x_transformed,
         feature_names=feature_names,
         class_names=class_names,
         plot_type="bar",
+        max_display=max_display,
         show=False,
     )
     return _save_current_figure(output_path)
@@ -196,10 +207,21 @@ def plot_shap_beeswarm(
     feature_names: list[str],
     class_index: int,
     output_path: str | Path,
+    max_display: int = 10,
 ) -> Path:
-    """Global beeswarm plot for a single class's SHAP values."""
+    """Global beeswarm plot for a single class's SHAP values.
+
+    max_display defaults to 10 - see plot_shap_bar's docstring for why this needed to be set
+    explicitly rather than left to shap.summary_plot's own (here, different) internal default.
+    """
     plt.figure()
-    shap.summary_plot(shap_values[:, :, class_index], x_transformed, feature_names=feature_names, show=False)
+    shap.summary_plot(
+        shap_values[:, :, class_index],
+        x_transformed,
+        feature_names=feature_names,
+        max_display=max_display,
+        show=False,
+    )
     return _save_current_figure(output_path)
 
 
@@ -352,11 +374,16 @@ def compute_permutation_importance(
     scoring: str = "f1_macro",
     n_repeats: int = 10,
     random_state: int = 42,
-    top_n: int = 15,
+    top_n: int = 10,
 ) -> tuple[Path, list[str]]:
     """Permutation feature importance on the full pipeline (raw, pre-encoding feature names).
 
-    Returns the plot path and the top_n most important feature names, for PDP to reuse.
+    top_n defaults to 10 (changed from 15 on 2026-08-29) to match every other explanation plot
+    in this project - see plot_shap_bar's docstring for the full story of why these needed
+    aligning. Returns the plot path and the top_n most important feature names; the latter is
+    currently unused by pipeline.py's own caller (originally consumed by plot_partial_dependence,
+    removed 2026-08-28) but kept in the return signature since it's a real, free-standing return
+    value some other caller could still want.
     """
     result = permutation_importance(
         pipeline, x_data, y_data, scoring=scoring, n_repeats=n_repeats, random_state=random_state, n_jobs=1
