@@ -76,8 +76,11 @@ class CICIDS2017Dataset(BaseDataset):
         # rankings and PDP plots.
         data = data.drop(columns=list(self.config.drop_columns), errors="ignore")
 
-        # Flow Bytes/s and Flow Packets/s divide by a near-zero duration; treat the
-        # resulting Infinity the same as any other missing value for the shared imputer.
+        # Flow Bytes/s and Flow Packets/s divide by flow duration; where duration is 0 the
+        # result is +Inf (~1.5k rows in Flow Bytes/s, ~2.9k in Flow Packets/s; -Inf is
+        # handled too but does not occur in the raw data). Treat as missing so the shared
+        # median imputer fills them - same as the ~1.4k genuine blanks Flow Bytes/s already
+        # carries.
         data = data.replace([np.inf, -np.inf], np.nan)
 
         # Flow Duration and *IAT columns are occasionally negative due to a known
@@ -86,10 +89,10 @@ class CICIDS2017Dataset(BaseDataset):
         data = data.loc[~(data[duration_columns] < 0).any(axis=1)]
 
         # Fwd Header Length, Bwd Header Length, and min_seg_size_forward carry physically
-        # impossible negative values in a handful of rows (as low as -3.22e10 - a byte-length/
+        # impossible negative values in 35 rows (as low as -3.22e10 - a byte-length/
         # segment-size field can never be negative), almost certainly a CICFlowMeter integer-
         # underflow bug rather than valid traffic. Found via pairwise feature correlation:
-        # these ~30-row outliers were extreme enough to flip Fwd/Bwd Header Length's measured
+        # these ~35-row outliers were extreme enough to flip Fwd/Bwd Header Length's measured
         # correlation from ~0 to ~1 depending on which rows landed in a given sample. Left in
         # place, a single such row would anchor MinMaxScaler's global min to a nonsensical
         # value, corrupting these otherwise-informative columns for every other row.

@@ -24,8 +24,8 @@ categorical_columns:
 # attacker/victim addresses instead of learning traffic behavior. ltime: redundant with
 # dur/stime. label: native binary, dropped in favor of attack_cat.
 # ct_ftp_cmd: dropped 2026-08-13 - verified via direct data inspection that it correlates
-# with is_ftp_login at r=0.92 (near-redundant with a feature already kept) and, when nonzero
-# (only 1.95% of rows), its mean value is ~1.0-1.06 across every attack_cat that has any
+# with is_ftp_login at r~=0.85 (near-redundant with a feature already kept) and, when nonzero
+# (only ~1.7% of rows), its mean value is ~1.0-1.2 across every attack_cat that has any
 # nonzero rows at all - no visible per-class differentiation. This drop stands on its own
 # evidence, independent of the service decision below.
 # service: dropped 2026-08-13 following Tai et al. 2024's UNSW-NB15 preprocessing, then

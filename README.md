@@ -84,9 +84,9 @@ this project's own data first: it's `"unknown"` (the raw `-`/blank placeholder) 
 across both splits, a plausible unstated reason for their manual "not valuable" call (they explicitly
 did not run automated feature selection for UNSW-NB15, unlike their CIC-IDS2017 pipeline, so this was a
 human judgment call, not an algorithm's output). `ct_ftp_cmd` was a follow-up finding of this project's
-own, not from that paper: verified to correlate with `is_ftp_login` at r=0.92 (near-redundant with a
-feature already kept) and, when nonzero (only 1.95% of rows), to show no per-class differentiation -
-its mean value is ~1.0-1.06 across every `attack_cat` with any nonzero rows at all.
+own, not from that paper: verified to correlate with `is_ftp_login` at r≈0.85 (near-redundant with a
+feature already kept) and, when nonzero (only ~1.7% of rows), to show no per-class differentiation -
+its mean value is ~1.0-1.2 across every `attack_cat` with any nonzero rows at all.
 
 **`service` was restored the same week once explicit policy was set: "improve performance" wins over
 matching a reference paper's own unexplained preprocessing choices, when the two conflict.** Dropping
@@ -126,10 +126,11 @@ artifact on this project's end) - the label-mapping code matches on `.startswith
 than an exact string, so it's robust to however pandas happens to decode that byte.
 
 **As of 2026-08-13, CIC-IDS2017's feature set was cut from ~79 to 61 columns**, driven by pairwise
-correlation analysis on the processed data (not a plotted sample, which can be misleading - see below):
-8 columns (`Bwd PSH/URG Flags`, all 6 `*_Bulk`/`Bulk_Rate` columns) are literally zero for every row in
-the raw dataset, and 9 more are near-exact duplicates of another kept column (verified row-for-row, not
-just via correlation - e.g. `Total Fwd Packets`/`Subflow Fwd Packets` differ in 0 of 2.83M rows) - see
+correlation and row-for-row comparison on the full dataset (~2.83M rows, not a plotted sample, which can
+be misleading - see below): 8 columns (`Bwd PSH/URG Flags`, all 6 `*_Bulk`/`Bulk_Rate` columns) are
+literally zero for every row in the raw dataset, and 9 more are near-duplicates of another kept column -
+4 identical in every row (e.g. `Total Fwd Packets`/`Subflow Fwd Packets` differ in 0 of 2.83M rows), 4
+more at r >= 0.99999 (differing in 1-54 rows), and `RST`/`ECE Flag Count` at r ~= 0.998 - see
 `configs/datasets/cic_ids2017.yaml`'s `drop_columns` comment for the exact pairs. Also found in the same
 pass: `Fwd Header Length`/`Bwd Header Length`/`min_seg_size_forward` carry physically impossible negative
 values (as low as -3.22e10) in ~35 rows, almost certainly a CICFlowMeter integer-underflow bug - those
@@ -138,7 +139,7 @@ rows (not the columns, which are fine and meaningfully correlated once cleaned) 
 sampled subset of rows initially flagged Fwd/Bwd Header Length as a duplicate pair (sample correlation
 1.000), but the same computation on the full data gave 0.07 - the corrupted rows were extreme enough to
 dominate whichever random sample happened to include them. Dropping the 17 columns above (all verified
-either zero-variance or byte-identical to a kept twin) still required re-tuning `random_forest`
+either zero-variance or a near-exact duplicate of a kept twin) still required re-tuning `random_forest`
 afterward - see Training below - since fewer total columns changes what `max_features="log2"` means at
 each split, which briefly looked like a real regression on the rare `Bot` class before re-tuning fixed it.
 

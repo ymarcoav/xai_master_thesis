@@ -117,12 +117,14 @@ _NUMERIC_COLUMNS = [
     "ct_dst_src_ltm",
 ]
 
-# ct_flw_http_mthd/is_ftp_login are blank for ~54% of raw rows - verified this is concentrated
-# in non-HTTP/non-FTP flows, not missing-at-random, so blank means "not applicable" (a real
-# 0), not a value for the shared imputer to guess at from the other ~46%. ct_ftp_cmd shared
-# this same treatment previously, but is now dropped outright (see
+# ct_flw_http_mthd/is_ftp_login are blank for ~53-56% of raw rows (is_ftp_login 56.3%,
+# ct_flw_http_mthd 53.1% on the current raw capture) - verified this is concentrated in
+# non-HTTP/non-FTP flows, not missing-at-random, so blank means "not applicable" (a real 0),
+# not a value for the shared imputer to guess at from the other ~45%. ct_ftp_cmd shared this
+# same treatment previously, but is now dropped outright (see
 # configs/datasets/unsw_nb15.yaml) rather than cleaned - it turned out to be near-redundant
-# with is_ftp_login (r=0.92) and showed no per-class differentiation when nonzero.
+# with is_ftp_login (r~=0.85 on the current raw capture) and showed no per-class
+# differentiation when nonzero.
 _APPLICABILITY_ZERO_COLUMNS = ["ct_flw_http_mthd", "is_ftp_login"]
 
 
@@ -144,11 +146,12 @@ class UNSWNB15Dataset(BaseDataset):
         return pd.concat(frames, ignore_index=True)
 
     def clean(self, data: pd.DataFrame) -> pd.DataFrame:
-        # A single row (of 2,411,053) is truncated mid-record in the raw files (6 fields
-        # instead of 49 - confirmed by direct inspection, a genuine export corruption, not a
-        # documented data-quality quirk worth modeling around). Every other column reads as
-        # blank for that row too, so filtering on label actually being 0/1 catches it
-        # generically rather than hardcoding a row index that would break on a fresh export.
+        # Defensive guard: keep only rows whose native binary label is literally "0"/"1".
+        # The first download of UNSW-NB15_4.csv had its final record truncated mid-line (6
+        # fields instead of 49); re-downloading file 4 on 2026-08-28 fixed that, and the
+        # current raw capture (2,540,044 rows) contains no such row, so this now drops
+        # nothing. Kept because it catches that class of export corruption generically,
+        # without hardcoding a row index that a fresh export could shift.
         data = data.loc[data["label"].isin(["0", "1"])].copy()
 
         for column in _NUMERIC_COLUMNS:

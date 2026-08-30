@@ -17,14 +17,15 @@ categorical_columns: []
 # (99.97-99.996% one value) - those still carry rare-but-real signal, unlike a truly constant
 # column, and this project's severely imbalanced datasets already lean on exactly this kind of
 # rare-but-informative signal elsewhere.
-# Near-exact-duplicate columns, verified 2026-08-13 via direct pairwise correlation on the
-# full processed train.csv (not just a plotted sample - a sample-based check of this same
-# data initially also flagged Fwd/Bwd Header Length as a "duplicate" pair, which turned out
-# to be a sampling artifact caused by a handful of corrupted rows dominating whichever random
-# sample was drawn; re-verified on the full 2.83M rows before trusting any of these). Each
-# pair below is correlated at 1.000 (RST/ECE Flag Count: 0.998) on the full data - one column
-# of each pair is dropped as redundant, keeping whichever name is the more standard/
-# interpretable of the two for feature-importance write-ups:
+# Near-duplicate columns, verified 2026-08-13 via direct pairwise correlation AND row-for-row
+# comparison on the full dataset (~2.83M rows, not just a plotted sample - a sample-based
+# check initially flagged Fwd/Bwd Header Length as a "duplicate" pair, a sampling artifact
+# from the ~35 corrupted rows dominating whichever random sample was drawn; everything below
+# was re-checked on all rows). Of the nine pairs: four are identical in every row (Subflow
+# Fwd Packets, Subflow Bwd Packets, Fwd PSH Flags, CWE Flag Count); four more reach
+# r >= 0.99999, differing in only 1-54 rows out of 2.83M; RST/ECE Flag Count is the loosest
+# at r ~= 0.998. One column of each pair is dropped as redundant, keeping whichever name is
+# the more standard/interpretable of the two for feature-importance write-ups:
 #   Total Fwd/Backward Packets kept over Subflow Fwd/Bwd Packets (same value, subflow==total
 #     whenever a flow has a single subflow, the common case)
 #   Fwd/Bwd Packet Length Mean kept over Avg Fwd/Bwd Segment Size (literal alias)
