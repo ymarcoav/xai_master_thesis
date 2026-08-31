@@ -75,8 +75,19 @@ def compute_shap_values(
     summed back into their parent categorical feature, and the transformed numeric/categorical
     values are swapped for the original, untransformed ones - unlike LIME/permutation
     importance/PDP, which already operate on the original feature space directly by wrapping
-    the whole pipeline rather than the bare model. Returns (shap_values, base_values,
-    display_data, feature_names):
+    the whole pipeline rather than the bare model.
+
+    Base-value footing differs by explainer and is not fully unifiable here: the tree path
+    (random_forest, xgboost) runs TreeExplainer with feature_perturbation="tree_path_dependent"
+    (no background - xgboost's SHAP build rejects the interventional+background path outright),
+    so its base value is the model's own class_weight/sample_weight-adjusted internal prior,
+    which for this project's balanced weighting sits near 1/n_classes. The permutation path
+    (svm, neural_network) uses background_data directly; pipeline.py passes a class-balanced
+    sample there so its base value lands on that same near-uniform footing rather than on the
+    85-96%-Benign raw prior. xgboost's base value is in margin space and still not directly
+    comparable in level to the others (attribution directions are).
+
+    Returns (shap_values, base_values, display_data, feature_names):
       - shap_values: shape (n_samples, n_original_features, n_classes), already collapsed
       - base_values: shape (n_samples, n_classes). TreeExplainer/LinearExplainer give one
         constant expected_value per class (broadcast across samples here for a uniform

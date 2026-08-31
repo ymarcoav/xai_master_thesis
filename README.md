@@ -22,6 +22,10 @@ Code for the master thesis titled "Evaluating Explainable AI Methods for Intrusi
 pip install -e ".[dev]"
 ```
 
+`torch` (used only by the `neural_network` model - see below) is a listed dependency. The
+project needs the CPU build only; if `pip` pulls a large CUDA wheel, install it explicitly
+first: `pip install torch --index-url https://download.pytorch.org/whl/cpu`.
+
 ## Datasets
 
 Four intrusion detection datasets are supported: UNSW-NB15, CIC-IDS2017, DAPT2020, and NSL-KDD. Each
@@ -111,9 +115,11 @@ multiclass, but not at its native ~40-way specific attack-type granularity: it's
 conventional **DoS/Probe/R2L/U2R categories** (+ `Benign`) used throughout NSL-KDD literature -
 structurally similar to DAPT2020's multi-stage setup.
 
-UNSW-NB15's `Worms` category is severely data-scarce (174 total rows across the full raw capture, as of
-the 2026-08-28 raw-data fix above) - by far the rarest class in this dataset, in the same spirit as
-DAPT2020's `Data Exfiltration` or NSL-KDD's `U2R`. Its dominant confusion pattern also doesn't funnel into `Benign` at all,
+UNSW-NB15's `Worms` category is severely data-scarce - **171 rows in the processed data (118 train / 53
+test)**; the "174" figure sometimes quoted elsewhere is the pre-dedup raw count. By far the rarest class
+in this dataset, in the same spirit as DAPT2020's `Data Exfiltration` or NSL-KDD's `U2R`. For scale,
+`Benign` is **95.6%** of both the UNSW-NB15 train and test splits (CIC-IDS2017: 84.9% `Benign`,
+`Infiltration` just 24 train / 11 test rows). Its dominant confusion pattern also doesn't funnel into `Benign` at all,
 unlike every other dataset here: `Analysis`<->`Backdoor` remains a real two-way confusion for every model
 trained on the final feature set (`service` restored, `ct_ftp_cmd` still dropped - see above), 7.8-62.5%
 one way and 10.9-49.7% the other - present across the board, though the exact ranges have shifted with
@@ -266,24 +272,40 @@ Trained pipelines (preprocessing + model) are saved to `outputs/models/<experime
 and metrics to `outputs/metrics/<experiment_name>.json`.
 
 All four datasets are severely class-imbalanced (NSL-KDD's `U2R` category has only 52 training rows and
-67 test rows, against 67,343/9,711 `Benign`). `random_forest` and `svm` both use
-`class_weight="balanced"`; `neural_network` (`MLPClassifier`) has no
-`class_weight`/`sample_weight` support in scikit-learn, so its training data is resampled instead
-(`balance_classes` in `preprocessing.py` oversamples rare classes and undersamples common ones to the
-median class count, applied only to the training fold, both during hyperparameter search and the final
-fit).
+67 test rows, against 67,343/9,711 `Benign`; UNSW-NB15 is 95.6% `Benign`, CIC-IDS2017 84.9%). **All four
+models handle this by reweighting the training objective with the same per-class weight
+`w_c = n / (k * count_c)` (scikit-learn's `class_weight="balanced"` formula), computed on the training
+split only. None of them resample rows.**
 
-`xgboost`'s `XGBClassifier` has no `class_weight` constructor parameter at all (not even an
-unsupported one to omit - it simply isn't part of xgboost's sklearn API), only per-sample weights
-at fit time. `pipeline.py`'s `_MODELS_REQUIRING_SAMPLE_WEIGHT` computes those via
-`sklearn.utils.class_weight.compute_sample_weight("balanced", y)` - mathematically the same
-per-class weighting `class_weight="balanced"` applies internally for the other models - rather
-than reusing `neural_network`'s resampling fallback: resampling changes which/how many rows the
-model actually trains on, shifting the effective class prior (this project's own
-`smote_balance_classes` experiment, tried and reverted for `neural_network`, found evidence this
-prior shift - not the oversampling method itself - was the likely cause of a precision
-regression), whereas sample weighting reweights the loss without touching which rows exist,
-closer to what every non-resampled model here already does. Separately, `XGBClassifier` also
+The weight *values* are identical across models -
+`sklearn.utils.class_weight.compute_sample_weight("balanced", y)` is literally the per-sample
+broadcast of `class_weight="balanced"`, and both equal `n / (k * count_c)` (verified numerically; the
+weights average to 1). What differs is only how each objective consumes them: weighted impurity/leaf
+counts at each split (`random_forest`), per-class scaling of the penalty `C` (`svm`), per-sample
+gradient/Hessian scaling (`xgboost`), per-sample cross-entropy scaling (`neural_network`). So they are
+equivalent in principle and in the weights, not bit-identical in optimisation behaviour.
+
+- `random_forest`, `svm`: `class_weight="balanced"` constructor argument.
+- `xgboost`: `XGBClassifier` has no `class_weight` argument at all, only per-sample weights at fit time,
+  so `pipeline.py`'s `_MODELS_REQUIRING_SAMPLE_WEIGHT` passes
+  `compute_sample_weight("balanced", y)` - the same weights, one per row - through `fit()`.
+- `neural_network`: `TorchMLPClassifier` (`src/xai_thesis/torch_mlp.py`), a small PyTorch MLP
+  (`Linear → ReLU` per hidden layer → `Linear` to raw logits) that passes those same per-class weights
+  to `nn.CrossEntropyLoss`. It replaced scikit-learn's `MLPClassifier`, which has no
+  `class_weight`/`sample_weight` support and had therefore forced a bespoke
+  resample-to-the-median-class-count path (`balance_classes`); that path and its
+  `smote_balance_classes` variant are both gone. The wrapper keeps sklearn semantics
+  (`fit`/`predict`/`predict_proba` with string labels, cloneable for `RandomizedSearchCV`), seeds
+  torch/NumPy/the DataLoader generator and enables `torch.use_deterministic_algorithms` so SHAP/LIME
+  results are reproducible, carries `max_iter` over as the epoch count and `learning_rate_init`/`alpha`
+  as the Adam LR / weight decay, and does stratified-validation early stopping when the config sets
+  `early_stopping: true`.
+
+Because reweighting never changes which rows exist, each `RandomizedSearchCV` fold now trains on its
+real rows and computes its own fold weights - the fold-leak caveat the old resampling path carried is
+gone.
+
+`XGBClassifier` also
 rejects this project's raw string class labels outright (verified directly: fitting on
 `"Benign"`/`"Analysis"`/etc. raises `ValueError`, unlike every other model here, which accepts
 them natively) - `models.py`'s `_StringLabelXGBClassifier` subclasses it to label-encode
@@ -529,9 +551,9 @@ python scripts/explain.py  # all experiments
 ```
 
 - **SHAP**: `TreeExplainer` for `random_forest` and `xgboost`, and a permutation-based `Explainer`
-  for `neural_network` and `svm` (no fast
-  structural explainer exists for sklearn MLPs or kernel SVMs - this path is markedly slower for both,
-  and slower still for `svm` specifically, since its own predictions are more expensive to compute).
+  for `neural_network` and `svm` (no fast structural explainer exists for a plain MLP or a kernel SVM -
+  this path is markedly slower for both, and slower still for `svm` specifically, since its own
+  predictions are more expensive to compute).
   Produces a global bar plot (mean |SHAP value| per feature, stacked by class), a global beeswarm
   for the dataset's class of interest, and local waterfall plots for two curated test instances.
 - **LIME** (`LimeTabularExplainer`): local explanations for the same two curated instances, so SHAP and
@@ -564,6 +586,28 @@ real two-way confusion for every model trained on the final feature set (`servic
 `_CLASS_OF_INTEREST` in `src/xai_thesis/pipeline.py`.
 
 Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/`.
+
+### Limitation: SHAP base-value footing across models
+
+Class balancing is no longer a source of cross-model inconsistency - all four models reweight the
+objective with the same `n / (k * count_c)` weights and train on the same rows (`svm` on its 200k
+final-fit subsample, the others on the full training set). Two explainer-mechanics points remain, worth
+stating when writing this up:
+
+- **SHAP base values are not all on one footing.** `TreeExplainer` runs
+  `feature_perturbation="tree_path_dependent"` with no background (xgboost's SHAP build rejects the
+  interventional+background path), so `random_forest`/`xgboost` base values come from each model's
+  own weight-adjusted internal prior - near `1/n_classes` for `random_forest`, margin space for
+  `xgboost`. The permutation path (`svm`, `neural_network`) uses an explicit background; `pipeline.py`
+  draws that background **class-balanced** (`_class_balanced_sample`, ~100 rows, ~even per class)
+  rather than a uniform random sample that would be 85-96% `Benign`, so `svm`/`neural_network` land on
+  roughly the same near-uniform footing as `random_forest`. `xgboost`'s base value remains margin-space
+  and comparable in attribution *direction* only, not level.
+- **The rarest classes are near-absent from the global plots.** The global SHAP bar/beeswarm and
+  permutation importance explain a 200-row **stratified** (prevalence-proportional) test sample - a
+  deliberate "what drives predictions on realistic traffic" choice - so `Worms` / `Infiltration` have
+  ~0 rows in it and their stacked segment in `shap_bar.png` is low-support. Rare classes are examined
+  only through the per-class local explanations (curated instances, interview stimuli).
 
 ### Interview stimuli
 

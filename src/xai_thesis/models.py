@@ -3,10 +3,11 @@ from typing import Any
 
 from sklearn.base import ClassifierMixin
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.svm import SVC
 from xgboost import XGBClassifier as _XGBClassifier
+
+from xai_thesis.torch_mlp import TorchMLPClassifier
 
 
 class _StringLabelXGBClassifier(_XGBClassifier):
@@ -44,9 +45,12 @@ class _StringLabelXGBClassifier(_XGBClassifier):
         return self._label_encoder.inverse_transform(super().predict(X, **kwargs).astype(int))
 
 
-# MLPClassifier has no class_weight/sample_weight support, so it can't be rebalanced here
-# like the rest; instead, pipeline.py resamples its training data (balance_classes) before
-# fit. The other models get class_weight="balanced" given how imbalanced these datasets are.
+# neural_network is TorchMLPClassifier (see torch_mlp.py), a small PyTorch MLP that takes a
+# per-class weight vector in nn.CrossEntropyLoss using the same n/(k*count_c) formula
+# class_weight="balanced" applies below - so random_forest, svm, xgboost and the MLP now all
+# handle imbalance by reweighting the objective, none by resampling rows. (It replaced
+# sklearn's MLPClassifier, which has no class_weight/sample_weight support and so had forced a
+# bespoke resample-to-median-class-count path, since removed.)
 #
 # ⚠️ logistic_regression and gradient_boosting removed entirely 2026-08-24 (explicit user
 # request) - both had been flagged out-of-scope-but-functional since 2026-08-09 and archived
@@ -66,13 +70,11 @@ class _StringLabelXGBClassifier(_XGBClassifier):
 # xgboost's sklearn API), only per-sample weights at fit() time.
 # pipeline.py's _MODELS_REQUIRING_SAMPLE_WEIGHT computes those via
 # sklearn.utils.class_weight.compute_sample_weight("balanced", y) - mathematically the same
-# per-class weighting class_weight="balanced" applies internally for the other models - and
-# passes them through at fit time, rather than reusing neural_network's resampling fallback
-# below: resampling duplicates/drops rows and so shifts the effective class prior the model
-# trains on (this project's own smote_balance_classes experiment, tried and reverted for
-# neural_network, found evidence this prior shift - not the oversampling method - was the likely
-# cause of a precision regression), whereas sample weighting reweights the loss without touching
-# which rows exist. tree_method="hist" and eval_metric="mlogloss" are fixed for speed/determinism
+# per-class weighting class_weight="balanced" applies internally for the other models, and the
+# same n/(k*count_c) weights TorchMLPClassifier feeds to nn.CrossEntropyLoss - and passes them
+# through at fit time. All four models now reweight the objective; none resample rows. (A
+# smote_balance_classes experiment for the old MLPClassifier resampling path was tried and
+# reverted; that whole path is gone now.) tree_method="hist" and eval_metric="mlogloss" are fixed for speed/determinism
 # on this project's largest datasets (~2M rows) and to silence an eval_metric-at-fit-time
 # deprecation warning respectively; neither is searched.
 #
@@ -127,7 +129,7 @@ class _StringLabelXGBClassifier(_XGBClassifier):
 # converge normally (a handful of minutes each), while still bounding worst-case time to
 # something finite.
 _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
-    "neural_network": lambda random_state, **kwargs: MLPClassifier(random_state=random_state, **kwargs),
+    "neural_network": lambda random_state, **kwargs: TorchMLPClassifier(random_state=random_state, **kwargs),
     "random_forest": lambda random_state, **kwargs: RandomForestClassifier(
         random_state=random_state, class_weight="balanced", **kwargs
     ),

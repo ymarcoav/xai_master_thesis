@@ -32,7 +32,6 @@ from xai_thesis.explainability import (
 )
 from xai_thesis.models import PARAM_DISTRIBUTIONS, build_model, train_model
 from xai_thesis.preprocessing import (
-    balance_classes,
     build_preprocessing_pipeline,
     split_by_official_split_column,
     split_features_target,
@@ -41,21 +40,12 @@ from xai_thesis.preprocessing import (
 )
 from xai_thesis.utils import dump_yaml, ensure_directory, load_yaml
 
-# MLPClassifier has no class_weight/sample_weight support, unlike the other models here
-# (see models.py), so it needs its own training-time rebalancing via resampling instead.
-# Tried adding gradient_boosting/logistic_regression here too, to test whether resampling
-# helps on DAPT2020's most data-starved classes beyond their existing class_weight="balanced"
-# - it made both models measurably worse (LR f1_macro 0.352->0.318, GB 0.644->0.601), so
-# it's restricted back to just the one model that has no other option.
-_MODELS_REQUIRING_RESAMPLING = {"neural_network"}
-
 # xgboost's XGBClassifier has no class_weight constructor param at all (see models.py) - it
 # only supports per-sample weights at fit() time. compute_sample_weight("balanced", y) computes
-# the same per-class weighting class_weight="balanced" applies internally for the other models,
-# just passed through fit's sample_weight instead of set on the model itself. Deliberately not
-# folded into _MODELS_REQUIRING_RESAMPLING above: resampling changes which/how many rows the
-# model actually trains on (shifting the effective class prior), while sample weighting only
-# reweights the loss - closer to what every non-resampled model here already does.
+# the same per-class weighting class_weight="balanced" applies internally for random_forest/svm
+# (and the same weights TorchMLPClassifier feeds to nn.CrossEntropyLoss), just passed through
+# fit's sample_weight instead of set on the model itself. This is the only model that needs
+# fit-time handling; all four reweight the objective, none resample.
 _MODELS_REQUIRING_SAMPLE_WEIGHT = {"xgboost"}
 
 _METRIC_EXTRACTORS = {
@@ -144,49 +134,6 @@ def _build_pipeline(experiment: dict[str, Any], dataset_config: DatasetConfig, x
     return Pipeline(steps=[("preprocessing", preprocessing), ("model", model)])
 
 
-def _fit_pipeline_with_post_preprocessing_resampling(
-    experiment: dict[str, Any],
-    dataset_config: DatasetConfig,
-    x_train: pd.DataFrame,
-    y_train: pd.Series,
-    random_state: int,
-) -> Pipeline:
-    """Fit preprocessing on the true training distribution first, then resample only the
-    already-transformed features before fitting the model - unlike resampling x_train/y_train
-    before the combined preprocessing+model Pipeline is built and fit, which lets the
-    resampled (duplicated) distribution leak into the imputer's learned median and, for
-    UNSW-NB15, which rare categories cross the one-hot encoder's frequency-bucketing
-    threshold. MinMaxScaler's min/max are unaffected either way (duplicating rows doesn't
-    change the range), so this only changes neural_network's fitted preprocessing, not the
-    other two models', which never resample.
-
-    Reassembles a normal Pipeline from the two separately-fitted pieces afterward (a
-    supported scikit-learn pattern: predict/predict_proba only call transform/predict on each
-    already-fitted step, they don't require Pipeline.fit() to have been called), so callers
-    can treat the result identically to one built via _build_pipeline + train_model.
-    """
-    preprocessing = build_preprocessing_pipeline(x_train, categorical_columns=dataset_config.categorical_columns)
-    x_train_transformed = preprocessing.fit_transform(x_train)
-    if hasattr(x_train_transformed, "toarray"):
-        x_train_transformed = x_train_transformed.toarray()
-    x_train_transformed = pd.DataFrame(x_train_transformed, columns=preprocessing.get_feature_names_out())
-
-    x_resampled, y_resampled = balance_classes(
-        x_train_transformed, y_train.reset_index(drop=True), random_state=random_state
-    )
-
-    model = build_model(experiment["model"], random_state=random_state, **experiment.get("model_params", {}))
-    # .to_numpy(): fitting on a DataFrame would make the model remember the transformed,
-    # ColumnTransformer-prefixed column names (e.g. "numeric__dur") as its own
-    # feature_names_in_, which every other model-fitting path in this project avoids (the
-    # normal Pipeline.fit() path always hands the model a bare array, since ColumnTransformer's
-    # own output isn't a DataFrame) - matching that avoids a spurious "X does not have valid
-    # feature names" warning on every future pipeline.predict() call with this model.
-    train_model(model, x_resampled.to_numpy(), y_resampled)
-
-    return Pipeline(steps=[("preprocessing", preprocessing), ("model", model)])
-
-
 # svm's final fit on unsw_nb15 is intractable at the complete training-set size, re-confirmed
 # 2026-08-28 after two separate attempts on the fully-corrected raw data (128k more rows, no
 # more truncation/boundary duplicates than before): the first ran 18+ hours uncapped; a second
@@ -247,15 +194,12 @@ def run_experiment(
             x_train, y_train, target_size, min_per_class=min_per_class, random_state=random_state
         )
 
-    if experiment["model"] in _MODELS_REQUIRING_RESAMPLING:
-        pipeline = _fit_pipeline_with_post_preprocessing_resampling(
-            experiment, dataset_config, x_train, y_train, random_state
-        )
-    elif experiment["model"] in _MODELS_REQUIRING_SAMPLE_WEIGHT:
-        pipeline = _build_pipeline(experiment, dataset_config, x_train)
+    pipeline = _build_pipeline(experiment, dataset_config, x_train)
+    if experiment["model"] in _MODELS_REQUIRING_SAMPLE_WEIGHT:
         train_model(pipeline, x_train, y_train, model__sample_weight=compute_sample_weight("balanced", y_train))
     else:
-        pipeline = _build_pipeline(experiment, dataset_config, x_train)
+        # random_forest / svm reweight via class_weight="balanced"; neural_network's
+        # TorchMLPClassifier computes the same n/(k*count_c) weights from y inside fit().
         train_model(pipeline, x_train, y_train)
 
     report = evaluate_classifier(pipeline, x_test, y_test)
@@ -297,18 +241,10 @@ def tune_hyperparameters(
     else:
         x_search, y_search = x_train, y_train
 
-    # Unlike run_experiment()'s final fit (see _fit_pipeline_with_post_preprocessing_resampling),
-    # this resamples before the combined preprocessing+model Pipeline is built, so each
-    # RandomizedSearchCV fold's own preprocessing still fits on already-resampled data, and a
-    # duplicated oversampled row can land on both sides of a fold split. Properly closing this
-    # here would need per-fold-safe resampling inside the CV loop (e.g. imbalanced-learn's
-    # Pipeline, which supports a sampler step that only resamples during fit, not transform) -
-    # not implemented, since it would add a new dependency for a search-time-only concern: it
-    # can only bias which hyperparameters get selected, not the final reported model or metrics,
-    # which run_experiment() computes independently on the corrected fit.
-    if experiment["model"] in _MODELS_REQUIRING_RESAMPLING:
-        x_search, y_search = balance_classes(x_search, y_search, random_state=random_state)
-
+    # No per-model resampling here anymore: every model reweights its objective (class_weight,
+    # sample_weight, or TorchMLPClassifier's per-class CrossEntropyLoss weight), so each
+    # RandomizedSearchCV fold's fit sees the real fold rows and computes its own weights from
+    # them - nothing to leak across the split.
     search_overrides = _SEARCH_TIME_MODEL_PARAM_OVERRIDES.get(experiment["model"], {})
     search_experiment = {**experiment, "model_params": {**experiment.get("model_params", {}), **search_overrides}}
     pipeline = _build_pipeline(search_experiment, dataset_config, x_search)
@@ -509,6 +445,31 @@ _CLASS_OF_INTEREST: dict[str, tuple[str, str]] = {
 # restricted to unsw_nb15 here simply because that's the only dataset this was ever verified for.
 _SAFE_TO_DISCRETIZE_LIME = {"unsw_nb15"}
 
+# SHAP background size, and the number of test instances the global SHAP/PFI plots explain.
+_SHAP_BACKGROUND_SIZE = 100
+_GLOBAL_EXPLANATION_SAMPLE_SIZE = 200
+
+
+def _class_balanced_sample(
+    features: pd.DataFrame, target: pd.Series, total: int, *, random_state: int
+) -> pd.DataFrame:
+    """Sample ~total rows from features, spread evenly across the classes in target (a class
+    with fewer rows than its even share contributes all of them).
+
+    Used for the SHAP background so the explainer's reference distribution is the same
+    ~uniform class mix for every model. A uniform random sample of this project's training
+    data is 85-96% Benign (see the imbalance-handling note in README.md), which pins the
+    permutation explainer's base value (svm, neural_network) to "an average Benign flow" and
+    leaves it on a different footing from the tree models, whose TreeExplainer base value
+    already reflects their class_weight/sample_weight-adjusted (near-balanced) internal prior.
+    A class-balanced background puts svm/neural_network on that same near-balanced footing.
+    """
+    groups = [
+        features.loc[index_block].sample(n=min(total // target.nunique() or 1, len(index_block)), random_state=random_state)
+        for index_block in (target.index[target == label] for label in target.unique())
+    ]
+    return pd.concat(groups)
+
 
 def generate_explanations(
     experiment_config_path: str | Path,
@@ -516,17 +477,26 @@ def generate_explanations(
     dataset_config_dir: str | Path = "configs/datasets",
     models_dir: str | Path = "outputs/models",
     plots_dir: str | Path = "outputs/plots",
-    sample_size: int = 200,
+    sample_size: int = _GLOBAL_EXPLANATION_SAMPLE_SIZE,
 ) -> dict[str, Path]:
     """Generate SHAP, LIME, and permutation importance explanations for an already-trained
     experiment, saving plots under plots_dir/<dataset>/<model>_baseline/.
+
+    The global SHAP bar/beeswarm and permutation-importance plots explain a sample_size-row
+    sample of the test set drawn *stratified* (proportional to class prevalence), i.e. "what
+    drives predictions on the traffic mix actually seen", not a per-class-balanced sample.
+    Deliberate: it keeps the global plots representative of deployment conditions. The
+    trade-off is that the rarest classes (UNSW-NB15 Worms, CIC-IDS2017 Infiltration) have
+    near-zero rows in the sample, so their stacked segment in shap_bar.png is low-support -
+    the per-class local explanations (curated instances, interview stimuli) are where rare
+    classes are actually examined.
 
     Partial dependence plots (PDP) were removed entirely on 2026-08-27 (had been out of the
     thesis's explainability scope since 2026-07-31, and out of this function specifically
     since 2026-08-17) - explainability.py no longer has a plot_partial_dependence function at
     all, not just an unused one.
     """
-    experiment, dataset_config, x_train, _, x_test, y_test = _load_experiment_and_data(
+    experiment, dataset_config, x_train, y_train, x_test, y_test = _load_experiment_and_data(
         experiment_config_path, dataset_config_dir
     )
     random_state = experiment.get("random_state", 42)
@@ -547,7 +517,9 @@ def generate_explanations(
         )
     else:
         sample_x, sample_y = x_test, y_test
-    background_x = x_train.sample(n=min(100, len(x_train)), random_state=random_state)
+    background_x = _class_balanced_sample(
+        x_train, y_train, _SHAP_BACKGROUND_SIZE, random_state=random_state
+    )
 
     paths: dict[str, Path] = {}
 
@@ -704,7 +676,7 @@ def generate_interview_stimuli(
     maps to an empty dict if the model never misclassifies it in this test set (no stimulus pair
     possible, see _most_common_confusion).
     """
-    experiment, dataset_config, x_train, _, x_test, y_test = _load_experiment_and_data(
+    experiment, dataset_config, x_train, y_train, x_test, y_test = _load_experiment_and_data(
         experiment_config_path, dataset_config_dir
     )
     random_state = experiment.get("random_state", 42)
@@ -718,7 +690,9 @@ def generate_interview_stimuli(
     pipeline = joblib.load(Path(models_dir) / f"{experiment_name}.joblib")
     class_names = list(pipeline.named_steps["model"].classes_)
     predictions = pd.Series(pipeline.predict(x_test), index=x_test.index)
-    background_x = x_train.sample(n=min(100, len(x_train)), random_state=random_state)
+    background_x = _class_balanced_sample(
+        x_train, y_train, _SHAP_BACKGROUND_SIZE, random_state=random_state
+    )
     experiment_dir = _experiment_plot_dir(plots_dir, dataset_config.name, experiment_name)
 
     results: dict[str, dict[str, Path]] = {}

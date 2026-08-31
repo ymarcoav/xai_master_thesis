@@ -1,17 +1,19 @@
 import pytest
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.neural_network import MLPClassifier
 from sklearn.svm import SVC
 
 from xai_thesis.models import _StringLabelXGBClassifier, build_model, train_model
+from xai_thesis.torch_mlp import TorchMLPClassifier
 
 
-def test_build_model_neural_network_has_no_class_weight() -> None:
+def test_build_model_neural_network_is_torch_mlp_with_balanced_class_weight() -> None:
     model = build_model("neural_network", random_state=7)
 
-    assert isinstance(model, MLPClassifier)
+    assert isinstance(model, TorchMLPClassifier)
     assert model.random_state == 7
-    assert not hasattr(model, "class_weight")
+    # imbalance is handled inside CrossEntropyLoss the same n/(k*count) way as the other
+    # models' class_weight="balanced" - not by resampling.
+    assert model.class_weight == "balanced"
 
 
 def test_build_model_random_forest_is_balanced_and_seeded() -> None:

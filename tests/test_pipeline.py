@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from xai_thesis.pipeline import (
+    _class_balanced_sample,
     generate_confusion_matrix,
     generate_explanations,
     generate_feature_correlation,
@@ -18,6 +19,21 @@ from xai_thesis.pipeline import (
     run_experiment,
     tune_hyperparameters,
 )
+
+
+def test_class_balanced_sample_spreads_evenly_and_caps_at_class_size() -> None:
+    features = pd.DataFrame({"f": range(1000)})
+    target = pd.Series(["benign"] * 950 + ["rare_a"] * 40 + ["rare_b"] * 10, name="label")
+
+    sample = _class_balanced_sample(features, target, total=90, random_state=42)
+    counts = target.loc[sample.index].value_counts()
+
+    # even share is 90 // 3 = 30 per class; rare_b only has 10 rows, so it contributes all 10
+    assert counts["benign"] == 30
+    assert counts["rare_a"] == 30
+    assert counts["rare_b"] == 10
+    # rows are a real subset of the input, drawn from the right classes
+    assert set(sample["f"]) <= set(features["f"])
 
 
 def _unsw_row(*, dur: str, service: str, attack_cat: str, label: str, stime: str, is_ftp_login: str = "0") -> list[str]:
@@ -496,12 +512,11 @@ def test_run_experiment_does_not_subsample_other_model_dataset_combinations(tmp_
         assert calls == []
 
 
-def test_run_experiment_neural_network_fits_preprocessing_before_resampling(tmp_path) -> None:
-    # 8 "benign" rows with feature=1.0 and 2 "attack" rows with feature=100.0. The true,
-    # unresampled median of this column is 1.0. balance_classes resamples both classes to
-    # the median class count (5), which shifts the *resampled* 10-row median to 50.5 - if
-    # preprocessing's imputer fit on that resampled data instead of the original
-    # distribution (the bug being fixed), this test would see 50.5 instead of 1.0.
+def test_run_experiment_neural_network_trains_through_the_plain_pipeline_path(tmp_path) -> None:
+    # neural_network is now TorchMLPClassifier and handles imbalance via a weighted loss, so
+    # it takes the same _build_pipeline + train_model path as random_forest - no resampling,
+    # so preprocessing fits on the real training rows and the pipeline is a normal fitted
+    # Pipeline (not one reassembled from separately-fitted parts).
     dataset_config_dir = tmp_path / "datasets"
     dataset_config_dir.mkdir()
     processed_dir = tmp_path / "processed" / "toy"
@@ -548,18 +563,16 @@ def test_run_experiment_neural_network_fits_preprocessing_before_resampling(tmp_
     models_dir = tmp_path / "models"
     metrics_dir = tmp_path / "metrics"
 
-    run_experiment(
+    metrics = run_experiment(
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=metrics_dir
     )
 
+    assert set(metrics) == {"accuracy"}
     pipeline = joblib.load(models_dir / "toy_experiment.joblib")
+    # imputer fits on the real training rows (median of [1]*8 + [100]*2 is 1.0)
     imputer = pipeline.named_steps["preprocessing"].named_transformers_["numeric"].named_steps["imputer"]
     assert imputer.statistics_[0] == 1.0
-
-    # And the fitted pipeline must still be directly usable for prediction, since it was
-    # assembled from separately-fitted preprocessing + model rather than via pipeline.fit().
-    predictions = pipeline.predict(test_df[["feature"]])
-    assert len(predictions) == 2
+    assert len(pipeline.predict(test_df[["feature"]])) == 2
 
 
 def test_generate_confusion_matrix_writes_png_for_trained_experiment(tmp_path) -> None:
@@ -674,6 +687,61 @@ def test_tune_hyperparameters_writes_best_params_into_experiment_yaml(tmp_path) 
 
     updated_experiment = yaml.safe_load(experiment_path.read_text(encoding="utf-8"))
     assert updated_experiment["model_params"] == tuned_params
+
+
+def test_tune_hyperparameters_neural_network_round_trip_retrains_successfully(tmp_path) -> None:
+    # TorchMLPClassifier must be cloneable by RandomizedSearchCV and accept the
+    # hidden_layer_sizes / alpha / learning_rate_init grid; run_experiment must then retrain
+    # from the tuned params. No resampling special-case in the search anymore.
+    dataset_config_dir = tmp_path / "datasets"
+    dataset_config_dir.mkdir()
+    processed_dir = tmp_path / "processed" / "toy"
+    processed_dir.mkdir(parents=True)
+
+    rng = np.random.default_rng(0)
+    feature = rng.normal(size=60)
+    label = ["attack" if value > 0 else "benign" for value in feature]
+    pd.DataFrame({"feature": feature, "label": label}).to_csv(processed_dir / "train.csv", index=False)
+    pd.DataFrame({"feature": [0.1, -0.1], "label": ["attack", "benign"]}).to_csv(
+        processed_dir / "test.csv", index=False
+    )
+    (dataset_config_dir / "toy.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "toy",
+                "raw_path": "unused",
+                "processed_path": processed_dir.as_posix(),
+                "label_column": "label",
+            }
+        ),
+        encoding="utf-8",
+    )
+    experiment_path = tmp_path / "experiment.yaml"
+    experiment_path.write_text(
+        yaml.safe_dump(
+            {
+                "name": "toy_experiment",
+                "dataset": "toy",
+                "model": "neural_network",
+                "random_state": 42,
+                "model_params": {"max_iter": 5},
+                "preprocessing": {"strategy": "default_tabular"},
+                "metrics": ["accuracy"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    tuned_params = tune_hyperparameters(experiment_path, dataset_config_dir=dataset_config_dir, n_iter=3, cv=3)
+
+    assert set(tuned_params) == {"hidden_layer_sizes", "alpha", "learning_rate_init"}
+    run_experiment(
+        experiment_path,
+        dataset_config_dir=dataset_config_dir,
+        models_dir=tmp_path / "models",
+        metrics_dir=tmp_path / "metrics",
+    )
+    assert (tmp_path / "models" / "toy_experiment.joblib").exists()
 
 
 def test_tune_hyperparameters_svm_round_trip_retrains_successfully(tmp_path) -> None:
