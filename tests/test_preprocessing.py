@@ -129,13 +129,35 @@ def test_build_preprocessing_pipeline_buckets_rare_categories() -> None:
     assert transformed.shape == (100, 2)
 
 
-def test_build_preprocessing_pipeline_ignores_unseen_category_at_transform() -> None:
+def test_build_preprocessing_pipeline_unseen_category_is_all_zeros_when_no_infrequent_bucket() -> None:
+    # train has only frequent categories, so no "infrequent" bucket exists; an unseen test
+    # category then has nowhere to go and encodes as an all-zero vector.
     train = pd.DataFrame({"proto": ["tcp", "udp"]})
     test = pd.DataFrame({"proto": ["tcp", "icmp"]})
 
     pipeline = build_preprocessing_pipeline(train, categorical_columns=["proto"])
     pipeline.fit(train)
 
-    transformed = pipeline.transform(test)
+    transformed = np.asarray(pipeline.transform(test))
 
     assert transformed.shape == (2, 2)
+    assert transformed[1].tolist() == [0.0, 0.0]  # icmp: no active category
+
+
+def test_build_preprocessing_pipeline_unseen_category_folds_into_infrequent_bucket() -> None:
+    # handle_unknown="infrequent_if_exist": when the column DOES have an infrequent bucket
+    # (from rare training categories), a category seen only at transform time is routed to it
+    # rather than dropped to all-zeros - a rare unseen value behaves like a rare seen one.
+    train = pd.DataFrame({"proto": ["tcp"] * 97 + ["rare_a", "rare_b", "rare_c"]})
+    test = pd.DataFrame({"proto": ["tcp", "never_seen_in_train"]})
+
+    pipeline = build_preprocessing_pipeline(train, categorical_columns=["proto"], min_frequency=0.05)
+    pipeline.fit(train)
+    encoder = pipeline.named_transformers_["categorical"].named_steps["encoder"]
+
+    transformed = np.asarray(pipeline.transform(test))
+    infrequent_index = list(encoder.get_feature_names_out()).index("proto_infrequent_sklearn")
+
+    assert transformed[0].tolist() == [1.0, 0.0]  # tcp
+    assert transformed[1][infrequent_index] == 1.0  # unseen -> infrequent bucket
+    assert transformed[1].sum() == 1.0

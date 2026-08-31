@@ -113,9 +113,18 @@ def build_preprocessing_pipeline(
             ("scaler", MinMaxScaler()),
         ]
     )
+    # min_frequency: categories below this share of the training rows are folded into one
+    # "infrequent" bucket per column (bounds proto's dimensionality on UNSW-NB15). The
+    # retained categories and threshold are fixed on the training partition.
+    # handle_unknown="infrequent_if_exist": a category seen only in the test partition is
+    # routed to that same infrequent bucket when the column has one, and to an all-zero
+    # vector otherwise - so a rare unseen value behaves like a rare seen one.
     categorical_pipeline = Pipeline(
         steps=[
-            ("encoder", OneHotEncoder(handle_unknown="ignore", min_frequency=min_frequency)),
+            (
+                "encoder",
+                OneHotEncoder(handle_unknown="infrequent_if_exist", min_frequency=min_frequency),
+            ),
         ]
     )
 
