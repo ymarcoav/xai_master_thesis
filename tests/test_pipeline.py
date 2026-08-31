@@ -734,7 +734,7 @@ def test_tune_hyperparameters_neural_network_round_trip_retrains_successfully(tm
 
     tuned_params = tune_hyperparameters(experiment_path, dataset_config_dir=dataset_config_dir, n_iter=3, cv=3)
 
-    assert set(tuned_params) == {"hidden_layer_sizes", "alpha", "learning_rate_init"}
+    assert set(tuned_params) == {"hidden_layer_sizes", "alpha", "learning_rate_init", "batch_size"}
     run_experiment(
         experiment_path,
         dataset_config_dir=dataset_config_dir,

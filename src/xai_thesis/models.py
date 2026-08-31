@@ -149,10 +149,17 @@ _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
 # are prefixed "model__" to match the ("model", ...) step name in the sklearn Pipeline that
 # wraps preprocessing + model together (see pipeline.py).
 PARAM_DISTRIBUTIONS: dict[str, dict[str, list[Any]]] = {
+    # learning_rate_init range shifted down (was up to 0.05) and batch_size added when
+    # neural_network became a from-scratch minibatch PyTorch MLP (TorchMLPClassifier): the
+    # old top-of-range 0.05, fine for MLPClassifier's adam, is unstable here against the
+    # strong class weights (a first retune with the old grid picked lr=0.05 on CIC-IDS2017
+    # and collapsed to 0.52 accuracy / 0.22 macro-F1). max_iter/early_stopping stay in the
+    # experiment configs, not searched.
     "neural_network": {
         "model__hidden_layer_sizes": [(50,), (100,), (100, 50), (128, 64), (256, 128), (256, 128, 64)],
         "model__alpha": [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1],
-        "model__learning_rate_init": [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05],
+        "model__learning_rate_init": [0.00003, 0.0001, 0.0003, 0.0007, 0.001, 0.003, 0.01],
+        "model__batch_size": [128, 256, 512, 1024],
     },
     "random_forest": {
         "model__n_estimators": [100, 200, 300, 500],
