@@ -17,9 +17,12 @@ drop_columns:
   - Activity
   - Src IP
   - Dst IP
-  # Timestamp is intentionally not here - see datasets/dapt2020.py's clean() docstring: it
-  # survives cleanup so pipeline.py's train/test split can sort by it, and is dropped there
-  # right after, before ever reaching preprocessing/the model.
+  # Timestamp: absolute flow-start time, never a model feature. Kept through clean() only so
+  # dedup can collapse a flow recorded twice at different times; dropped here in the same step
+  # as the other non-features (2026-08-31 - previously carried further and dropped in the
+  # split, which the old chronological split needed to sort by; the stratified random split
+  # does not).
+  - Timestamp
   # Src Port is mostly ephemeral noise with a clear testbed-specific identity leak
   # (Lateral Movement dominated by two fixed ports). Dst Port's attack-stage signal is
   # dominated by a 9000-9003 band that recurs across stages - almost certainly this

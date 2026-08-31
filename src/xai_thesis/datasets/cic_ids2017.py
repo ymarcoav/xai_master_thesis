@@ -64,47 +64,51 @@ class CICIDS2017Dataset(BaseDataset):
         return pd.concat(frames, ignore_index=True)
 
     def clean(self, data: pd.DataFrame) -> pd.DataFrame:
-        # Column names are inconsistently prefixed with a leading space in the raw files.
+        # Raw-schema fixes (CIC-IDS2017-specific, before the shared steps below): column names
+        # are inconsistently prefixed with a leading space in the raw files, and "Fwd Header
+        # Length" is duplicated verbatim in every file (the second copy, auto-suffixed ".1" by
+        # pandas, is byte-for-byte identical to the first).
         data = data.rename(columns=lambda column: column.strip())
-
-        # "Fwd Header Length" is duplicated verbatim in every raw file; the second copy
-        # (auto-suffixed ".1" by pandas) is byte-for-byte identical to the first.
         data = data.drop(columns=[_DUPLICATE_COLUMN], errors="ignore")
 
-        # Configured zero-variance columns (see configs/datasets/cic_ids2017.yaml) - a constant
-        # column can't inform any classifier and only adds noise to SHAP/permutation-importance
-        # rankings and PDP plots.
-        data = data.drop(columns=list(self.config.drop_columns), errors="ignore")
+        # Steps (1)-(6) below follow the shared dataset-cleaning order documented in the
+        # methodology chapter and mirrored by UNSWNB15Dataset.clean(); only the per-step
+        # detail is CIC-IDS2017-specific. (Step (3), repairing non-applicable values, has no
+        # CIC-IDS2017 case - CICFlowMeter emits no "not applicable" placeholders.)
 
-        # Flow Bytes/s and Flow Packets/s divide by flow duration; where duration is 0 the
-        # result is +Inf (~1.5k rows in Flow Bytes/s, ~2.9k in Flow Packets/s; -Inf is
-        # handled too but does not occur in the raw data). Treat as missing so the shared
-        # median imputer fills them - same as the ~1.4k genuine blanks Flow Bytes/s already
-        # carries.
+        # (1) Coerce numeric types. Flow Bytes/s and Flow Packets/s divide by flow duration;
+        # where duration is 0 the result is +Inf (~1.5k rows in Flow Bytes/s, ~2.9k in Flow
+        # Packets/s; -Inf is handled too but does not occur in the raw data). Treat as missing
+        # so the shared median imputer fills them - same as the ~1.4k genuine blanks Flow
+        # Bytes/s already carries.
         data = data.replace([np.inf, -np.inf], np.nan)
 
-        # Flow Duration and *IAT columns are occasionally negative due to a known
-        # flow-exporter timestamp bug; these rows are corrupted, not valid traffic.
+        # (2) Drop corrupted rows. Flow Duration and *IAT columns are occasionally negative
+        # due to a known flow-exporter timestamp bug; those rows are corrupted, not valid
+        # traffic. Fwd Header Length, Bwd Header Length, and min_seg_size_forward likewise
+        # carry physically impossible negative values in ~35 rows (as low as -3.22e10 - a
+        # byte-length/segment-size field can never be negative), almost certainly a
+        # CICFlowMeter integer-underflow bug. Found via pairwise feature correlation: those
+        # ~35-row outliers were extreme enough to flip Fwd/Bwd Header Length's measured
+        # correlation from ~0 to ~1 depending on which rows landed in a given sample; left in
+        # place, one such row would anchor MinMaxScaler's global min to a nonsensical value.
         duration_columns = [column for column in data.columns if column == "Flow Duration" or "IAT" in column]
         data = data.loc[~(data[duration_columns] < 0).any(axis=1)]
-
-        # Fwd Header Length, Bwd Header Length, and min_seg_size_forward carry physically
-        # impossible negative values in 35 rows (as low as -3.22e10 - a byte-length/
-        # segment-size field can never be negative), almost certainly a CICFlowMeter integer-
-        # underflow bug rather than valid traffic. Found via pairwise feature correlation:
-        # these ~35-row outliers were extreme enough to flip Fwd/Bwd Header Length's measured
-        # correlation from ~0 to ~1 depending on which rows landed in a given sample. Left in
-        # place, a single such row would anchor MinMaxScaler's global min to a nonsensical
-        # value, corrupting these otherwise-informative columns for every other row.
         non_negative_columns = ["Fwd Header Length", "Bwd Header Length", "min_seg_size_forward"]
         data = data.loc[~(data[non_negative_columns] < 0).any(axis=1)]
 
-        # Multiclass classification: native ~15-way label collapsed into 7 categories - see
-        # _ATTACK_CATEGORY/_map_to_category above.
+        # (4) Harmonize the label scheme: native ~15-way label collapsed into 7 categories -
+        # see _ATTACK_CATEGORY / _map_to_category above.
         label_column = self.config.label_column
         data[label_column] = data[label_column].map(_map_to_category)
 
-        # Dedupe on flow content only, ignoring the source-file tag, so a flow
+        # (5) Drop leakage / identifier / redundant feature columns (config.drop_columns):
+        # Destination Port (leaked the testbed's fixed per-attack target ports), a verbatim
+        # duplicate flag column, verified zero-variance columns, and near-duplicate/aliased
+        # columns - see configs/datasets/cic_ids2017.yaml for the full list and rationale.
+        data = data.drop(columns=list(self.config.drop_columns), errors="ignore")
+
+        # (6) Deduplicate on canonical flow content, ignoring the source-file tag, so a flow
         # duplicated across two source files is still caught.
         content_columns = [column for column in data.columns if column != _SOURCE_COLUMN]
         return data.loc[~data.duplicated(subset=content_columns)].reset_index(drop=True)

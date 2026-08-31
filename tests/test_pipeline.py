@@ -78,25 +78,31 @@ def _unsw_row(*, dur: str, service: str, attack_cat: str, label: str, stime: str
 
 
 def _write_unsw_fixture(raw_dir: Path) -> None:
-    # File 1 carries most of the data: 5 Benign + 5 Exploits rows (dur varies per row so
-    # none collide as exact duplicates), enough per (source_file, attack_cat) group for the
-    # chronological split's 80/20 cutoff to land on a non-degenerate split (4 train/1 test
-    # each). Files 2-4 each add one more row (still with distinct dur/stime), one of them
-    # exercising the "-" service sentinel and the is_ftp_login=2 data-entry bug, so the split
-    # covers all 4 required raw files without every group being a same-sized clone of file 1.
+    # 20 rows across the 4 required raw part files, after dedup: 8 Benign + 8 Exploits + 4 DoS
+    # (dur/stime vary per row so none collide as exact duplicates). The per-class counts are
+    # chosen so the stratified 70/30 split lands every class in both partitions (DoS's
+    # continuous test allocation is 4 * 0.3 = 1.2 >= 1). File 2 exercises the "-" service
+    # sentinel and the is_ftp_login=2 data-entry bug; files 2-4 also keep the multi-file
+    # load_raw concat under test.
     file1_rows = [
-        _unsw_row(dur=f"0.{i}", service="dns", attack_cat="" if i < 5 else "Exploits", label="0" if i < 5 else "1", stime=str(1421927414 + i))
-        for i in range(10)
+        _unsw_row(
+            dur=f"0.{i}",
+            service="dns",
+            attack_cat="" if i < 7 else "Exploits",
+            label="0" if i < 7 else "1",
+            stime=str(1421927414 + i),
+        )
+        for i in range(15)
     ]
     pd.DataFrame(file1_rows).to_csv(raw_dir / "UNSW-NB15_1.csv", header=False, index=False)
 
     pd.DataFrame([_unsw_row(dur="1.0", service="-", attack_cat="", label="0", stime="1421955795", is_ftp_login="2")]).to_csv(
         raw_dir / "UNSW-NB15_2.csv", header=False, index=False
     )
-    pd.DataFrame([_unsw_row(dur="1.1", service="dns", attack_cat="DoS", label="1", stime="1424231099")]).to_csv(
-        raw_dir / "UNSW-NB15_3.csv", header=False, index=False
-    )
-    pd.DataFrame([_unsw_row(dur="1.2", service="dns", attack_cat="", label="0", stime="1424250100")]).to_csv(
+    pd.DataFrame(
+        [_unsw_row(dur=f"1.{i}", service="dns", attack_cat="DoS", label="1", stime=str(1424231099 + i)) for i in range(3)]
+    ).to_csv(raw_dir / "UNSW-NB15_3.csv", header=False, index=False)
+    pd.DataFrame([_unsw_row(dur="2.0", service="dns", attack_cat="DoS", label="1", stime="1424250100")]).to_csv(
         raw_dir / "UNSW-NB15_4.csv", header=False, index=False
     )
 
@@ -115,7 +121,7 @@ def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
                 "raw_path": raw_dir.as_posix(),
                 "processed_path": processed_dir.as_posix(),
                 "label_column": "attack_cat",
-                "drop_columns": ["srcip", "sport", "dstip", "dsport", "ltime", "label", "ct_ftp_cmd"],
+                "drop_columns": ["srcip", "sport", "dstip", "dsport", "ltime", "label", "ct_ftp_cmd", "stime"],
                 "categorical_columns": ["proto", "service", "state"],
             }
         ),
@@ -135,13 +141,14 @@ def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
     assert "ltime" not in train_df.columns
     assert "label" not in train_df.columns
     assert "ct_ftp_cmd" not in train_df.columns
-    assert "stime" not in train_df.columns  # dropped by the split itself, only used to order it
+    assert "stime" not in train_df.columns  # not a model feature - dropped in clean() via drop_columns
     assert "source_file" not in train_df.columns
-    # 5 Benign + 5 Exploits in file 1 (70/30 cutoff -> 3 train/2 test each) + one more row per
-    # file in files 2-4 (each its own size-1 group -> 0 train/1 test).
-    assert len(train_df) == 6
-    assert len(test_df) == 7
-    assert set(train_df["attack_cat"]) | set(test_df["attack_cat"]) == {"Benign", "Exploits", "DoS"}
+    # 20 rows after dedup (8 Benign + 8 Exploits + 4 DoS), partitioned 70/30 by the stratified
+    # random split; every class lands in both partitions.
+    assert len(train_df) == 14
+    assert len(test_df) == 6
+    assert set(train_df["attack_cat"]) == {"Benign", "Exploits", "DoS"}
+    assert set(test_df["attack_cat"]) == {"Benign", "Exploits", "DoS"}
     assert "unknown" in (set(train_df["service"]) | set(test_df["service"]))  # "-" sentinel normalized
     assert pd.concat([train_df["is_ftp_login"], test_df["is_ftp_login"]]).max() == 1  # clipped from 2
 

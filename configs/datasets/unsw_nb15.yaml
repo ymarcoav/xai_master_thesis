@@ -32,8 +32,11 @@ categorical_columns:
 # RESTORED the same day once the user set explicit policy ("improve performance" wins over
 # matching a paper's own undocumented preprocessing choices when the two conflict) - dropping
 # service had measurably cost real macro-F1 (gradient_boosting 0.569->0.507, random_forest
-# 0.566->0.524), so under that policy it belongs back in the feature set. stime is
-# deliberately NOT listed here - see datasets/unsw_nb15.py's clean().
+# 0.566->0.524), so under that policy it belongs back in the feature set.
+# stime: absolute flow-start timestamp, never a model feature. Kept through clean() only so
+# dedup can collapse a flow recorded twice at different times; dropped here in the same step
+# as the other non-features (2026-08-31 - previously carried further and dropped in the split,
+# which the old chronological split needed to sort by; the stratified random split does not).
 drop_columns:
   - srcip
   - sport
@@ -42,3 +45,4 @@ drop_columns:
   - ltime
   - label
   - ct_ftp_cmd
+  - stime

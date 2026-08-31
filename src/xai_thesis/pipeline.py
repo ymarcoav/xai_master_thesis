@@ -35,8 +35,8 @@ from xai_thesis.preprocessing import (
     balance_classes,
     build_preprocessing_pipeline,
     split_by_official_split_column,
-    split_chronologically_by_source,
     split_features_target,
+    stratified_random_split,
     stratified_subsample,
 )
 from xai_thesis.utils import dump_yaml, ensure_directory, load_yaml
@@ -91,40 +91,16 @@ def preprocess_dataset(config_path: str | Path) -> tuple[Path, Path]:
     return train_path, test_path
 
 
-# DAPT2020's raw Timestamp column is kept through clean() (unlike its other identity/leakage
-# columns - see datasets/dapt2020.py) specifically so the split below can sort by it, then
-# drops it immediately afterward. This was added after checking DAPT2020's actual raw
-# Timestamps: row order within a source file is NOT chronological (25-40% of adjacent rows
-# go backwards in time in the files checked), so without sorting, a "last N rows per group"
-# split does not actually hold out later traffic, despite the split being described as
-# chronological. CIC-IDS2017's raw files in this project have no Timestamp column at all, so
-# its split stays positional - there is nothing to sort by - and should be described as such,
-# not as verified chronological. UNSW-NB15's stime is already a numeric Unix epoch (no format
-# string needed - see split_chronologically_by_source); verified genuinely chronological across
-# its 4 raw part files (Jan 22 - Feb 18 2015, files 1->4 in order, matching the dataset's
-# documented two-session capture window).
-_CHRONOLOGICAL_SPLIT_TIMESTAMP: dict[str, tuple[str, str | None]] = {
-    "dapt2020": ("Timestamp", "%d/%m/%Y %I:%M:%S %p"),
-    "unsw_nb15": ("stime", None),
-}
-
-
 def _split_dataset(config: DatasetConfig, data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    # NSL-KDD ships with an official train/test split, used as-is. UNSW-NB15 no longer does
-    # (unlike the pre-built training-set/testing-set files this project used previously, the
-    # full raw capture it's now built from has no predefined split), so it's split
-    # chronologically per source file instead, same as CIC-IDS2017/DAPT2020 - see
-    # preprocessing.py for why.
+    # NSL-KDD ships with an official train/test split, used as-is. Every other dataset is
+    # split with a stratified random partition (fixed seed), stratified on the label so each
+    # class keeps the same share of rows in both splits - the conventional approach in the
+    # XAI-for-IDS literature this project follows (e.g. Arreche et al. 2024). Each adapter's
+    # clean() already drops its own non-feature columns (identifiers, capture timestamps);
+    # only "source_file", the per-row loading tag every adapter adds, is dropped here.
     if config.name == "nsl_kdd":
         return split_by_official_split_column(data, split_column="split")
-    timestamp_column, timestamp_format = _CHRONOLOGICAL_SPLIT_TIMESTAMP.get(config.name, (None, None))
-    return split_chronologically_by_source(
-        data,
-        source_column="source_file",
-        label_column=config.label_column,
-        timestamp_column=timestamp_column,
-        timestamp_format=timestamp_format,
-    )
+    return stratified_random_split(data, config.label_column, drop_columns=("source_file",))
 
 
 def _load_experiment_and_data(

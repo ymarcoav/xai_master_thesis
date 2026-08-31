@@ -1,9 +1,9 @@
 from collections.abc import Sequence
-from datetime import datetime
 
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
+from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
 from sklearn.utils import resample
@@ -19,75 +19,45 @@ def split_features_target(data: pd.DataFrame, label_column: str) -> tuple[pd.Dat
 def split_by_official_split_column(
     data: pd.DataFrame, split_column: str = "split"
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Split data using a dataset's own pre-assigned train/test split column (e.g. UNSW-NB15)."""
+    """Split data using a dataset's own pre-assigned train/test split column (NSL-KDD - the
+    only dataset in this project that ships one; every other dataset uses
+    stratified_random_split)."""
     train = data.loc[data[split_column] == "train"].drop(columns=[split_column]).reset_index(drop=True)
     test = data.loc[data[split_column] == "test"].drop(columns=[split_column]).reset_index(drop=True)
     return train, test
 
 
-def split_chronologically_by_source(
+def stratified_random_split(
     data: pd.DataFrame,
-    source_column: str,
     label_column: str,
-    test_fraction: float = 0.3,
     *,
-    timestamp_column: str | None = None,
-    timestamp_format: str | None = None,
+    test_fraction: float = 0.3,
+    random_state: int = 42,
+    drop_columns: Sequence[str] = (),
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Split data by holding out the last rows of each (source file, label) group as test.
+    """Split data into train/test with a stratified random partition (fixed seed).
 
-    test_fraction defaults to 0.3 (70/30), changed from 0.2 (80/20) on 2026-08-27 to match
-    the split ratio used by most of the reference papers this project's methodology otherwise
-    follows - not tuned or otherwise motivated by this project's own data, a direct
-    convention-matching choice.
+    Stratifying on label_column keeps every class's share of the rows identical across the
+    two splits - the conventional choice in the XAI-for-IDS literature this project's
+    methodology otherwise follows (e.g. Arreche et al. 2024, whose multiclass label
+    grouping the dataset adapters already match), and simpler to state and reproduce than a
+    temporal hold-out. test_fraction defaults to 0.3 (70/30), the ratio used by most of
+    those reference papers; random_state is fixed so the partition is reproducible.
 
-    Attack categories in CIC-IDS2017 and DAPT2020 are concentrated in specific source files
-    and, within a file, in a contiguous time burst. Splitting per source file alone can drop
-    a whole class into just one side of the split, so this groups by (source file, label)
-    instead: every class stays represented in both splits, while later rows within each
-    group are still the ones held out for test.
-
-    Without timestamp_column, "later rows" means whatever order the raw CSV happens to have -
-    a positional split, not a verified temporal one. This was checked empirically against
-    DAPT2020's real Timestamp column: raw row order is NOT chronological (25-40% of adjacent
-    rows go backwards in time in the files checked), so a positional split there does not
-    actually hold out later traffic. When timestamp_column is given, each group is sorted by
-    it first, so the held-out rows are genuinely the most recent ones. timestamp_format is only
-    needed when the column holds formatted strings (e.g. DAPT2020's Timestamp); pass None for a
-    column that's already numeric (e.g. UNSW-NB15's stime, a Unix epoch integer) to sort on it
-    directly, with no parsing step. Two pandas/numpy segfaults were hit and worked around while
-    building the string-parsing path (both reproducible on this project's installed pandas
-    3.0.4 / numpy 2.4.6): pandas' vectorized date parser crashes on this project's
-    %d/%m/%Y %I:%M:%S %p timestamps (worked around with Python's own datetime.strptime
-    instead), and sort_values on a datetime64-dtype column crashes outright regardless of how
-    it was parsed (worked around by sorting on each timestamp's numeric .timestamp() value
-    instead of the datetime object itself - same ordering, plain float64 dtype). The timestamp
-    column itself is dropped from the output either way, alongside source_column - it is only
-    ever used to order the split, never as a model feature.
+    drop_columns lists helper columns that exist only for loading/cleaning (e.g. the
+    per-row "source_file" tag) and must not reach preprocessing or the model; any that are
+    present are removed before the split. Passing a name that isn't in the frame is a
+    no-op, so callers can list every dataset's helper columns without branching per dataset.
     """
-    if timestamp_column is not None:
-        if timestamp_format is not None:
-            parsed_timestamps = data[timestamp_column].map(
-                lambda value: datetime.strptime(value, timestamp_format).timestamp()
-            )
-        else:
-            parsed_timestamps = data[timestamp_column]
-        sort_column = f"_{timestamp_column}_sort_key"
-        data = data.assign(**{sort_column: parsed_timestamps})
-
-    train_parts = []
-    test_parts = []
-    for _, group in data.groupby([source_column, label_column], sort=False):
-        if timestamp_column is not None:
-            group = group.sort_values(sort_column, kind="stable")
-        cutoff = int(len(group) * (1 - test_fraction))
-        train_parts.append(group.iloc[:cutoff])
-        test_parts.append(group.iloc[cutoff:])
-
-    drop_columns = [source_column] if timestamp_column is None else [source_column, timestamp_column, sort_column]
-    train = pd.concat(train_parts).drop(columns=drop_columns).reset_index(drop=True)
-    test = pd.concat(test_parts).drop(columns=drop_columns).reset_index(drop=True)
-    return train, test
+    present_drop = [column for column in drop_columns if column in data.columns]
+    features = data.drop(columns=present_drop)
+    train, test = train_test_split(
+        features,
+        test_size=test_fraction,
+        random_state=random_state,
+        stratify=features[label_column],
+    )
+    return train.reset_index(drop=True), test.reset_index(drop=True)
 
 
 def balance_classes(

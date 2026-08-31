@@ -10,9 +10,7 @@ def _make_dataset() -> DAPT2020Dataset:
         raw_path="unused",
         processed_path="unused",
         label_column="Stage",
-        # Timestamp deliberately absent, matching the real config - it survives clean() for
-        # pipeline.py's chronological split to sort by, unlike the other identity columns.
-        drop_columns=("Flow ID", "Activity", "Src IP", "Dst IP"),
+        drop_columns=("Flow ID", "Activity", "Src IP", "Dst IP", "Timestamp"),
     )
     return DAPT2020Dataset(config)
 
@@ -33,13 +31,13 @@ def _base_frame() -> pd.DataFrame:
     )
 
 
-def test_dapt2020_clean_drops_identifier_activity_and_identity_columns_but_keeps_timestamp() -> None:
+def test_dapt2020_clean_drops_identifier_activity_identity_and_timestamp_columns() -> None:
     dataset = _make_dataset()
     data = _base_frame()
 
     cleaned = dataset.clean(data)
 
-    assert list(cleaned.columns) == ["Timestamp", "Flow Duration", "Flow IAT Min", "Stage", "source_file"]
+    assert list(cleaned.columns) == ["Flow Duration", "Flow IAT Min", "Stage", "source_file"]
 
 
 def test_dapt2020_clean_normalizes_benign_casing() -> None:
@@ -76,8 +74,8 @@ def test_dapt2020_clean_drops_exact_duplicate_rows_across_source_files() -> None
 
 def test_dapt2020_clean_dedup_ignores_timestamp_differences() -> None:
     # Same flow content recorded twice at different real times is still the same duplicate
-    # flow for modeling purposes - Timestamp surviving clean() (for the split) must not
-    # change dedup semantics.
+    # flow for modeling purposes - Timestamp is dropped in the column-drop step, so the two
+    # rows are byte-identical by the time dedup runs.
     dataset = _make_dataset()
     data = _base_frame()
     data.loc[1] = data.loc[0]

@@ -140,14 +140,24 @@ class NSLKDDDataset(BaseDataset):
         return pd.concat([train, test], ignore_index=True)
 
     def clean(self, data: pd.DataFrame) -> pd.DataFrame:
-        # difficulty_level is a KDD-Cup-era per-record difficulty score, not a traffic feature.
-        data = data.drop(columns=list(self.config.drop_columns), errors="ignore")
+        # Steps below follow the shared dataset-cleaning order documented in the methodology
+        # chapter and mirrored by the other adapters. Steps (1)-(3) - numeric coercion,
+        # corrupted-row drops, non-applicable-value repair - have no NSL-KDD case: the raw
+        # files are a small, curated, already-typed research dataset with none of the
+        # exporter quirks the packet-capture datasets carry.
 
+        # (4) Harmonize the label scheme: native ~40-way "class" -> 5 categories (see
+        # _ATTACK_CATEGORY / _map_to_category), written to the configured label column.
         label_column = self.config.label_column
         data[label_column] = data["class"].map(_map_to_category)
-        data = data.drop(columns=["class"], errors="ignore")
 
-        # Drop exact duplicate rows last, but only within a split - NSL-KDD's own stated
-        # design goal (over the original KDD Cup '99 data) was already removing duplicates,
-        # so this is mostly a safety net, not an expected source of many removals.
+        # (5) Drop leakage / identifier / redundant feature columns: the native "class" column
+        # (replaced by the mapped label above) and config.drop_columns (difficulty_level, a
+        # KDD-Cup-era per-record difficulty score, not a traffic feature).
+        data = data.drop(columns=["class", *self.config.drop_columns], errors="ignore")
+
+        # (6) Deduplicate. NSL-KDD's own stated design goal (over the original KDD Cup '99
+        # data) was already removing duplicates, so this is mostly a safety net; the "split"
+        # column stays in the subset so the official train and test partitions are never
+        # collapsed into each other.
         return data.drop_duplicates().reset_index(drop=True)

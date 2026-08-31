@@ -5,8 +5,8 @@ from xai_thesis.preprocessing import (
     balance_classes,
     build_preprocessing_pipeline,
     split_by_official_split_column,
-    split_chronologically_by_source,
     split_features_target,
+    stratified_random_split,
     stratified_subsample,
 )
 
@@ -36,75 +36,44 @@ def test_split_by_official_split_column_separates_train_and_test() -> None:
     assert "split" not in test.columns
 
 
-def test_split_chronologically_by_source_keeps_every_source_in_both_splits() -> None:
+def test_stratified_random_split_preserves_class_proportions_and_ratio() -> None:
     data = pd.DataFrame(
         {
-            "feature": list(range(10)),
-            "label": ["a"] * 5 + ["b"] * 5,
-            "source_file": ["monday"] * 5 + ["friday"] * 5,
+            "feature": list(range(100)),
+            "label": ["benign"] * 80 + ["attack"] * 20,
+            "source_file": ["monday"] * 100,
         }
     )
 
-    train, test = split_chronologically_by_source(data, "source_file", "label", test_fraction=0.2)
+    train, test = stratified_random_split(data, "label", drop_columns=("source_file",))
 
-    assert len(train) == 8
-    assert len(test) == 2
-    # each source file's last rows (by original order) go to test
-    assert train["feature"].tolist() == [0, 1, 2, 3, 5, 6, 7, 8]
-    assert test["feature"].tolist() == [4, 9]
+    assert len(train) == 70
+    assert len(test) == 30
+    # the 80/20 class balance is held on both sides of the split
+    assert train["label"].value_counts().to_dict() == {"benign": 56, "attack": 14}
+    assert test["label"].value_counts().to_dict() == {"benign": 24, "attack": 6}
     assert "source_file" not in train.columns
     assert "source_file" not in test.columns
 
 
-def test_split_chronologically_by_source_keeps_class_in_both_splits_despite_time_clustering() -> None:
-    # A rare attack class occurs in one contiguous burst near the end of a file's row
-    # order; a per-source-file-only cutoff would drop it entirely from train.
-    data = pd.DataFrame(
-        {
-            "feature": list(range(10)),
-            "label": ["benign"] * 8 + ["rare_attack"] * 2,
-            "source_file": ["tuesday"] * 10,
-        }
-    )
+def test_stratified_random_split_is_deterministic_for_fixed_seed() -> None:
+    data = pd.DataFrame({"feature": list(range(50)), "label": ["a", "b"] * 25})
 
-    train, test = split_chronologically_by_source(data, "source_file", "label", test_fraction=0.2)
+    first_train, first_test = stratified_random_split(data, "label")
+    second_train, second_test = stratified_random_split(data, "label")
 
-    assert "rare_attack" in train["label"].tolist()
-    assert "rare_attack" in test["label"].tolist()
+    pd.testing.assert_frame_equal(first_train, second_train)
+    pd.testing.assert_frame_equal(first_test, second_test)
 
 
-def test_split_chronologically_by_source_sorts_by_real_timestamp_when_given() -> None:
-    # Rows are deliberately given in shuffled (non-chronological) order, mirroring what was
-    # found in DAPT2020's real raw files - without sorting by timestamp_column, a positional
-    # split would treat the last-listed row as "most recent" even though it isn't.
-    data = pd.DataFrame(
-        {
-            "feature": [30, 10, 50, 20, 40],
-            "label": ["a"] * 5,
-            "source_file": ["monday"] * 5,
-            "ts": [
-                "01/01/2020 03:00:00 AM",
-                "01/01/2020 01:00:00 AM",
-                "01/01/2020 05:00:00 AM",
-                "01/01/2020 02:00:00 AM",
-                "01/01/2020 04:00:00 AM",
-            ],
-        }
-    )
+def test_stratified_random_split_ignores_absent_drop_columns() -> None:
+    data = pd.DataFrame({"feature": list(range(20)), "label": ["a", "b"] * 10})
 
-    train, test = split_chronologically_by_source(
-        data,
-        "source_file",
-        "label",
-        test_fraction=0.2,
-        timestamp_column="ts",
-        timestamp_format="%d/%m/%Y %I:%M:%S %p",
-    )
+    # "stime"/"Timestamp" aren't in this frame - listing them must be a no-op, not an error.
+    train, test = stratified_random_split(data, "label", drop_columns=("source_file", "stime", "Timestamp"))
 
-    assert test["feature"].tolist() == [50]  # truly latest (05:00), not the last-listed row (40 @ 04:00)
-    assert train["feature"].tolist() == [10, 20, 30, 40]
-    assert "ts" not in train.columns
-    assert "ts" not in test.columns
+    assert list(train.columns) == ["feature", "label"]
+    assert len(train) + len(test) == 20
 
 
 def test_balance_classes_resamples_every_class_to_the_median_count() -> None:

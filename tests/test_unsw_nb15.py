@@ -10,7 +10,7 @@ def _make_dataset() -> UNSWNB15Dataset:
         raw_path="unused",
         processed_path="unused",
         label_column="attack_cat",
-        drop_columns=("srcip", "sport", "dstip", "dsport", "ltime", "label", "ct_ftp_cmd"),
+        drop_columns=("srcip", "sport", "dstip", "dsport", "ltime", "label", "ct_ftp_cmd", "stime"),
     )
     return UNSWNB15Dataset(config)
 
@@ -75,7 +75,7 @@ def _row(**overrides: object) -> dict[str, object]:
     return base
 
 
-def test_unsw_clean_drops_identifiers_native_label_ltime_and_ct_ftp_cmd_but_keeps_stime() -> None:
+def test_unsw_clean_drops_identifiers_native_label_ltime_ct_ftp_cmd_and_stime() -> None:
     dataset = _make_dataset()
     data = pd.DataFrame([_row()])
 
@@ -88,8 +88,8 @@ def test_unsw_clean_drops_identifiers_native_label_ltime_and_ct_ftp_cmd_but_keep
     assert "ltime" not in cleaned.columns
     assert "label" not in cleaned.columns
     assert "ct_ftp_cmd" not in cleaned.columns
+    assert "stime" not in cleaned.columns  # absolute timestamp, not a model feature
     assert "service" in cleaned.columns
-    assert "stime" in cleaned.columns
 
 
 def test_unsw_clean_drops_truncated_rows_via_invalid_label() -> None:
@@ -147,7 +147,9 @@ def test_unsw_clean_fills_not_applicable_counts_with_zero_not_shared_imputer() -
     assert cleaned["is_ftp_login"].tolist() == [0]
 
 
-def test_unsw_clean_drops_duplicates_ignoring_source_file_and_stime() -> None:
+def test_unsw_clean_drops_duplicates_ignoring_source_file() -> None:
+    # stime is dropped in step (5), so two rows identical in every flow feature but recorded
+    # in different source files at different times collapse to one exact duplicate.
     dataset = _make_dataset()
     data = pd.DataFrame(
         [

@@ -59,8 +59,8 @@ verified to mean "not applicable" rather than missing-at-random (filled with 0 d
 shared median imputer). `srcip`/`dstip`/`sport`/`dsport` are dropped as identifiers (not present in the
 old pre-built files either); the raw data also has no `rate` column (a feature the original paper authors
 derived only for the pre-built files). The dataset now has no official train/test split (the pre-built
-files provided one; the raw capture doesn't), so it's split chronologically like CIC-IDS2017/DAPT2020
-instead - see Preprocessing below.
+files provided one; the raw capture doesn't), so it gets the same stratified random split as
+CIC-IDS2017 - see Preprocessing below.
 
 **2026-08-28: the raw capture itself was found and fixed to be incomplete, not just differently-scaled
 from the old pre-built files.** The initially-downloaded `UNSW-NB15_4.csv` was truncated mid-record at
@@ -210,20 +210,24 @@ python scripts/preprocess.py  # all datasets
 ```
 
 NSL-KDD ships with its own official train/test split, used as-is - the only dataset in this catalog that
-still does. CIC-IDS2017, DAPT2020, and (as of 2026-08-13) UNSW-NB15 ship without one, so they're split
-chronologically per source file and label instead, so every class stays represented in both splits.
-UNSW-NB15 sorts on `stime`, a Unix epoch integer verified genuinely chronological across its 4 raw part
-files (22 Jan - 18 Feb 2015, files 1->4 in order).
+still does. CIC-IDS2017 and UNSW-NB15 ship without one, so they get a **stratified random split**
+(`stratified_random_split` in `preprocessing.py`): a single `train_test_split` with a fixed
+`random_state`, `stratify` on the label so every class keeps the same share of rows in both
+partitions. This is the conventional choice in the XAI-for-IDS literature this project's methodology
+otherwise follows (e.g. Arreche et al. 2024, whose multiclass label grouping the dataset adapters
+already match), and it is simpler to state and reproduce than a temporal hold-out. Each adapter's
+`clean()` already drops its own non-feature columns, including the `stime`/`Timestamp` capture times
+(kept only long enough for dedup to collapse a flow recorded twice at different times); the split
+just drops the per-row `source_file` loading tag every adapter adds.
 
-**The chronological split's default ratio changed from 80/20 to 70/30 on 2026-08-27**, to match the
-ratio used by most of the reference papers this project's methodology otherwise follows -
-`split_chronologically_by_source`'s `test_fraction` default in `preprocessing.py`, not motivated by
-anything in this project's own data. Affects `unsw_nb15`/`cic_ids2017` (the two datasets that use this
-split path); `nsl_kdd` is unaffected (its own official split has no ratio parameter to change). All
-active datasets and experiments were reprocessed/retrained under the new ratio the same day; per-model
-results moved only marginally (CIC-IDS2017 nudged up ~2-3 points of macro-F1 across the board, UNSW-NB15
-stayed essentially flat), consistent with a slightly smaller training set traded for a larger, more
-stable test set rather than any instability from the change itself.
+**The default ratio is 70/30** (`test_fraction` default in `preprocessing.py`), matching the ratio
+used by most of those reference papers; it is not motivated by anything in this project's own data.
+`nsl_kdd` is unaffected (its own official split has no ratio parameter).
+
+> **Switched from a per-(source_file, label) chronological/positional hold-out to this stratified
+> random split on 2026-08-31** (explicit user request: match the conventional XAI-for-IDS protocol).
+> Every processed dataset, trained model, and result number below predates this change and must be
+> regenerated - rerun `scripts/preprocess.py`, then the training and explainability steps.
 
 ## Training
 
@@ -437,6 +441,10 @@ survived into the 200k/500 retrain and, on a now-larger and more imbalanced-in-a
 produced a badly degenerate fit (accuracy 0.182, macro-F1 0.135 - confirmed via `ConvergenceWarning` in
 the run log, not a real finding about the larger subsample). Fixed and retrained again with the correct
 default `max_iter=50_000` cap.
+
+> **STALE as of the 2026-08-31 split change (see Preprocessing).** Every number in this section was
+> produced under the old per-(source_file, label) chronological/positional hold-out. It is kept here
+> only for reference until the stratified-random-split retrain lands; do not cite it as current.
 
 **Final results, both datasets, all four models, on the corrected raw data / 70-30 split / (for `svm`)
 the 200k/`min_per_class=500` subsample:**

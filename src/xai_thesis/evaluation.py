@@ -210,10 +210,10 @@ def plot_train_test_split_distribution(
 ) -> Path:
     """Plot per-class train vs test counts as grouped bars.
 
-    Checks that every class survives a dataset's split with reasonable representation on
-    both sides - relevant here since most datasets in this project use a custom chronological
-    split (per source file/label group), not a stratified one, so an uneven split is a real
-    possibility, not just a hypothetical.
+    A visual check that every class carries reasonable representation on both sides of a
+    dataset's split - the stratified random split should hold class proportions, but the
+    rarest classes (e.g. UNSW-NB15 Worms, CIC-IDS2017 Infiltration) have few enough rows
+    that it is still worth confirming.
     """
     train_counts = train_labels.value_counts()
     test_counts = test_labels.value_counts()

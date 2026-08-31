@@ -110,8 +110,8 @@ def test_plot_train_test_split_distribution_writes_png(tmp_path) -> None:
 
 
 def test_plot_train_test_split_distribution_handles_class_absent_from_one_split(tmp_path) -> None:
-    # "rare" only appears in train, never in test - a real possibility with this project's
-    # chronological, non-stratified splits.
+    # "rare" only appears in train, never in test - still possible under a stratified split
+    # when a class has very few rows, and the plot must not crash on it.
     train_labels = pd.Series(["benign"] * 5 + ["rare"] * 1)
     test_labels = pd.Series(["benign"] * 2)
     output_path = tmp_path / "train_test_split.png"
