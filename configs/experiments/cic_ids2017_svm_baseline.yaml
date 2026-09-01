@@ -2,15 +2,9 @@ name: cic_ids2017_svm_baseline
 dataset: cic_ids2017
 model: svm
 random_state: 42
-# 2026-08-29: reverted to the models.py default 50_000 max_iter safety cap - this override
-# (5,000) was left in place by mistake when unsw_nb15's identical override was removed on
-# 2026-08-28 (both were added together, only one was cleaned up). Real consequence, not just
-# stale documentation: with _FINAL_FIT_SUBSAMPLE raised to 200k/min_per_class=500, this
-# experiment's final fit hit the leftover 5,000-iteration cap far short of convergence
-# (ConvergenceWarning confirmed in the run log) and produced a badly degenerate model
-# (accuracy 0.182, f1_macro 0.135) - not a real finding about the larger subsample, just this
-# config bug. _FINAL_FIT_SUBSAMPLE now handles tractability for both datasets identically; see
-# its own comment in pipeline.py for the full history.
+# svm: linear kernel + class_weight="balanced" (models.py); final fit runs on the stratified
+# subsample in pipeline.py's _FINAL_FIT_SUBSAMPLE. C is tuned via RandomizedSearchCV - re-running
+# `train.py --tune` rewrites model_params below and drops any comments inside it.
 model_params:
   C: 10
 preprocessing:

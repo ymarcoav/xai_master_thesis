@@ -423,6 +423,7 @@ def select_curated_instances(
     target_class: str,
     confused_with_class: str,
     *,
+    predictions: pd.Series | None = None,
     random_state: int = 42,
 ) -> dict[str, int]:
     """Pick one correctly-classified and one misclassified instance of target_class.
@@ -430,8 +431,11 @@ def select_curated_instances(
     Instance selection informed by confusion-matrix findings rather than random sampling,
     e.g. a genuine target_class case the model got right, and one it mistook for
     confused_with_class specifically - ties local explanations back to known error patterns.
+    Pass predictions (aligned to x_test.index) to reuse an already-computed full-test-set
+    prediction instead of recomputing it - matters for the slow svm pipeline.
     """
-    predictions = pd.Series(pipeline.predict(x_test), index=x_test.index)
+    if predictions is None:
+        predictions = pd.Series(pipeline.predict(x_test), index=x_test.index)
     is_target = y_test == target_class
 
     rng = np.random.default_rng(random_state)

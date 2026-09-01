@@ -815,48 +815,6 @@ def test_run_experiment_rejects_unknown_preprocessing_strategy(tmp_path) -> None
         run_experiment(experiment_path)
 
 
-def test_generate_explanations_rejects_dataset_without_class_of_interest_mapping(tmp_path) -> None:
-    dataset_config_dir = tmp_path / "datasets"
-    dataset_config_dir.mkdir()
-    processed_dir = tmp_path / "processed" / "toy"
-    processed_dir.mkdir(parents=True)
-
-    pd.DataFrame({"feature": [0.0, 1.0], "label": ["benign", "attack"]}).to_csv(
-        processed_dir / "train.csv", index=False
-    )
-    pd.DataFrame({"feature": [0.1, 0.9], "label": ["benign", "attack"]}).to_csv(
-        processed_dir / "test.csv", index=False
-    )
-
-    (dataset_config_dir / "toy.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "name": "toy",
-                "raw_path": "unused",
-                "processed_path": processed_dir.as_posix(),
-                "label_column": "label",
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    experiment_path = tmp_path / "experiment.yaml"
-    experiment_path.write_text(
-        yaml.safe_dump(
-            {
-                "name": "toy_experiment",
-                "dataset": "toy",
-                "model": "random_forest",
-                "preprocessing": {"strategy": "default_tabular"},
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(NotImplementedError):
-        generate_explanations(experiment_path, dataset_config_dir=dataset_config_dir)
-
-
 def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
     dataset_config_dir = tmp_path / "datasets"
     dataset_config_dir.mkdir()
@@ -865,7 +823,8 @@ def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
 
     # Reconnaissance/Benign overlap deliberately, so the model both classifies some
     # Reconnaissance instances correctly and confuses others with Benign - exercising both
-    # the "correct" and "misclassified" curated-instance paths (see _CLASS_OF_INTEREST).
+    # the "correct" and "misclassified" curated-instance paths for whichever class
+    # generate_explanations() picks as hardest.
     # protocol_type is categorical and strongly predictive, so it ranks high in permutation
     # importance.
     rng = np.random.default_rng(0)

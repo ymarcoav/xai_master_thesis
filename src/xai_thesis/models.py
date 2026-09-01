@@ -16,8 +16,8 @@ class _StringLabelXGBClassifier(_XGBClassifier):
     on this project's raw string labels, e.g. "Benign"/"Analysis", fails outright) - unlike
     every other model in this catalog, which is fit on those raw string labels straight from
     preprocessing.py's split_features_target, with .classes_ exposing them as-is afterward
-    (evaluate_classifier, compute_shap_values, select_curated_instances, and _CLASS_OF_INTEREST's
-    string lookups all assume this). This subclass (not a wrapper - shap.TreeExplainer needs to
+    (evaluate_classifier, compute_shap_values, select_curated_instances and the class-name
+    lookups in pipeline.py all assume this). This subclass (not a wrapper - shap.TreeExplainer needs to
     recognize the object directly, verified) label-encodes internally so it's a drop-in
     replacement matching that same string-label contract.
 
@@ -59,9 +59,8 @@ class _StringLabelXGBClassifier(_XGBClassifier):
 # their NSL-KDD/DAPT2020 copies too, bundled inside those datasets' own archives), and every
 # now-dead code path (explainability.py's LinearExplainer branch, _TREE_MODELS entry) were
 # deleted, not just hidden. Historical comments elsewhere in this project that reference
-# results from these two models (e.g. _CLASS_OF_INTEREST's rationale comments in pipeline.py)
-# are kept as-is - they document real findings from when those models existed, not a claim
-# that the models are still in the catalog.
+# results from these two models are kept as-is - they document real findings from when those
+# models existed, not a claim that the models are still in the catalog.
 #
 # ⚠️ xgboost added 2026-08-24; in scope for the thesis's own reported results (corrected
 # 2026-08-27 - this comment previously called it out-of-scope-but-functional, which was wrong

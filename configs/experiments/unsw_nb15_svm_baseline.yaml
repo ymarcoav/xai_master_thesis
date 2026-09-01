@@ -2,16 +2,11 @@ name: unsw_nb15_svm_baseline
 dataset: unsw_nb15
 model: svm
 random_state: 42
-# 2026-08-28: reverted to the models.py default 50_000 max_iter safety cap. A lower cap
-# (5,000) was tried on the full, un-subsampled training set and still took 4h8m without
-# finishing - iteration count alone isn't what bounds wall-clock time at that row count, so
-# lowering it further wasn't a reliable lever. pipeline.py's _FINAL_FIT_SUBSAMPLE now handles
-# tractability instead (a stratified subsample for this experiment specifically, sized
-# 200k/min_per_class=500 as of the same day, raised from an initial 150k/200 after that first
-# subsampled run came in below neural_network on macro-F1) - see _FINAL_FIT_SUBSAMPLE's own
-# comment for the full history.
+# svm: linear kernel + class_weight="balanced" (models.py); final fit runs on the stratified
+# subsample in pipeline.py's _FINAL_FIT_SUBSAMPLE. C is tuned via RandomizedSearchCV - re-running
+# `train.py --tune` rewrites model_params below and drops any comments inside it.
 model_params:
-  C: 10
+  C: 3
 preprocessing:
   strategy: default_tabular
 metrics:

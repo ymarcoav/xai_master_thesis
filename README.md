@@ -115,16 +115,14 @@ multiclass, but not at its native ~40-way specific attack-type granularity: it's
 conventional **DoS/Probe/R2L/U2R categories** (+ `Benign`) used throughout NSL-KDD literature -
 structurally similar to DAPT2020's multi-stage setup.
 
-UNSW-NB15's `Worms` category is severely data-scarce - **171 rows in the processed data (118 train / 53
-test)**; the "174" figure sometimes quoted elsewhere is the pre-dedup raw count. By far the rarest class
-in this dataset, in the same spirit as DAPT2020's `Data Exfiltration` or NSL-KDD's `U2R`. For scale,
-`Benign` is **95.6%** of both the UNSW-NB15 train and test splits (CIC-IDS2017: 84.9% `Benign`,
-`Infiltration` just 24 train / 11 test rows). Its dominant confusion pattern also doesn't funnel into `Benign` at all,
-unlike every other dataset here: `Analysis`<->`Backdoor` remains a real two-way confusion for every model
-trained on the final feature set (`service` restored, `ct_ftp_cmd` still dropped - see above), 7.8-62.5%
-one way and 10.9-49.7% the other - present across the board, though the exact ranges have shifted with
-each of this dataset's feature-set changes - see `_CLASS_OF_INTEREST` in `src/xai_thesis/pipeline.py`
-for exact numbers.
+UNSW-NB15's `Worms` category is severely data-scarce - **171 rows in the processed data (120 train / 51
+test)** under the stratified split; the "174" figure sometimes quoted elsewhere is the pre-dedup raw
+count. By far the rarest class in this dataset, in the same spirit as DAPT2020's `Data Exfiltration` or
+NSL-KDD's `U2R`. For scale, `Benign` is **95.6%** of both the UNSW-NB15 train and test splits
+(CIC-IDS2017: 84.9% `Benign`, `Infiltration` just 24 train / 11 test rows). UNSW-NB15's dominant error
+pattern also doesn't funnel into `Benign` at all, unlike the other datasets: `Analysis`↔`Backdoor` is a
+strong two-way confusion for the tree and neural-network models (~44-69% each way; the linear SVM
+separates them better) - the explainability chapter's hardest-class analysis lands here.
 
 CIC-IDS2017's native `Web Attack` labels carry a corrupted, non-ASCII separator byte baked into the raw
 files themselves (confirmed via raw byte inspection: literal UTF-8 encoding of U+FFFD, not a decoding
@@ -175,10 +173,10 @@ column-count-sensitivity incident above - all 5 CIC-IDS2017 models (the 3 in-sco
 matrices, explanations, and interview stimuli fully regenerated. The macro-F1 cost was large and is the
 honest, expected result, not a bug: `random_forest` 0.916→0.605, `svm` 0.518→0.366, `neural_network`
 0.510→0.354, `logistic_regression` 0.527→0.368, `gradient_boosting` 0.881→0.753 (the tree ensembles held
-up best, still noticeably degraded). The dominant cross-model confusion pair didn't change
-(`DoS/DDoS`→`Benign`, see `_CLASS_OF_INTEREST` below) but got dramatically more pronounced - 68.9-89.3%
-now, up from 6.3-13.2% before - itself strong independent evidence that the old numbers were substantially
-propped up by the port leak rather than reflecting genuine separability.
+up best, still noticeably degraded). Immediately after the drop, `DoS/DDoS`→`Benign` confusion jumped from 6.3-13.2% to 68.9-89.3% -
+strong independent evidence that the old numbers were substantially propped up by the port leak. (On
+the later stratified-split re-tune that confusion resolved to ~0%: with an i.i.d. split and no port
+leak, `DoS/DDoS` is cleanly separable.)
 
 **NSL-KDD**'s raw `KDDTrain+.txt`/`KDDTest+.txt` files ship with no header row and one undocumented
 trailing column (a KDD-Cup-era per-record "difficulty level" score, not a traffic feature - confirmed by
@@ -232,8 +230,8 @@ used by most of those reference papers; it is not motivated by anything in this 
 
 > **Switched from a per-(source_file, label) chronological/positional hold-out to this stratified
 > random split on 2026-08-31** (explicit user request: match the conventional XAI-for-IDS protocol).
-> Every processed dataset, trained model, and result number below predates this change and must be
-> regenerated - rerun `scripts/preprocess.py`, then the training and explainability steps.
+> All datasets were reprocessed, all models re-tuned and retrained, and all explanation artifacts
+> regenerated under the new split; the numbers below are current.
 
 ## Training
 
@@ -310,8 +308,8 @@ rejects this project's raw string class labels outright (verified directly: fitt
 `"Benign"`/`"Analysis"`/etc. raises `ValueError`, unlike every other model here, which accepts
 them natively) - `models.py`'s `_StringLabelXGBClassifier` subclasses it to label-encode
 internally, so `.classes_`/`.predict()` still return the original string labels like every other
-model's contract requires (`evaluate_classifier`, `compute_shap_values`, `_CLASS_OF_INTEREST`'s
-string lookups, etc. all assume this). It's a real subclass, not a wrapper, specifically so
+model's contract requires (`evaluate_classifier`, `compute_shap_values`, and the class-name lookups
+in `pipeline.py` all assume this). It's a real subclass, not a wrapper, specifically so
 `shap.TreeExplainer` still recognizes it directly (verified).
 
 `random_forest` was originally dropped from the model catalog (shared `gradient_boosting`'s
@@ -464,35 +462,44 @@ produced a badly degenerate fit (accuracy 0.182, macro-F1 0.135 - confirmed via 
 the run log, not a real finding about the larger subsample). Fixed and retrained again with the correct
 default `max_iter=50_000` cap.
 
-> **STALE as of the 2026-08-31 split change (see Preprocessing).** Every number in this section was
-> produced under the old per-(source_file, label) chronological/positional hold-out. It is kept here
-> only for reference until the stratified-random-split retrain lands; do not cite it as current.
-
-**Final results, both datasets, all four models, on the corrected raw data / 70-30 split / (for `svm`)
-the 200k/`min_per_class=500` subsample:**
+**Final results — stratified random 70/30 split, all four models re-tuned
+(`RandomizedSearchCV`, `f1_macro`) and retrained, `svm` final fit on the 200k /
+`min_per_class=500` subsample. Regenerated 2026-08-31/09-01.**
 
 | Model | UNSW-NB15 macro-F1 | UNSW-NB15 accuracy | CIC-IDS2017 macro-F1 | CIC-IDS2017 accuracy |
 | --- | --- | --- | --- | --- |
-| `xgboost` | **0.576** | 0.972 | **0.787** | 0.988 |
-| `random_forest` | 0.572 | 0.972 | 0.630 | 0.958 |
-| `neural_network` | 0.449 | 0.964 | 0.374 | 0.822 |
-| `svm` | 0.411 | 0.965 | 0.371 | 0.822 |
+| `random_forest` | **0.609** | 0.977 | 0.888 | 0.999 |
+| `xgboost` | 0.554 | 0.975 | **0.893** | 0.999 |
+| `neural_network` | 0.463 | 0.971 | 0.428 | 0.942 |
+| `svm` | 0.419 | 0.968 | 0.379 | 0.864 |
 
-`svm` did **not** end up outperforming `neural_network` on UNSW-NB15 (0.411 vs 0.449, essentially
-unchanged by the 150k/200 -> 200k/500 raise - 0.4126 -> 0.4112, a wash) - a linear-kernel SVM landing
-last among four models on a severely imbalanced 10-class problem with real class-overlap (see
-`Analysis`<->`Backdoor` above) isn't overturned by subsample tuning alone. On CIC-IDS2017, `svm` and
-`neural_network` landed close enough to call a tie (0.371 vs 0.374) - once the `max_iter` bug was fixed,
-the larger subsample's macro-F1 (0.371) is a real improvement over the original 150k/200 run's 0.293,
-even though it didn't reach `neural_network`. `svm` remains the weakest model on both datasets; `xgboost`
-is the strongest on both.
+Full per-metric numbers are in `outputs/metrics/*_baseline.json`; `roc_auc_macro` is 0.97-0.9996
+for every model/dataset, so `f1_macro` (which weights the rare classes equally) is the
+discriminating headline metric.
+
+- **`random_forest` is now best or tied-best on both datasets** (was `xgboost`). On CIC-IDS2017 the
+  two tree ensembles are level (0.888 / 0.893); on UNSW-NB15 `random_forest` leads clearly (0.609 vs
+  0.554).
+- **Re-tuning on the new split moved things.** `random_forest` on CIC-IDS2017 jumped from 0.720
+  (old params reused) to 0.888 once the search dropped `max_features="log2"` for `0.5` - the same
+  column-count sensitivity documented for the earlier feature-set cut. `neural_network` went from a
+  collapsed 0.22/0.30 (old `MLPClassifier`-era learning rates, unstable for the PyTorch MLP) to
+  0.43/0.46 once `learning_rate_init` was searched over a lower range. `xgboost` was already near
+  its ceiling and the retune left it flat on CIC-IDS2017 and slightly lower on UNSW-NB15 (a more
+  conservative `learning_rate=0.03`, trading precision for recall).
+- **`svm` is still the weakest on both** and essentially unaffected by re-tuning (`C` moved 10->3
+  on UNSW-NB15 for no real change).
+- The stratified split is genuinely easier than the old chronological one - train and test are now
+  i.i.d. rather than temporally separated - so every model's macro-F1 rose relative to the
+  chronological-split numbers, most sharply for the tree ensembles on CIC-IDS2017 (`xgboost`
+  0.79->0.89, `random_forest` 0.63->0.89).
 
 **`xgboost` added 2026-08-24, in scope for the thesis (see the blockquote above).** Tuned
-(`RandomizedSearchCV`, `subsample_size=40_000` for tractability on both large datasets, same
-pattern already used for `svm` above) and trained on the complete, un-subsampled training set
-for both - no `_FINAL_FIT_SUBSAMPLE` exception needed, unlike `svm`: `tree_method="hist"` finishes
-CIC-IDS2017's final fit (500 trees) in well under 4 minutes regardless of dataset size. See the results
-table above for current numbers.
+(`RandomizedSearchCV` on a reduced search subsample for tractability, same pattern used for every
+model) and trained on the complete, un-subsampled training set for both - no
+`_FINAL_FIT_SUBSAMPLE` exception needed, unlike `svm`: `tree_method="hist"` finishes CIC-IDS2017's
+final fit in a couple of minutes regardless of dataset size. See the results table above for current
+numbers.
 
 ## Analysis
 
@@ -555,7 +562,7 @@ python scripts/explain.py  # all experiments
   this path is markedly slower for both, and slower still for `svm` specifically, since its own
   predictions are more expensive to compute).
   Produces a global bar plot (mean |SHAP value| per feature, stacked by class), a global beeswarm
-  for the dataset's class of interest, and local waterfall plots for two curated test instances.
+  for the class each model handles worst, and local waterfall plots for two curated test instances.
 - **LIME** (`LimeTabularExplainer`): local explanations for the same two curated instances, so SHAP and
   LIME can be compared directly on identical cases. Rendered via `explain_instance_with_lime` in
   `explainability.py`, LIME's own unmodified `explanation.as_pyplot_figure()` - the single-panel
@@ -574,16 +581,16 @@ python scripts/explain.py  # all experiments
   class for this technique the way `PartialDependenceDisplay` exists for PDP, so a custom chart is the
   established way to visualize this, not a deviation from one.
 
-The two curated instances per experiment (one correctly classified, one misclassified) are chosen from a
-`(target_class, confused_with_class)` pair per dataset — not randomly — based on the cross-model confusion
-patterns found via `scripts/confusion_matrix.py` (e.g. DAPT2020's `Reconnaissance` is confused with
-`Benign` by every model trained so far, and CIC-IDS2017's `DoS/DDoS` — its largest attack category by far
-— is confused with `Benign` by every model trained under its new 7-category scheme, 6.3-13.2% depending on
-model). UNSW-NB15 is the exception to the "confused with Benign" pattern: `Analysis`↔`Backdoor` remains a
-real two-way confusion for every model trained on the final feature set (`service` restored,
-`ct_ftp_cmd` still dropped — 7.8-62.5% one way, 10.9-49.7% the other) — `Analysis` is still picked as
-`target_class`, since its average recall is still the lower of the two (~41% vs ~47%). See
-`_CLASS_OF_INTEREST` in `src/xai_thesis/pipeline.py`.
+The two curated instances per experiment (one correctly classified, one misclassified) are **not**
+random: `generate_explanations()` anchors on the class *this trained model* handles worst - the
+lowest per-class recall on its own test predictions - and the class it is most often mistaken for
+(`_hardest_class_and_confusion` / `_most_common_confusion` in `pipeline.py`). Deriving both ends from
+the model's own predictions replaced a hand-maintained `_CLASS_OF_INTEREST` dict (one curated pair per
+dataset) that had to be re-verified by eye against every retrain - and after the stratified-split
+re-tune its CIC-IDS2017 entry (`DoS/DDoS`→`Benign`) had dissolved to ~0% confusion while still sitting
+in the config. On the current models the hardest class is a rare attack category on both datasets:
+`DoS` or `Analysis`/`Backdoor` for UNSW-NB15 (where `Analysis`↔`Backdoor` remains a strong two-way
+confusion, ~44-69% each way across the tree/NN models), `Infiltration` or `Bot` for CIC-IDS2017.
 
 Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/`.
 
@@ -612,9 +619,9 @@ stating when writing this up:
 ### Interview stimuli
 
 A second, separate curated-instance mechanism (`generate_interview_stimuli` in `pipeline.py`), for
-picking concrete SHAP/LIME examples to show expert-interview subjects. Unlike `_CLASS_OF_INTEREST`
-above (picks the class pair with the most significant cross-model *confusion*), this one picks classes
-a security practitioner would recognize by name, so interview time isn't spent explaining an unfamiliar
+picking concrete SHAP/LIME examples to show expert-interview subjects. Unlike `generate_explanations()`
+above (anchors on the class each model handles *worst*), this one picks classes a security
+practitioner would recognize by name, so interview time isn't spent explaining an unfamiliar
 label: `Reconnaissance`/`Exploits` for UNSW-NB15, `DoS/DDoS`/`PortScan`/`Brute Force` for CIC-IDS2017
 (`_INTERVIEW_STIMULUS_CLASSES` in `pipeline.py` — see its comment for why each excluded class,
 including the well-known `DoS`/`Bot`, was ruled out). For each configured class, the model's most

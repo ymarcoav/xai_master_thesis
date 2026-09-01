@@ -176,8 +176,8 @@ class UNSWNB15Dataset(BaseDataset):
         # (4) Harmonize the label scheme. attack_cat is blank for benign rows in the raw
         # files (unlike the "Normal" string the pre-built files this project used previously
         # carried), and inconsistently whitespace-padded and spelled ("Backdoor" vs
-        # "Backdoors") across the 4 files - normalized to "Backdoor" to match
-        # _CLASS_OF_INTEREST and every other reference to this class in the project.
+        # "Backdoors") across the 4 files - normalized to "Backdoor" to match every other
+        # reference to this class in the project.
         label_column = self.config.label_column
         data[label_column] = data[label_column].str.strip().replace({"": "Benign", "Backdoors": "Backdoor"})
 

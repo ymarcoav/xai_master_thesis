@@ -399,43 +399,31 @@ def generate_feature_correlation(
     return plot_feature_correlation(features, output_path, title=f"{dataset_config.name} feature correlation")
 
 
-# (target_class, confused_with_class) per dataset - every dataset in the catalog is multiclass as
-# of 2026-07-31. Informed by the confusion-matrix analysis: target_class is a class substantially
-# confused with confused_with_class across every model trained, not just one - e.g. DAPT2020's
-# Reconnaissance is misclassified as Benign by every model (10-75% of the time depending on model).
-# Ties local explanations back to a concrete, already-established error pattern instead of an
-# arbitrary/random instance choice.
-_CLASS_OF_INTEREST: dict[str, tuple[str, str]] = {
-    # Unlike this project's other multiclass datasets, UNSW-NB15's dominant confusion doesn't
-    # funnel into Benign at all. Re-verified 2026-08-13/17 across three feature-set changes:
-    # the raw-capture switch, dropping service+ct_ftp_cmd, then restoring service once
-    # "improve performance" was set as the explicit priority over matching a reference paper's
-    # unexplained preprocessing (service's removal had cost real macro-F1 - see
-    # datasets/unsw_nb15.py; ct_ftp_cmd stayed dropped, that one evidence-based independent of
-    # this policy). On the final feature set (service back in, ct_ftp_cmd out):
-    # Analysis->Backdoor 7.8-62.5%, Backdoor->Analysis 10.9-49.7% - both directions present for
-    # every model trained, ranges shifted per model but the two-way confusion itself hasn't
-    # gone away across any of these feature-set changes. Analysis remains target_class: its
-    # average recall is still the lower of the two (~41% vs ~47%), the harder-to-detect side
-    # of this pair.
-    "unsw_nb15": ("Analysis", "Backdoor"),
-    "dapt2020": ("Reconnaissance", "Benign"),
-    # R2L is confused with Benign more heavily than any other pair in this dataset, and by a
-    # wide margin - confirmed across both models trained so far (82.5% of R2L misclassified
-    # as Benign for gradient_boosting, 64.8% for logistic_regression).
-    "nsl_kdd": ("R2L", "Benign"),
-    # DoS/DDoS is misclassified as Benign by every model, the only confusion pattern that shows
-    # up for all 5 - and it's also this dataset's largest attack category by far (64,319 of
-    # 485,902 test rows), making a missed DoS/DDoS attack the single highest-volume false
-    # negative this dataset can produce. Re-verified 2026-08-18 after Destination Port was
-    # dropped (see configs/datasets/cic_ids2017.yaml - it was leaking each attack scenario's
-    # fixed testbed target port, not generalizable behavior): the pair itself didn't change, but
-    # the confusion got dramatically worse once that shortcut was removed - 68.9-89.3% now,
-    # up from 6.3-13.2% on the old feature set. That jump is itself strong independent evidence
-    # for how much the old numbers were propped up by the port leak rather than genuine
-    # DoS/DDoS-vs-Benign separability.
-    "cic_ids2017": ("DoS/DDoS", "Benign"),
-}
+def _hardest_class_and_confusion(
+    y_test: pd.Series, predictions: pd.Series
+) -> tuple[str, str] | tuple[None, None]:
+    """The class this trained model handles worst (lowest recall), and the class it is most
+    often mistaken for.
+
+    Replaces the old hand-maintained _CLASS_OF_INTEREST dict (one curated
+    (target, confused_with) pair per dataset): that had to be re-verified by eye against every
+    retrain, and after the stratified-split retune CIC-IDS2017's curated pair (DoS/DDoS ->
+    Benign) had dissolved to ~0% confusion while still sitting in the config. Deriving both
+    ends from this model's own test predictions keeps the explanation anchored to a real,
+    current error pattern with no per-dataset config to go stale. Ties on recall break toward
+    the better-supported class (more instances to curate from). Returns (None, None) if the
+    model never misclassifies its lowest-recall class (e.g. a trivially separable toy model).
+    """
+    counts = y_test.value_counts()
+    recall = {
+        label: int(((y_test == label) & (predictions == label)).sum()) / int(counts[label])
+        for label in counts.index
+    }
+    target_class = min(recall, key=lambda label: (recall[label], -counts[label]))
+    confused_with_class = _most_common_confusion(y_test, predictions, target_class)
+    if confused_with_class is None:
+        return None, None
+    return target_class, confused_with_class
 
 # LIME's default discretize_continuous=True crashes on CIC-IDS2017's heavily-skewed columns
 # (scipy truncnorm "scale must be positive" - confirmed reproducible, see explainability.py);
@@ -503,13 +491,16 @@ def generate_explanations(
     experiment_name = experiment["name"]
     model_name = experiment["model"]
 
-    if dataset_config.name not in _CLASS_OF_INTEREST:
-        raise NotImplementedError(f"No class-of-interest mapping configured for dataset: {dataset_config.name}")
-    target_class, confused_with_class = _CLASS_OF_INTEREST[dataset_config.name]
-
     pipeline = joblib.load(Path(models_dir) / f"{experiment_name}.joblib")
     output_dir = ensure_directory(_experiment_plot_dir(plots_dir, dataset_config.name, experiment_name))
     class_names = list(pipeline.named_steps["model"].classes_)
+
+    # Curated correct/misclassified instance explanations are anchored to the class this model
+    # handles worst and the class it most often confuses it with, both derived from the model's
+    # own test predictions (see _hardest_class_and_confusion). The global SHAP beeswarm targets
+    # that same class.
+    predictions = pd.Series(pipeline.predict(x_test), index=x_test.index)
+    target_class, confused_with_class = _hardest_class_and_confusion(y_test, predictions)
 
     if len(x_test) > sample_size:
         sample_x, _, sample_y, _ = train_test_split(
@@ -540,23 +531,25 @@ def generate_explanations(
     )
     paths["permutation_importance"] = pfi_path
 
-    paths.update(
-        _generate_instance_explanations(
-            pipeline,
-            x_train,
-            x_test,
-            y_test,
-            background_x,
-            target_class,
-            confused_with_class,
-            class_names,
-            model_name,
-            dataset_config.categorical_columns,
-            output_dir,
-            random_state,
-            discretize_continuous=dataset_config.name in _SAFE_TO_DISCRETIZE_LIME,
+    if target_class is not None:
+        paths.update(
+            _generate_instance_explanations(
+                pipeline,
+                x_train,
+                x_test,
+                y_test,
+                background_x,
+                target_class,
+                confused_with_class,
+                class_names,
+                model_name,
+                dataset_config.categorical_columns,
+                output_dir,
+                random_state,
+                predictions=predictions,
+                discretize_continuous=dataset_config.name in _SAFE_TO_DISCRETIZE_LIME,
+            )
         )
-    )
 
     return paths
 
@@ -575,17 +568,20 @@ def _generate_instance_explanations(
     output_dir: Path,
     random_state: int,
     *,
+    predictions: pd.Series | None = None,
     discretize_continuous: bool,
 ) -> dict[str, Path]:
     """SHAP waterfall + LIME plots for one curated (target_class, confused_with_class) instance
     pair - a correct classification and a misclassification of target_class as
-    confused_with_class specifically. Shared by generate_explanations() (the thesis's own
-    per-experiment _CLASS_OF_INTEREST pair) and generate_interview_stimuli() (multiple
-    well-known classes per dataset, picked for interview relevance instead).
+    confused_with_class specifically. Shared by generate_explanations() (target = the class
+    this model handles worst, derived from its own predictions) and generate_interview_stimuli()
+    (multiple well-known classes per dataset, picked for interview relevance instead). Pass
+    predictions to reuse an already-computed full-test-set prediction.
     """
     paths: dict[str, Path] = {}
     instances = select_curated_instances(
-        pipeline, x_test, y_test, target_class, confused_with_class, random_state=random_state
+        pipeline, x_test, y_test, target_class, confused_with_class,
+        predictions=predictions, random_state=random_state,
     )
     if not instances:
         return paths
@@ -625,11 +621,11 @@ def _generate_instance_explanations(
 
 def _most_common_confusion(y_test: pd.Series, predictions: pd.Series, target_class: str) -> str | None:
     """The class target_class is most often predicted as, when the model gets it wrong -
-    dynamically derived from real predictions rather than hand-picked, same "grounded in real
-    evidence" principle as _CLASS_OF_INTEREST, just computed per-class on demand instead of
-    curated once upfront. None if the model never misclassifies target_class in this test set
-    (e.g. CIC-IDS2017's Bot for logistic_regression/neural_network - 100% recall via massive
-    over-prediction rather than genuine skill, so no misclassified example exists at all).
+    derived from real predictions rather than hand-picked. Used by both
+    _hardest_class_and_confusion (generate_explanations) and generate_interview_stimuli().
+    None if the model never misclassifies target_class in this test set (e.g. a class with
+    100% recall via massive over-prediction rather than genuine skill, so no misclassified
+    example exists at all).
     """
     is_target = y_test == target_class
     wrong = predictions[is_target & (predictions != target_class)]
@@ -639,11 +635,10 @@ def _most_common_confusion(y_test: pd.Series, predictions: pd.Series, target_cla
 
 
 # Well-known attack classes for interview stimulus curation - a deliberately different selection
-# criterion from _CLASS_OF_INTEREST above (that one picks the class pair with the most
-# significant cross-model *confusion*, for the thesis's own explainability-chapter analysis;
-# this one picks classes a security practitioner would recognize by name, for showing to
-# interview subjects) - a separate mechanism, not a replacement. Chosen 2026-08-17 with the
-# user, verified against real per-class recall/precision/instance-availability before finalizing
+# criterion from generate_explanations() (which anchors on the class each model handles *worst*,
+# for the thesis's own explainability-chapter error analysis); this one picks classes a security
+# practitioner would recognize by name, for showing to interview subjects. Chosen 2026-08-17 with
+# the user, verified against real per-class recall/precision/instance-availability before finalizing
 # - ruled out: UNSW-NB15's Worms (only 130/33 train/test rows), Generic/Analysis/Backdoor/
 # Shellcode (real classes, but not recognizable security terms to a general audience), DoS
 # (well-known, but recall never exceeds 32% across any model - diagnosed as a genuine feature-
@@ -668,9 +663,9 @@ def generate_interview_stimuli(
 ) -> dict[str, dict[str, Path]]:
     """Generate SHAP waterfall + LIME stimuli for interview use: one correct + one misclassified
     instance per well-known class in _INTERVIEW_STIMULUS_CLASSES, for an already-trained
-    experiment. Separate from generate_explanations()/_CLASS_OF_INTEREST (the thesis's own
-    explainability-chapter analysis) - this exists purely to curate concrete cases to show
-    interview subjects, picked for real-world recognizability rather than confusion severity.
+    experiment. Separate from generate_explanations()'s hardest-class analysis - this exists
+    purely to curate concrete cases to show interview subjects, picked for real-world
+    recognizability rather than by which class the model handles worst.
     Saves under plots_dir/<dataset>/<model>_baseline/interview_<class>/, keyed in the return
     value by target class name, then by "shap_waterfall_correct"/"lime_correct"/etc. - a class
     maps to an empty dict if the model never misclassifies it in this test set (no stimulus pair
@@ -717,6 +712,7 @@ def generate_interview_stimuli(
             dataset_config.categorical_columns,
             output_dir,
             random_state,
+            predictions=predictions,
             discretize_continuous=dataset_config.name in _SAFE_TO_DISCRETIZE_LIME,
         )
     return results
