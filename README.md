@@ -469,7 +469,7 @@ default `max_iter=50_000` cap.
 | Model | UNSW-NB15 macro-F1 | UNSW-NB15 accuracy | CIC-IDS2017 macro-F1 | CIC-IDS2017 accuracy |
 | --- | --- | --- | --- | --- |
 | `random_forest` | **0.609** | 0.977 | 0.888 | 0.999 |
-| `xgboost` | 0.554 | 0.975 | **0.893** | 0.999 |
+| `xgboost` | 0.597 | 0.976 | **0.901** | 0.999 |
 | `neural_network` | 0.463 | 0.971 | 0.428 | 0.942 |
 | `svm` | 0.419 | 0.968 | 0.379 | 0.864 |
 
@@ -477,16 +477,17 @@ Full per-metric numbers are in `outputs/metrics/*_baseline.json`; `roc_auc_macro
 for every model/dataset, so `f1_macro` (which weights the rare classes equally) is the
 discriminating headline metric.
 
-- **`random_forest` is now best or tied-best on both datasets** (was `xgboost`). On CIC-IDS2017 the
-  two tree ensembles are level (0.888 / 0.893); on UNSW-NB15 `random_forest` leads clearly (0.609 vs
-  0.554).
+- **`xgboost` is best on CIC-IDS2017 (0.901), `random_forest` best on UNSW-NB15 (0.609)** - the two
+  tree ensembles are within ~0.01-0.02 of each other on both datasets and clear of `neural_network`
+  and `svm`.
 - **Re-tuning on the new split moved things.** `random_forest` on CIC-IDS2017 jumped from 0.720
   (old params reused) to 0.888 once the search dropped `max_features="log2"` for `0.5` - the same
   column-count sensitivity documented for the earlier feature-set cut. `neural_network` went from a
   collapsed 0.22/0.30 (old `MLPClassifier`-era learning rates, unstable for the PyTorch MLP) to
-  0.43/0.46 once `learning_rate_init` was searched over a lower range. `xgboost` was already near
-  its ceiling and the retune left it flat on CIC-IDS2017 and slightly lower on UNSW-NB15 (a more
-  conservative `learning_rate=0.03`, trading precision for recall).
+  0.43/0.46 once `learning_rate_init` was searched over a lower range. `xgboost` was already at its
+  ceiling: re-tuning on the stratified split produced marginally *worse* params (0.893 / 0.554), so
+  it keeps the earlier `RandomizedSearchCV` result (0.901 / 0.597) - the best of the two tuned
+  configs, same "tuned, keep the best" rule as every other model.
 - **`svm` is still the weakest on both** and essentially unaffected by re-tuning (`C` moved 10->3
   on UNSW-NB15 for no real change).
 - The stratified split is genuinely easier than the old chronological one - train and test are now
@@ -622,12 +623,14 @@ A second, separate curated-instance mechanism (`generate_interview_stimuli` in `
 picking concrete SHAP/LIME examples to show expert-interview subjects. Unlike `generate_explanations()`
 above (anchors on the class each model handles *worst*), this one picks classes a security
 practitioner would recognize by name, so interview time isn't spent explaining an unfamiliar
-label: `Reconnaissance`/`Exploits` for UNSW-NB15, `DoS/DDoS`/`PortScan`/`Brute Force` for CIC-IDS2017
-(`_INTERVIEW_STIMULUS_CLASSES` in `pipeline.py` — see its comment for why each excluded class,
-including the well-known `DoS`/`Bot`, was ruled out). For each configured class, the model's most
-common real misclassification target is derived dynamically from the test set (`_most_common_confusion`)
-rather than hand-picked, then one correct and one misclassified SHAP waterfall + LIME plot are generated
-via the same instance-explanation logic `generate_explanations` uses (`_generate_instance_explanations`).
+label: `Reconnaissance`/`Exploits` for UNSW-NB15, `DoS/DDoS`/`Brute Force`/`Bot` for CIC-IDS2017
+(`_INTERVIEW_STIMULUS_CLASSES` in `pipeline.py` — see its comment for the excluded classes, and for
+why `PortScan` was dropped on 2026-09-01: removing the leaky `Destination Port` column collapsed it
+under dedup from ~159k rows to ~2k, so it no longer samples real scanning traffic). For each
+configured class the model's most common real misclassification target is derived dynamically from
+the test set (`_most_common_confusion`) rather than hand-picked, then one correct and one
+misclassified SHAP waterfall + LIME plot are generated via the same instance-explanation logic
+`generate_explanations` uses (`_generate_instance_explanations`).
 
 ```powershell
 python scripts/interview_stimuli.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml
@@ -636,5 +639,6 @@ python scripts/interview_stimuli.py  # all experiments
 
 Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/interview_<class>/` (e.g.
 `outputs/plots/unsw_nb15/random_forest_baseline/interview_Reconnaissance/`). A class maps to no
-plots at all if the model never misclassifies it in the test set (no stimulus pair possible - e.g.
-CIC-IDS2017's `Bot` was excluded from the configured list for exactly this reason on two models).
+plots at all if the model never misclassifies it in the test set (no stimulus pair possible); every
+class in the current list was re-checked to have both a correct and a misclassified test instance
+for all four models.

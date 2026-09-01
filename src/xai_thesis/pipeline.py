@@ -638,19 +638,20 @@ def _most_common_confusion(y_test: pd.Series, predictions: pd.Series, target_cla
 # criterion from generate_explanations() (which anchors on the class each model handles *worst*,
 # for the thesis's own explainability-chapter error analysis); this one picks classes a security
 # practitioner would recognize by name, for showing to interview subjects. Chosen 2026-08-17 with
-# the user, verified against real per-class recall/precision/instance-availability before finalizing
-# - ruled out: UNSW-NB15's Worms (only 130/33 train/test rows), Generic/Analysis/Backdoor/
-# Shellcode (real classes, but not recognizable security terms to a general audience), DoS
-# (well-known, but recall never exceeds 32% across any model - diagnosed as a genuine feature-
-# overlap limitation shared with Analysis/Backdoor, not something a rate-based engineered
-# feature fixed - see datasets/unsw_nb15.py); CIC-IDS2017's Web Attack (umbrella term, not a
-# specific technique) and Bot (recall looks perfect for logistic_regression/neural_network only
-# because they over-predict Bot almost everywhere - precision 0.011/0.015 - which also means
-# zero misclassified examples exist for those two models, breaking the correct/misclassified
-# stimulus pair entirely), Infiltration (only 28 training rows).
+# the user, re-checked 2026-09-01 against the stratified-split / retuned / Destination-Port-removed
+# data - every listed class has >=1 correct and >=1 misclassified test instance for every model.
+# Ruled out: UNSW-NB15's Worms (~120/51 rows), Generic/Analysis/Backdoor/Shellcode (not
+# recognizable security terms to a general audience), DoS (well-known, but every model's recall
+# on it is 6-38%); CIC-IDS2017's Web Attack (umbrella label folding SQLi/XSS/brute-force-login -
+# a subject can't tell which technique an instance is), Infiltration (24 train rows).
+# PortScan was dropped 2026-09-01: removing the leaky Destination Port column collapsed it under
+# dedup from 158,930 native rows to 1,958 (~157k near-identical scan flows differed only in
+# target port), so it is no longer a representative sample of scanning traffic. Bot (Ares botnet
+# C2) replaced it - recognizable, and the one CIC-IDS2017 attack class every model still
+# misclassifies (always -> Benign), so a genuine correct/misclassified pair exists for all four.
 _INTERVIEW_STIMULUS_CLASSES: dict[str, list[str]] = {
     "unsw_nb15": ["Reconnaissance", "Exploits"],
-    "cic_ids2017": ["DoS/DDoS", "PortScan", "Brute Force"],
+    "cic_ids2017": ["DoS/DDoS", "Brute Force", "Bot"],
 }
 
 
