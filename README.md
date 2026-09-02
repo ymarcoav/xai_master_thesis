@@ -517,18 +517,19 @@ python scripts/confusion_matrix.py  # all experiments
 
 Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/confusion_matrix.png`.
 
-One-vs-rest ROC curves (per class, plus micro- and macro-averaged, with the diagonal chance line and each
-curve's AUC in the legend) for a trained experiment, or all of them:
+Aggregate one-vs-rest ROC curves - macro- and micro-averaged, plus the chance diagonal, with each AUC in
+the legend - for a trained experiment, or all of them:
 
 ```powershell
 python scripts/roc_curve.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml
 python scripts/roc_curve.py  # all experiments
 ```
 
-Written to `outputs/plots/<dataset_name>/<model>_baseline/roc_curves.png`. The macro-average AUC on the
-plot equals the `roc_auc_macro` recorded in `outputs/metrics/`; the micro-average is dominated by the
-majority `Benign` class and sits near the top-left corner regardless of rare-class separation, so the
-per-class and macro curves are the ones to read.
+Written to `outputs/plots/<dataset_name>/<model>_baseline/roc_curves.png`. Deliberately aggregated (no
+per-class curves - unreadable at 7-10 classes, and that detail is already in the confusion matrix and
+per-class F1): the macro-average AUC equals the `roc_auc_macro` in `outputs/metrics/` and is the one to
+read; the micro-average is `Benign`-dominated and hugs the top-left corner regardless of rare-class
+separation - the two are shown together to make that divergence visible.
 
 Label class distribution for a dataset, or all datasets:
 

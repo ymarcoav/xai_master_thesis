@@ -322,8 +322,8 @@ def generate_roc_curves(
     models_dir: str | Path = "outputs/models",
     plots_dir: str | Path = "outputs/plots",
 ) -> Path:
-    """Plot one-vs-rest ROC curves (per class + micro/macro average) for an already-trained
-    experiment's test predictions, alongside its confusion matrix."""
+    """Plot the aggregate one-vs-rest ROC curves (macro- and micro-average + chance diagonal)
+    for an already-trained experiment's test predictions, alongside its confusion matrix."""
     experiment, dataset_config, _, _, x_test, y_test = _load_experiment_and_data(
         experiment_config_path, dataset_config_dir
     )
