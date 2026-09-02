@@ -19,6 +19,7 @@ from xai_thesis.evaluation import (
     plot_feature_correlation,
     plot_label_distribution,
     plot_missing_values,
+    plot_roc_curves,
     plot_train_test_split_distribution,
 )
 from xai_thesis.explainability import (
@@ -312,6 +313,27 @@ def generate_confusion_matrix(
     # trained experiment (confusion matrix and explanations alike) lives in one place.
     output_path = _experiment_plot_dir(plots_dir, dataset_config.name, experiment_name) / "confusion_matrix.png"
     return plot_confusion_matrix(y_test, predictions, output_path, normalize=normalize)
+
+
+def generate_roc_curves(
+    experiment_config_path: str | Path,
+    *,
+    dataset_config_dir: str | Path = "configs/datasets",
+    models_dir: str | Path = "outputs/models",
+    plots_dir: str | Path = "outputs/plots",
+) -> Path:
+    """Plot one-vs-rest ROC curves (per class + micro/macro average) for an already-trained
+    experiment's test predictions, alongside its confusion matrix."""
+    experiment, dataset_config, _, _, x_test, y_test = _load_experiment_and_data(
+        experiment_config_path, dataset_config_dir
+    )
+
+    experiment_name = experiment["name"]
+    model = joblib.load(Path(models_dir) / f"{experiment_name}.joblib")
+    probabilities = model.predict_proba(x_test)
+
+    output_path = _experiment_plot_dir(plots_dir, dataset_config.name, experiment_name) / "roc_curves.png"
+    return plot_roc_curves(y_test, probabilities, list(model.classes_), output_path)
 
 
 def generate_label_distribution(

@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
@@ -8,6 +9,7 @@ from xai_thesis.evaluation import (
     plot_feature_correlation,
     plot_label_distribution,
     plot_missing_values,
+    plot_roc_curves,
     plot_train_test_split_distribution,
 )
 
@@ -39,6 +41,35 @@ def test_plot_confusion_matrix_raw_counts_writes_png(tmp_path) -> None:
 
     assert result_path == output_path
     assert output_path.exists()
+
+
+def test_plot_roc_curves_writes_png(tmp_path) -> None:
+    rng = np.random.default_rng(0)
+    class_names = ["Benign", "attack_a", "attack_b"]
+    y_true = rng.choice(class_names, size=120)
+    # a plausible predict_proba: rows sum to 1, columns follow class_names order
+    logits = rng.normal(size=(120, 3))
+    y_score = np.exp(logits) / np.exp(logits).sum(axis=1, keepdims=True)
+    output_path = tmp_path / "roc_curves.png"
+
+    result_path = plot_roc_curves(y_true, y_score, class_names, output_path)
+
+    assert result_path == output_path
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
+
+
+def test_plot_roc_curves_skips_class_absent_from_true(tmp_path) -> None:
+    # "attack_b" is a valid column but never occurs in y_true - its ROC is undefined and
+    # must be skipped rather than crash roc_curve.
+    class_names = ["Benign", "attack_a", "attack_b"]
+    y_true = ["Benign", "Benign", "attack_a", "attack_a", "Benign", "attack_a"]
+    y_score = np.tile([0.5, 0.3, 0.2], (6, 1))
+    output_path = tmp_path / "roc_curves.png"
+
+    result_path = plot_roc_curves(y_true, y_score, class_names, output_path)
+
+    assert result_path.exists()
 
 
 def test_plot_confusion_matrix_handles_label_absent_from_true(tmp_path) -> None:

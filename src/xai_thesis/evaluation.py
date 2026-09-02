@@ -12,10 +12,12 @@ import pandas as pd  # noqa: E402
 import seaborn as sns  # noqa: E402
 from matplotlib.colors import SymLogNorm  # noqa: E402
 from sklearn.metrics import (  # noqa: E402
+    auc,
     average_precision_score,
     classification_report,
     confusion_matrix,
     roc_auc_score,
+    roc_curve,
 )
 from sklearn.preprocessing import label_binarize  # noqa: E402
 from mpl_toolkits.axes_grid1 import make_axes_locatable  # noqa: E402
@@ -153,6 +155,76 @@ def plot_confusion_matrix(
     ax.set_ylabel("True label")
     plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
     plt.setp(ax.get_yticklabels(), rotation=0)
+    fig.tight_layout()
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+
+    return output_path
+
+
+def plot_roc_curves(
+    y_true,
+    y_score: np.ndarray,
+    class_names: list,
+    output_path: str | Path,
+    *,
+    title: str | None = None,
+) -> Path:
+    """One-vs-rest ROC curve per class plus micro- and macro-averaged curves, on one axes.
+
+    y_score is the (n_samples, n_classes) predict_proba matrix; its columns must be in
+    class_names order (i.e. model.classes_). A class with no positive instances in y_true is
+    skipped - undefined ROC - which does not happen on the real stratified test splits but
+    keeps toy fixtures from crashing.
+
+    Under this project's severe class imbalance the per-class and macro curves are the
+    informative ones: the micro-average is dominated by the majority Benign class and hugs
+    the top-left corner almost regardless of rare-class separation. It is drawn for
+    completeness, but the macro-average (equal weight per class) is the summary that tracks
+    rare-class performance, mirroring the macro-F1 / macro-PR-AUC choice elsewhere.
+    """
+    class_names = list(class_names)
+    y_binarized = label_binarize(y_true, classes=class_names)
+    if y_binarized.shape[1] == 1:  # label_binarize collapses exactly 2 classes to one column
+        y_binarized = np.hstack([1 - y_binarized, y_binarized])
+
+    fig, ax = plt.subplots(figsize=(7.5, 7))
+    fpr_grid = np.linspace(0.0, 1.0, 500)
+    interpolated_tpr_sum = np.zeros_like(fpr_grid)
+    curves_counted = 0
+
+    for index, name in enumerate(class_names):
+        if y_binarized[:, index].sum() == 0:
+            continue
+        fpr, tpr, _ = roc_curve(y_binarized[:, index], y_score[:, index])
+        ax.plot(fpr, tpr, lw=1.2, alpha=0.85, color=plt.cm.tab10(index % 10), label=f"{name} (AUC = {auc(fpr, tpr):.3f})")
+        interpolated_tpr_sum += np.interp(fpr_grid, fpr, tpr)
+        curves_counted += 1
+
+    if curves_counted:
+        macro_tpr = interpolated_tpr_sum / curves_counted
+        ax.plot(
+            fpr_grid, macro_tpr, lw=2.8, color="black",
+            label=f"macro-average (AUC = {auc(fpr_grid, macro_tpr):.3f})",
+        )
+
+    micro_fpr, micro_tpr, _ = roc_curve(y_binarized.ravel(), np.asarray(y_score).ravel())
+    ax.plot(
+        micro_fpr, micro_tpr, lw=2.0, ls="--", color="dimgray",
+        label=f"micro-average (AUC = {auc(micro_fpr, micro_tpr):.3f})",
+    )
+
+    ax.plot([0, 1], [0, 1], lw=1.0, ls=":", color="gray")
+    ax.set_xlim(-0.01, 1.0)
+    ax.set_ylim(0.0, 1.02)
+    ax.set_xlabel("False positive rate")
+    ax.set_ylabel("True positive rate")
+    if title:
+        ax.set_title(title)
+    ax.legend(loc="lower right", fontsize=7, framealpha=0.9)
     fig.tight_layout()
 
     output_path = Path(output_path)

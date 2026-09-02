@@ -14,6 +14,7 @@ from xai_thesis.pipeline import (
     generate_interview_stimuli,
     generate_label_distribution,
     generate_missing_value_summary,
+    generate_roc_curves,
     generate_train_test_split_comparison,
     preprocess_dataset,
     run_experiment,
@@ -575,7 +576,7 @@ def test_run_experiment_neural_network_trains_through_the_plain_pipeline_path(tm
     assert len(pipeline.predict(test_df[["feature"]])) == 2
 
 
-def test_generate_confusion_matrix_writes_png_for_trained_experiment(tmp_path) -> None:
+def test_generate_confusion_matrix_and_roc_curves_write_pngs_for_trained_experiment(tmp_path) -> None:
     dataset_config_dir = tmp_path / "datasets"
     dataset_config_dir.mkdir()
     processed_dir = tmp_path / "processed" / "toy"
@@ -626,12 +627,17 @@ def test_generate_confusion_matrix_writes_png_for_trained_experiment(tmp_path) -
     run_experiment(
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=metrics_dir
     )
-    output_path = generate_confusion_matrix(
+    cm_path = generate_confusion_matrix(
+        experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, plots_dir=plots_dir
+    )
+    roc_path = generate_roc_curves(
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, plots_dir=plots_dir
     )
 
-    assert output_path == plots_dir / "toy" / "experiment" / "confusion_matrix.png"
-    assert output_path.exists()
+    assert cm_path == plots_dir / "toy" / "experiment" / "confusion_matrix.png"
+    assert cm_path.exists()
+    assert roc_path == plots_dir / "toy" / "experiment" / "roc_curves.png"
+    assert roc_path.exists()
 
 
 def test_tune_hyperparameters_writes_best_params_into_experiment_yaml(tmp_path) -> None:
