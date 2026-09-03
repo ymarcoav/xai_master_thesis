@@ -43,9 +43,10 @@ categorical_columns: []
 # as a red flag rather than a legitimate signal: per-class destination-port concentration is
 # near-total - DoS/DDoS 99.999% port 80, Web Attack 100% port 80, Infiltration 100% port 444,
 # Brute Force 81%/19% port 21/22, Bot 55% port 8080 - because the CICIDS2017 testbed launched
-# each attack scenario against one fixed target service. A model leaning on this is learning
-# "which port this lab happened to attack," not generalizable traffic behavior - the same kind
-# of identifier/testbed-configuration leakage this project already treats UNSW-NB15's
+# each attack scenario against one fixed target service, so the port encodes the capture
+# configuration rather than generalizable traffic behavior (D'hooge et al. 2022). A model
+# leaning on this is learning "which port this lab happened to attack" - the same kind of
+# identifier/testbed-configuration leakage this project already treats UNSW-NB15's
 # srcip/dstip/sport/dsport as (see configs/datasets/unsw_nb15.yaml), not a legitimate feature.
 # A broader per-class value-concentration scan across all other columns found nothing else
 # structurally identifier-like (no Source/Destination IP, Flow ID, or Protocol column exists in

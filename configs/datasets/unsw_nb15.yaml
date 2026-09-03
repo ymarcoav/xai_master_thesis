@@ -19,24 +19,31 @@ categorical_columns:
   - proto
   - service
   - state
-# srcip/dstip/sport/dsport: raw identifiers, not present in the pre-built training-set/
-# testing-set files this project used previously - dropped to avoid a model memorizing
-# attacker/victim addresses instead of learning traffic behavior. ltime: redundant with
-# dur/stime. label: native binary, dropped in favor of attack_cat.
-# ct_ftp_cmd: dropped 2026-08-13 - verified via direct data inspection that it correlates
-# with is_ftp_login at r~=0.85 (near-redundant with a feature already kept) and, when nonzero
-# (only ~1.7% of rows), its mean value is ~1.0-1.2 across every attack_cat that has any
-# nonzero rows at all - no visible per-class differentiation. This drop stands on its own
-# evidence, independent of the service decision below.
+# srcip/dstip/sport/dsport: connection identifiers - metadata rather than descriptions of
+# traffic behavior, and prime targets for shortcut learning: a model can exploit spurious
+# correlations introduced by the data-generation process to reach inflated but ultimately
+# meaningless performance (D'hooge et al. 2022). Also not present in the pre-built training-
+# set/testing-set files this project used previously.
+# ltime, stime: absolute capture timestamps (record last-seen / flow-start time) - artifacts
+# of the data-generation schedule rather than descriptions of traffic behavior (D'hooge et
+# al. 2022). ltime is additionally redundant with dur/stime; stime is carried through the
+# earlier clean() steps and dropped here, just before the dedup step, so a flow recorded
+# twice at different times collapses to one exact duplicate (2026-08-31 - previously carried
+# further and dropped in the split, which the old chronological split needed to sort by; the
+# stratified random split does not).
+# label: native binary ground truth, dropped in favor of the native multiclass attack_cat.
+# ct_ftp_cmd: dropped 2026-08-13 - verified via direct data inspection that it is near-
+# redundant with the retained is_ftp_login (r~=0.92 on the deduplicated data, r~=0.85 on the
+# raw capture before dedup - both computed directly), and, when nonzero (only ~2% of rows),
+# its mean is ~1 (1.00-1.20) across every attack_cat that has any nonzero rows at all - no
+# per-class differentiation. Also documented as type-inconsistent (whitespace-padded in the
+# raw files, so pandas reads the column as object) - Tai et al. 2024. This drop stands on its
+# own evidence, independent of the service decision below.
 # service: dropped 2026-08-13 following Tai et al. 2024's UNSW-NB15 preprocessing, then
 # RESTORED the same day once the user set explicit policy ("improve performance" wins over
 # matching a paper's own undocumented preprocessing choices when the two conflict) - dropping
 # service had measurably cost real macro-F1 (gradient_boosting 0.569->0.507, random_forest
 # 0.566->0.524), so under that policy it belongs back in the feature set.
-# stime: absolute flow-start timestamp, never a model feature. Kept through clean() only so
-# dedup can collapse a flow recorded twice at different times; dropped here in the same step
-# as the other non-features (2026-08-31 - previously carried further and dropped in the split,
-# which the old chronological split needed to sort by; the stratified random split does not).
 drop_columns:
   - srcip
   - sport

@@ -138,12 +138,13 @@ def _build_pipeline(experiment: dict[str, Any], dataset_config: DatasetConfig, x
 # svm's final fit on unsw_nb15 is intractable at the complete training-set size, re-confirmed
 # 2026-08-28 after two separate attempts on the fully-corrected raw data (128k more rows, no
 # more truncation/boundary duplicates than before): the first ran 18+ hours uncapped; a second
-# attempt with max_iter=5000 (a fix that worked in principle - it does eventually stop) still
-# ran 4h8m without finishing, worse than the run that prompted adding the cap in the first
-# place. Lowering max_iter alone is not a reliable lever at this row count - each libsvm
-# iteration itself is the expensive part, not just the iteration count - so the cap was removed
-# in favor of this subsample, the one approach with an actual proven fast (~20 min) track
-# record on this project's own history.
+# attempt with a lowered max_iter=5000 (a fix that worked in principle - it does eventually
+# stop) still ran 4h8m without finishing. Lowering max_iter alone is not a reliable lever at
+# this row count - each libsvm iteration itself is the expensive part, not just the iteration
+# count - so lowering the cap as the tractability fix was abandoned in favor of this subsample,
+# the one approach with an actual proven fast (~20 min) track record on this project's own
+# history. (models.py's generic max_iter=50_000 safety cap stays regardless - it only bounds
+# worst-case time on a pathological fit, it is not the mechanism that makes the fit tractable.)
 #
 # cic_ids2017 is included here too, by explicit user request for consistency, even though its
 # svm final fit had already completed successfully on the complete training set (see README.md

@@ -88,9 +88,10 @@ this project's own data first: it's `"unknown"` (the raw `-`/blank placeholder) 
 across both splits, a plausible unstated reason for their manual "not valuable" call (they explicitly
 did not run automated feature selection for UNSW-NB15, unlike their CIC-IDS2017 pipeline, so this was a
 human judgment call, not an algorithm's output). `ct_ftp_cmd` was a follow-up finding of this project's
-own, not from that paper: verified to correlate with `is_ftp_login` at r≈0.85 (near-redundant with a
-feature already kept) and, when nonzero (only ~1.7% of rows), to show no per-class differentiation -
-its mean value is ~1.0-1.2 across every `attack_cat` with any nonzero rows at all.
+own, not from that paper: verified to be near-redundant with the retained `is_ftp_login` (r≈0.92 on the
+deduplicated data, r≈0.85 on the raw capture before dedup) and, when nonzero (only ~2% of rows), to show
+no per-class differentiation - its mean is ~1 (1.00-1.20) across every `attack_cat` with any nonzero rows
+at all. It is also documented as type-inconsistent (whitespace-padded in the raw files - Tai et al. 2024).
 
 **`service` was restored the same week once explicit policy was set: "improve performance" wins over
 matching a reference paper's own unexplained preprocessing choices, when the two conflict.** Dropping

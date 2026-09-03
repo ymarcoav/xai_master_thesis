@@ -123,8 +123,9 @@ _NUMERIC_COLUMNS = [
 # not a value for the shared imputer to guess at from the other ~45%. ct_ftp_cmd shared this
 # same treatment previously, but is now dropped outright (see
 # configs/datasets/unsw_nb15.yaml) rather than cleaned - it turned out to be near-redundant
-# with is_ftp_login (r~=0.85 on the current raw capture) and showed no per-class
-# differentiation when nonzero.
+# with is_ftp_login (r~=0.92 on the deduplicated data, r~=0.85 on the raw capture before
+# dedup), is documented as type-inconsistent (whitespace-padded in the raw files - Tai et
+# al. 2024), and showed no per-class differentiation when nonzero.
 _APPLICABILITY_ZERO_COLUMNS = ["ct_flw_http_mthd", "is_ftp_login"]
 
 
@@ -182,11 +183,12 @@ class UNSWNB15Dataset(BaseDataset):
         data[label_column] = data[label_column].str.strip().replace({"": "Benign", "Backdoors": "Backdoor"})
 
         # (5) Drop leakage / identifier / redundant feature columns (config.drop_columns):
-        # srcip/dstip/sport/dsport (raw IP/port would let a model memorize attacker/victim
-        # addresses instead of traffic behavior), ltime (redundant with dur/stime), the
-        # native binary label (attack_cat is used instead - see load_dataset_config),
-        # ct_ftp_cmd, and stime (an absolute timestamp, never a feature - dropped here so a
-        # flow recorded twice at different times collapses to one exact duplicate in step 6).
+        # srcip/dstip/sport/dsport (connection identifiers - metadata, not traffic behavior,
+        # and a prime shortcut-learning target), ltime and stime (absolute capture timestamps
+        # - artifacts of the data-generation schedule, not traffic behavior; ltime is also
+        # redundant with dur/stime, and stime is dropped here so a flow recorded twice at
+        # different times collapses to one exact duplicate in step 6), the native binary
+        # label (attack_cat is used instead - see load_dataset_config), and ct_ftp_cmd.
         data = data.drop(columns=list(self.config.drop_columns), errors="ignore")
 
         # (6) Deduplicate on canonical flow content, ignoring only the source-file tag, so a
