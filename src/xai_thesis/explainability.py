@@ -30,6 +30,15 @@ from sklearn.pipeline import Pipeline  # noqa: E402
 # entirely on 2026-08-24 (explicit user request) - see models.py for the full removal note.
 _TREE_MODELS = ("random_forest", "xgboost")
 
+# Permutation count for the model-agnostic SHAP explainer (svm, neural_network). SHAP's own
+# max_evals default (500) works out to only ~4 permutations at this project's 52-59 post-one-hot
+# feature count (npermutations = max_evals // (2 * n_features + 1)), which is a high-variance
+# Shapley estimate; 50 is far more stable. SVM cost scales ~linearly in this - measured on
+# CIC-IDS2017's SVM at ~48 s/instance for 4 permutations vs ~430 s/instance for 50 - so this is
+# the knob to turn down if the permutation path becomes intractable on a bigger model/dataset.
+# Tree models ignore it entirely (TreeExplainer reads the model structure directly).
+_SHAP_PERMUTATION_MULTIPLIER = 50
+
 
 def predict_proba_fn(model: Any) -> Callable[[np.ndarray], np.ndarray]:
     """Return a predict_proba-like callable for any classifier, even ones without one.
@@ -66,6 +75,7 @@ def compute_shap_values(
     background_data: pd.DataFrame,
     *,
     categorical_columns: Sequence[str] = (),
+    random_state: int = 42,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str]]:
     """Compute SHAP values for x_data using the fastest suitable explainer.
 
@@ -86,6 +96,12 @@ def compute_shap_values(
     sample there so its base value lands on that same near-uniform footing rather than on the
     85-96%-Benign raw prior. xgboost's base value is in margin space and still not directly
     comparable in level to the others (attribution directions are).
+
+    The permutation path is seeded (random_state, default 42) and run at a fixed permutation
+    count (_SHAP_PERMUTATION_MULTIPLIER, via max_evals) rather than SHAP's ~4-permutation
+    default, so svm/neural_network SHAP values are both reproducible and materially lower
+    variance; the background sub-sample is drawn with the same seed. The tree path is exact and
+    already deterministic, so random_state does not affect it.
 
     Returns (shap_values, base_values, display_data, feature_names):
       - shap_values: shape (n_samples, n_original_features, n_classes), already collapsed
@@ -112,9 +128,14 @@ def compute_shap_values(
         shap_values, expected_value = _expand_binary_class_dimension(shap_values, expected_value, n_classes)
         base_values = np.broadcast_to(expected_value, (n_samples, expected_value.shape[0]))
     else:
-        background_summary = shap.sample(background_transformed, min(50, len(background_transformed)))
-        explainer = shap.Explainer(predict_proba_fn(model), background_summary, algorithm="permutation")
-        explanation = explainer(x_transformed)
+        background_summary = shap.sample(
+            background_transformed, min(50, len(background_transformed)), random_state=random_state
+        )
+        max_evals = _SHAP_PERMUTATION_MULTIPLIER * (2 * x_transformed.shape[1] + 1)
+        explainer = shap.Explainer(
+            predict_proba_fn(model), background_summary, algorithm="permutation", seed=random_state
+        )
+        explanation = explainer(x_transformed, max_evals=max_evals)
         shap_values = np.asarray(explanation.values)
         base_values = np.asarray(explanation.base_values)
 
@@ -257,40 +278,37 @@ def plot_shap_waterfall(
     return _save_current_figure(output_path)
 
 
-def _build_lime_explanation(
+def _build_lime_explainer(
     pipeline: Pipeline,
     x_train: pd.DataFrame,
-    instance: pd.Series,
     class_names: list[str],
     *,
     categorical_columns: Sequence[str] = (),
-    num_features: int = 8,
     random_state: int = 42,
     discretize_continuous: bool = False,
-) -> tuple[Any, int, list[str]]:
-    """Shared setup for LIME explanations: encodes categoricals, builds the explainer, and
-    runs explain_instance. Returns (explanation, predicted_label, columns), where columns is
-    the (zero-variance-dropped) feature order that local_exp's feature indices refer to.
+) -> tuple[LimeTabularExplainer, Callable[[np.ndarray], np.ndarray], list[str], dict[str, dict[str, int]]]:
+    """Build a LimeTabularExplainer and the matching predict function for a fitted pipeline.
 
-    Factored out of explain_instance_with_lime so the notebook-style single-panel bar chart
-    and the three-panel Figure-2-style layout can share one explanation run instead of
-    computing it twice.
+    Returns (explainer, predict_fn_on_encoded, columns, category_to_code): `columns` is the
+    (zero-variance-dropped) feature order LIME's local_exp indices refer to, and
+    `category_to_code` maps each categorical column's original string values to the integer
+    codes LIME expects (see _encode_lime_instance).
 
-    LimeTabularExplainer requires categorical columns to already be label-encoded as
-    integers (categorical_names then supplies the display strings); the pipeline itself
-    still expects the original values, so encoding/decoding happens transparently here
-    rather than needing the caller to worry about it.
+    Split out from _build_lime_explanation so a batch caller (e.g. the agreement metric, which
+    explains dozens of instances) builds the explainer - which scans all of x_train - once
+    instead of once per instance.
 
-    LIME's default quantile-based discretization of continuous features crashes outright
-    (scipy truncnorm "scale must be positive") on the kind of heavily-skewed distributions
-    common in these datasets (e.g. CIC-IDS2017's flag counts, ~99% zero) - bin edges collapse
-    regardless of cardinality. discretize_continuous defaults to False (sidesteps the
-    discretizer entirely, perturbing continuous features via a Gaussian around each feature's
-    std instead) and should only be set True for a dataset verified not to hit this crash
-    (confirmed safe for UNSW-NB15 specifically).
+    LimeTabularExplainer requires categorical columns to already be label-encoded as integers
+    (categorical_names then supplies the display strings); the pipeline itself still expects the
+    original values, so encoding/decoding happens transparently here.
 
-    top_labels=1 explains whichever class was actually predicted - every dataset in this
-    project's catalog is multiclass, so there's no fixed two-class layout to special-case.
+    LIME's default quantile-based discretization of continuous features crashes outright (scipy
+    truncnorm "scale must be positive") on the kind of heavily-skewed distributions common in
+    these datasets (e.g. CIC-IDS2017's flag counts, ~99% zero) - bin edges collapse regardless
+    of cardinality. discretize_continuous defaults to False (sidesteps the discretizer entirely,
+    perturbing continuous features via a Gaussian around each feature's std instead) and should
+    only be set True for a dataset verified not to hit this crash (confirmed safe for
+    UNSW-NB15 specifically).
     """
     all_columns = list(x_train.columns)
     numeric_columns = x_train.select_dtypes(include="number").columns
@@ -308,10 +326,6 @@ def _build_lime_explanation(
     x_train_encoded = x_train[columns].copy()
     for column in categorical_columns:
         x_train_encoded[column] = x_train_encoded[column].astype(str).map(category_to_code[column])
-
-    instance_encoded = instance[columns].copy()
-    for column in categorical_columns:
-        instance_encoded[column] = category_to_code[column][str(instance[column])]
 
     model = pipeline.named_steps["model"]
     predict_fn = predict_proba_fn(model)
@@ -338,12 +352,55 @@ def _build_lime_explanation(
         random_state=random_state,
         discretize_continuous=discretize_continuous,
     )
+    return explainer, _predict_fn_on_encoded, columns, category_to_code
 
-    explanation = explainer.explain_instance(
-        instance_encoded.to_numpy(dtype=float), _predict_fn_on_encoded, num_features=num_features, top_labels=1
+
+def _encode_lime_instance(
+    instance: pd.Series,
+    columns: list[str],
+    category_to_code: dict[str, dict[str, int]],
+) -> np.ndarray:
+    """Reduce one row to LIME's feature order (zero-variance columns dropped) with categoricals
+    label-encoded to the codes _build_lime_explainer registered."""
+    instance_encoded = instance[columns].copy()
+    for column, mapping in category_to_code.items():
+        instance_encoded[column] = mapping[str(instance[column])]
+    return instance_encoded.to_numpy(dtype=float)
+
+
+def _build_lime_explanation(
+    pipeline: Pipeline,
+    x_train: pd.DataFrame,
+    instance: pd.Series,
+    class_names: list[str],
+    *,
+    categorical_columns: Sequence[str] = (),
+    num_features: int = 8,
+    random_state: int = 42,
+    discretize_continuous: bool = False,
+) -> tuple[Any, int, list[str]]:
+    """Build the explainer and run explain_instance for a single row. Returns
+    (explanation, predicted_label, columns).
+
+    top_labels=1 explains whichever class was actually predicted - every dataset in this
+    project's catalog is multiclass, so there's no fixed two-class layout to special-case.
+    See _build_lime_explainer for the encoding/discretization details.
+    """
+    explainer, predict_fn_on_encoded, columns, category_to_code = _build_lime_explainer(
+        pipeline,
+        x_train,
+        class_names,
+        categorical_columns=categorical_columns,
+        random_state=random_state,
+        discretize_continuous=discretize_continuous,
     )
-    label = explanation.available_labels()[0]
-    return explanation, label, columns
+    explanation = explainer.explain_instance(
+        _encode_lime_instance(instance, columns, category_to_code),
+        predict_fn_on_encoded,
+        num_features=num_features,
+        top_labels=1,
+    )
+    return explanation, explanation.available_labels()[0], columns
 
 
 def explain_instance_with_lime(

@@ -1,16 +1,24 @@
 from __future__ import annotations
 
+import csv
 import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import joblib
+import numpy as np
 import pandas as pd
-from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold, train_test_split
+from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold
 from sklearn.pipeline import Pipeline
 from sklearn.utils.class_weight import compute_sample_weight
 
+from xai_thesis.agreement import (
+    AGREEMENT_METRIC_TITLES,
+    AGREEMENT_METRICS,
+    agreement_over_k,
+    plot_agreement_heatmap,
+)
 from xai_thesis.datasets import DATASET_REGISTRY
 from xai_thesis.datasets.base import DatasetConfig, load_dataset_config
 from xai_thesis.evaluation import (
@@ -23,6 +31,8 @@ from xai_thesis.evaluation import (
     plot_train_test_split_distribution,
 )
 from xai_thesis.explainability import (
+    _build_lime_explainer,
+    _encode_lime_instance,
     compute_permutation_importance,
     compute_shap_values,
     explain_instance_with_lime,
@@ -457,8 +467,14 @@ def _hardest_class_and_confusion(
 _SAFE_TO_DISCRETIZE_LIME = {"unsw_nb15"}
 
 # SHAP background size, and the number of test instances the global SHAP/PFI plots explain.
+# The global sample is drawn class-balanced (see _class_balanced_sample), not stratified: a
+# prevalence-proportional draw of this project's test sets is 85-96% Benign and leaves most
+# attack classes with 0 rows (191/200 Benign on UNSW-NB15 at the old size of 200), so the
+# global SHAP bar / PFI rankings were effectively a two-class problem. 500 class-balanced rows
+# put every class in the ranking; classes with fewer test rows than their even share (e.g.
+# CIC-IDS2017 Infiltration, ~11 rows) contribute all of them.
 _SHAP_BACKGROUND_SIZE = 100
-_GLOBAL_EXPLANATION_SAMPLE_SIZE = 200
+_GLOBAL_EXPLANATION_SAMPLE_SIZE = 500
 
 
 def _class_balanced_sample(
@@ -494,13 +510,13 @@ def generate_explanations(
     experiment, saving plots under plots_dir/<dataset>/<model>_baseline/.
 
     The global SHAP bar/beeswarm and permutation-importance plots explain a sample_size-row
-    sample of the test set drawn *stratified* (proportional to class prevalence), i.e. "what
-    drives predictions on the traffic mix actually seen", not a per-class-balanced sample.
-    Deliberate: it keeps the global plots representative of deployment conditions. The
-    trade-off is that the rarest classes (UNSW-NB15 Worms, CIC-IDS2017 Infiltration) have
-    near-zero rows in the sample, so their stacked segment in shap_bar.png is low-support -
-    the per-class local explanations (curated instances, interview stimuli) are where rare
-    classes are actually examined.
+    *class-balanced* sample of the test set (_class_balanced_sample): ~even rows per class, a
+    class with fewer test rows than its even share contributing all of them. This is a
+    deliberate switch away from a stratified (prevalence-proportional) draw, which at
+    sample_size=200 was 191/200 Benign on UNSW-NB15 and left 7 of 10 classes with zero rows -
+    so the global rankings described a two-class problem. The trade-off is that the rankings no
+    longer reflect deployment prevalence; they answer "what drives each class" with every class
+    represented, and per-class prevalence is documented separately (label_distribution.png).
 
     Partial dependence plots (PDP) were removed entirely on 2026-08-27 (had been out of the
     thesis's explainability scope since 2026-07-31, and out of this function specifically
@@ -525,12 +541,8 @@ def generate_explanations(
     predictions = pd.Series(pipeline.predict(x_test), index=x_test.index)
     target_class, confused_with_class = _hardest_class_and_confusion(y_test, predictions)
 
-    if len(x_test) > sample_size:
-        sample_x, _, sample_y, _ = train_test_split(
-            x_test, y_test, train_size=sample_size, stratify=y_test, random_state=random_state
-        )
-    else:
-        sample_x, sample_y = x_test, y_test
+    sample_x = _class_balanced_sample(x_test, y_test, sample_size, random_state=random_state)
+    sample_y = y_test.loc[sample_x.index]
     background_x = _class_balanced_sample(
         x_train, y_train, _SHAP_BACKGROUND_SIZE, random_state=random_state
     )
@@ -538,7 +550,12 @@ def generate_explanations(
     paths: dict[str, Path] = {}
 
     shap_values, base_values, x_transformed, feature_names = compute_shap_values(
-        pipeline, model_name, sample_x, background_x, categorical_columns=dataset_config.categorical_columns
+        pipeline,
+        model_name,
+        sample_x,
+        background_x,
+        categorical_columns=dataset_config.categorical_columns,
+        random_state=random_state,
     )
     paths["shap_bar"] = plot_shap_bar(
         shap_values, x_transformed, feature_names, class_names, output_dir / "shap_bar.png"
@@ -549,6 +566,10 @@ def generate_explanations(
             shap_values, x_transformed, feature_names, target_index, output_dir / "shap_beeswarm.png"
         )
 
+    # sample_x/sample_y are class-balanced (see above), so this PFI measures each feature's
+    # macro-F1 drop under a *rebalanced* class distribution, not the natural 85-96%-Benign one.
+    # Intentional: it matches the class-balanced global SHAP bar, and macro-F1 already weights
+    # every class equally regardless of the sample's mix.
     pfi_path, _ = compute_permutation_importance(
         pipeline, sample_x, sample_y, output_dir / "permutation_importance.png", random_state=random_state
     )
@@ -613,7 +634,12 @@ def _generate_instance_explanations(
     instance_indices = list(instances.values())
     instances_x = x_test.loc[instance_indices]
     instance_shap_values, instance_base_values, instances_transformed, feature_names = compute_shap_values(
-        pipeline, model_name, instances_x, background_x, categorical_columns=categorical_columns
+        pipeline,
+        model_name,
+        instances_x,
+        background_x,
+        categorical_columns=categorical_columns,
+        random_state=random_state,
     )
     predicted_classes = pipeline.predict(instances_x)
 
@@ -740,3 +766,231 @@ def generate_interview_stimuli(
             discretize_continuous=dataset_config.name in _SAFE_TO_DISCRETIZE_LIME,
         )
     return results
+
+
+# --- Cross-method agreement: SHAP vs LIME (Krishna et al. 2022) -----------------
+
+# Instances the agreement metrics are averaged over. Class-balanced rather than
+# stratified, so agreement is measured across attack types instead of on the
+# 85-96%-Benign traffic mix a prevalence-proportional draw would give. The draw depends
+# only on the test split and the seed, never on the model, so all four models are
+# compared on the *identical* instances - which is what makes the result a statement
+# about the two methods rather than about which rows each model happened to get.
+_AGREEMENT_SAMPLE_SIZE = 60
+
+# Top-k values the heatmaps sweep. Krishna et al. vary k the same way (their Figure 2,
+# where agreement falls as k grows); their interviewed practitioners reported looking at
+# "the top 5 to 10 features", which this range brackets.
+_AGREEMENT_K_VALUES = (1, 3, 5, 8, 10)
+
+# Fixed row order for the heatmaps, so panels line up across datasets and metrics.
+_AGREEMENT_MODEL_ORDER = ("random_forest", "xgboost", "neural_network", "svm")
+
+
+def _align_attribution_columns(
+    shap_feature_names: Sequence[str], lime_columns: Sequence[str]
+) -> tuple[list[int], list[int], list[str]]:
+    """Index maps putting SHAP and LIME attributions on one shared feature order.
+
+    SHAP is computed in the transformed space and collapsed back onto the raw columns
+    (proto/service/state summed from their one-hot dummies - see compute_shap_values);
+    LIME already works in the raw space, minus any zero-variance column it drops. For
+    this project's two datasets the name sets are identical (40 columns for UNSW-NB15, 59
+    for CIC-IDS2017; nothing is dropped), so this is a guard rather than a real
+    reconciliation - but a future dataset with a constant column would need it.
+    """
+    shap_position = {name: index for index, name in enumerate(shap_feature_names)}
+    lime_position = {name: index for index, name in enumerate(lime_columns)}
+    shared = [name for name in shap_feature_names if name in lime_position]
+    if not shared:
+        raise ValueError("SHAP and LIME feature-name sets do not overlap at all")
+    return [shap_position[name] for name in shared], [lime_position[name] for name in shared], shared
+
+
+def compute_explanation_attributions(
+    experiment_config_path: str | Path,
+    *,
+    dataset_config_dir: str | Path = "configs/datasets",
+    models_dir: str | Path = "outputs/models",
+    metrics_dir: str | Path = "outputs/metrics",
+    n_instances: int = _AGREEMENT_SAMPLE_SIZE,
+    overwrite: bool = False,
+) -> Path:
+    """Compute and cache the per-instance SHAP and LIME attribution matrices one experiment
+    contributes to the agreement heatmaps.
+
+    Writes metrics_dir/agreement/attributions/<experiment>.npz with two
+    [n_instances, n_features] signed matrices on a shared feature order, plus the feature
+    names, the test-set row index, and the class each instance was explained for. Cached
+    because svm's permutation SHAP costs ~90 s/instance on UNSW-NB15 and ~410 s on
+    CIC-IDS2017; with the cache the heatmaps redraw in seconds.
+
+    Both methods explain the same class for a given instance - the predict_proba argmax,
+    which is what LIME's top_labels=1 selects - so the metrics compare two explanations of
+    one prediction, as Krishna et al. define them.
+    """
+    experiment, dataset_config, x_train, y_train, x_test, y_test = _load_experiment_and_data(
+        experiment_config_path, dataset_config_dir
+    )
+    experiment_name = experiment["name"]
+    cache_path = ensure_directory(Path(metrics_dir) / "agreement" / "attributions") / f"{experiment_name}.npz"
+    if cache_path.exists() and not overwrite:
+        return cache_path
+
+    random_state = experiment.get("random_state", 42)
+    model_name = experiment["model"]
+    categorical_columns = dataset_config.categorical_columns
+
+    pipeline = joblib.load(Path(models_dir) / f"{experiment_name}.joblib")
+    class_names = list(pipeline.named_steps["model"].classes_)
+    sample_x = _class_balanced_sample(x_test, y_test, n_instances, random_state=random_state)
+    background_x = _class_balanced_sample(x_train, y_train, _SHAP_BACKGROUND_SIZE, random_state=random_state)
+
+    shap_values, _, _, shap_feature_names = compute_shap_values(
+        pipeline,
+        model_name,
+        sample_x,
+        background_x,
+        categorical_columns=categorical_columns,
+        random_state=random_state,
+    )
+
+    # One LIME explainer for the whole loop - building it scans all of x_train.
+    # num_features = every column so the surrogate weight vector comes back dense rather
+    # than truncated to LIME's default top 8, which the top-k metrics need.
+    lime_explainer, lime_predict_fn, lime_columns, lime_category_to_code = _build_lime_explainer(
+        pipeline,
+        x_train,
+        class_names,
+        categorical_columns=categorical_columns,
+        random_state=random_state,
+        discretize_continuous=dataset_config.name in _SAFE_TO_DISCRETIZE_LIME,
+    )
+    lime_rows: list[np.ndarray] = []
+    explained_class: list[int] = []
+    for instance_index in sample_x.index:
+        explanation = lime_explainer.explain_instance(
+            _encode_lime_instance(x_test.loc[instance_index], lime_columns, lime_category_to_code),
+            lime_predict_fn,
+            num_features=len(lime_columns),
+            top_labels=1,
+        )
+        label = explanation.available_labels()[0]
+        weights = np.zeros(len(lime_columns))
+        for feature_index, weight in explanation.local_exp[label]:
+            weights[feature_index] = weight
+        lime_rows.append(weights)
+        explained_class.append(label)
+
+    shap_index, lime_index, shared_names = _align_attribution_columns(shap_feature_names, lime_columns)
+    shap_matrix = np.stack(
+        [shap_values[row, shap_index, explained_class[row]] for row in range(len(sample_x))]
+    )
+    lime_matrix = np.stack([row[lime_index] for row in lime_rows])
+
+    np.savez(
+        cache_path,
+        shap=shap_matrix,
+        lime=lime_matrix,
+        feature_names=np.array(shared_names),
+        instance_index=sample_x.index.to_numpy(),
+        explained_class=np.array([class_names[label] for label in explained_class]),
+    )
+    return cache_path
+
+
+def _dataset_experiment_paths(dataset_name: str, config_dir: str | Path) -> list[tuple[str, Path]]:
+    """(model_name, config_path) for every experiment on one dataset, in _AGREEMENT_MODEL_ORDER."""
+    found: dict[str, Path] = {}
+    for config_path in sorted(Path(config_dir).glob("*.yaml")):
+        experiment = load_yaml(config_path)
+        if experiment.get("dataset") == dataset_name:
+            found[experiment["model"]] = config_path
+    ordered = [(model, found[model]) for model in _AGREEMENT_MODEL_ORDER if model in found]
+    ordered += [(model, path) for model, path in sorted(found.items()) if model not in _AGREEMENT_MODEL_ORDER]
+    if not ordered:
+        raise ValueError(f"No experiment configs in {config_dir} for dataset {dataset_name!r}")
+    return ordered
+
+
+def generate_agreement_heatmaps(
+    dataset_name: str,
+    *,
+    config_dir: str | Path = "configs/experiments",
+    dataset_config_dir: str | Path = "configs/datasets",
+    models_dir: str | Path = "outputs/models",
+    metrics_dir: str | Path = "outputs/metrics",
+    plots_dir: str | Path = "outputs/plots",
+    k_values: Sequence[int] = _AGREEMENT_K_VALUES,
+    n_instances: int = _AGREEMENT_SAMPLE_SIZE,
+    overwrite: bool = False,
+) -> dict[str, Path]:
+    """Feature- and rank-agreement heatmaps between SHAP and LIME for one dataset.
+
+    Rows are the dataset's models, columns are top-k values, and each cell is the metric
+    averaged over the shared class-balanced instance set. Krishna et al. draw one
+    method-by-method heatmap per model; this project has only two methods that produce
+    per-instance attributions (SHAP and LIME - permutation importance is global-only and
+    has no per-prediction explanation to compare), so the method pair is fixed and the
+    panel varies model and k instead.
+
+    Returns {"feature": path, "rank": path, "csv": path}; the CSV holds the same numbers
+    plus their standard errors.
+    """
+    experiments = _dataset_experiment_paths(dataset_name, config_dir)
+    k_values = list(k_values)
+
+    means = {metric: np.zeros((len(experiments), len(k_values))) for metric in AGREEMENT_METRICS}
+    sems = {metric: np.zeros((len(experiments), len(k_values))) for metric in AGREEMENT_METRICS}
+    rows: list[dict[str, Any]] = []
+
+    for row, (model_name, config_path) in enumerate(experiments):
+        cache_path = compute_explanation_attributions(
+            config_path,
+            dataset_config_dir=dataset_config_dir,
+            models_dir=models_dir,
+            metrics_dir=metrics_dir,
+            n_instances=n_instances,
+            overwrite=overwrite,
+        )
+        cached = np.load(cache_path, allow_pickle=False)
+        shap_matrix, lime_matrix = cached["shap"], cached["lime"]
+        for metric in AGREEMENT_METRICS:
+            metric_means, metric_sems = agreement_over_k(shap_matrix, lime_matrix, k_values, metric)
+            means[metric][row, :] = metric_means
+            sems[metric][row, :] = metric_sems
+            rows.extend(
+                {
+                    "dataset": dataset_name,
+                    "model": model_name,
+                    "metric": metric,
+                    "k": k,
+                    "mean": round(float(mean), 4),
+                    "sem": round(float(sem), 4),
+                    "n_instances": int(shap_matrix.shape[0]),
+                    "n_features": int(shap_matrix.shape[1]),
+                }
+                for k, mean, sem in zip(k_values, metric_means, metric_sems)
+            )
+
+    output_dir = ensure_directory(Path(plots_dir) / dataset_name)
+    paths = {
+        metric: plot_agreement_heatmap(
+            means[metric],
+            sems[metric],
+            [model for model, _ in experiments],
+            k_values,
+            output_dir / f"agreement_{metric}.png",
+            metric=metric,
+            title=f"{AGREEMENT_METRIC_TITLES[metric]} - SHAP vs LIME, {dataset_name}",
+        )
+        for metric in AGREEMENT_METRICS
+    }
+
+    csv_path = ensure_directory(Path(metrics_dir) / "agreement") / f"{dataset_name}_agreement.csv"
+    with csv_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    paths["csv"] = csv_path
+    return paths

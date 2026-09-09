@@ -573,10 +573,19 @@ python scripts/explain.py --experiment configs/experiments/unsw_nb15_random_fore
 python scripts/explain.py  # all experiments
 ```
 
-- **SHAP**: `TreeExplainer` for `random_forest` and `xgboost`, and a permutation-based `Explainer`
-  for `neural_network` and `svm` (no fast structural explainer exists for a plain MLP or a kernel SVM -
-  this path is markedly slower for both, and slower still for `svm` specifically, since its own
-  predictions are more expensive to compute).
+- **SHAP**: `TreeExplainer` for `random_forest` and `xgboost` (exact, deterministic), and a
+  permutation-based `Explainer` for `neural_network` and `svm` (no fast structural explainer exists for
+  a plain MLP or a kernel SVM - this path is markedly slower for both, and slower still for `svm`
+  specifically, since its own predictions are more expensive to compute). The permutation path is
+  **seeded** (`random_state`, default 42, passed through to `shap.Explainer(seed=...)` and the
+  `shap.sample` background sub-draw) so `svm`/`neural_network` SHAP values are reproducible run to run,
+  and runs at a **fixed permutation count** rather than SHAP's default: `max_evals =
+  _SHAP_PERMUTATION_MULTIPLIER * (2 * n_features + 1)` with the multiplier at 50, i.e. 50 permutations
+  per instance instead of the ~4 that SHAP's `max_evals=500` default works out to at this project's
+  52-59 post-one-hot feature count. At 4 permutations the estimate was visibly unstable (per-instance
+  top-8 feature sets moved by ~10-25% and their ordering by more between independent runs); 50 settles
+  it. The multiplier is the knob to lower if the `svm` permutation path becomes intractable - cost
+  scales ~linearly in it (CIC-IDS2017 `svm`: ~48 s/instance at 4 permutations, ~430 s at 50).
   Produces a global bar plot (mean |SHAP value| per feature, stacked by class), a global beeswarm
   for the class each model handles worst, and local waterfall plots for two curated test instances.
 - **LIME** (`LimeTabularExplainer`): local explanations for the same two curated instances, so SHAP and
@@ -626,11 +635,16 @@ stating when writing this up:
   rather than a uniform random sample that would be 85-96% `Benign`, so `svm`/`neural_network` land on
   roughly the same near-uniform footing as `random_forest`. `xgboost`'s base value remains margin-space
   and comparable in attribution *direction* only, not level.
-- **The rarest classes are near-absent from the global plots.** The global SHAP bar/beeswarm and
-  permutation importance explain a 200-row **stratified** (prevalence-proportional) test sample - a
-  deliberate "what drives predictions on realistic traffic" choice - so `Worms` / `Infiltration` have
-  ~0 rows in it and their stacked segment in `shap_bar.png` is low-support. Rare classes are examined
-  only through the per-class local explanations (curated instances, interview stimuli).
+- **The global sample is class-balanced, not prevalence-weighted.** The global SHAP bar/beeswarm and
+  permutation importance explain a **500-row class-balanced** test sample (`_class_balanced_sample`,
+  `random_state=42`) - 50 rows/class on UNSW-NB15 (all 10 classes), 71/class on CIC-IDS2017 except
+  `Infiltration`, which has only 11 test rows and contributes all of them (437 rows total). This
+  replaced a 200-row *stratified* draw that was 191/200 `Benign` on UNSW-NB15 and left 7 of 10 classes
+  with zero rows, making the global rankings a two-class problem. The trade-off: the rankings no longer
+  reflect deployment prevalence (documented separately in `label_distribution.png`), and the
+  permutation-importance macro-F1 drop is measured under the rebalanced distribution - intentional, and
+  noted in `generate_explanations()`. Switching the basis moved the global SHAP-vs-PFI agreement
+  numbers materially on the imbalanced datasets (see the agreement table below).
 
 ### Interview stimuli
 
@@ -657,3 +671,72 @@ Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/interview_<c
 plots at all if the model never misclassifies it in the test set (no stimulus pair possible); every
 class in the current list was re-checked to have both a correct and a misclassified test instance
 for all four models.
+
+### Cross-method agreement (SHAP vs LIME)
+
+`generate_agreement_heatmaps` in `pipeline.py` (`scripts/agreement.py`) measures how far the two
+per-instance explanation methods actually agree, using the two top-k metrics of **Krishna et al.,
+"The Disagreement Problem in Explainable Machine Learning" (TMLR 2024)**:
+
+- **Feature agreement** - fraction of the top-`k` features (ranked by `|attribution|`) the two
+  explanations have in common, `|topk(A) n topk(B)| / k`. The paper's interviewed practitioners
+  (84%) named the top-feature set as the single most important thing they read off an explanation.
+- **Rank agreement** - fraction of the top-`k` features that are both shared *and* given the same
+  rank by both explanations (dense ranking over all features, so ties are handled). Stricter than
+  feature agreement and `<=` it by construction.
+
+`src/xai_thesis/agreement.py`'s `agreement_fraction` is a direct port of the authors' reference
+implementation (`AI4LIFE-GROUP/disagreement-problem`, `experiments/tabular/metrics.py`), verified
+numerically identical to it across 144 randomised comparisons (both metrics x six `k` values x
+twelve matrices, including tie-heavy and near-identical cases) before the reference copy was
+removed. The only edit is the original's `DataFrame.applymap(str)` written as `.astype(str)`
+(`applymap` was removed in pandas 3.0). The paper's other two metrics - sign agreement and signed
+rank agreement - are deliberately not implemented; this project reports only the two above.
+
+```powershell
+python scripts/agreement.py --dataset unsw_nb15
+python scripts/agreement.py                      # every dataset
+python scripts/agreement.py --overwrite          # recompute the cached attribution matrices
+```
+
+**Only SHAP and LIME enter these metrics.** They are defined over two explanations *of the same
+prediction*, so they need a per-instance attribution vector from each method; permutation importance
+is global-only and has no per-prediction explanation to compare, so it is not part of this analysis.
+For each instance both methods explain the same class - the `predict_proba` argmax, which is what
+LIME's `top_labels=1` selects.
+
+Krishna et al. draw one method-by-method heatmap per model. With the method pair fixed at SHAP/LIME
+there would be one informative number per panel, so the heatmaps here vary **model (rows) x top-`k`
+(columns)** instead, one pair of panels per dataset:
+
+- `outputs/plots/<dataset>/agreement_feature.png`
+- `outputs/plots/<dataset>/agreement_rank.png`
+- `outputs/metrics/agreement/<dataset>_agreement.csv` - the same numbers plus standard errors.
+
+`k` sweeps `1, 3, 5, 8, 10` by default (`--k`): the paper varies `k` the same way and finds agreement
+falls as `k` grows, and its practitioners reported looking at "the top 5 to 10 features".
+
+Metrics are averaged over a **class-balanced 60-row test sample** (56 on CIC-IDS2017, whose
+`Infiltration` class has only 11 test rows) rather than the ~85-96%-`Benign` stratified sample the
+global plots use - the question is SHAP/LIME consistency across attack types. The draw depends only
+on the test split and the seed, never on the model, so **all four models are compared on the
+identical instances**; the result is therefore a statement about the two methods, not about which
+rows each model happened to get.
+
+Computing the attribution matrices is the slow part (`svm`'s permutation SHAP is ~90 s/instance on
+UNSW-NB15 and ~410 s on CIC-IDS2017, plus one LIME run per instance), so they are cached as
+`outputs/metrics/agreement/attributions/<experiment>.npz` and the heatmaps redraw from the cache in
+seconds.
+
+**Feature-space reconciliation**: SHAP is computed in the transformed space and collapsed back onto
+the raw columns (one-hot `proto`/`service`/`state` summed into one column each - see
+`compute_shap_values`), which is exactly the space LIME already works in. The two name sets are
+identical for both datasets (40 columns for UNSW-NB15, 59 for CIC-IDS2017; LIME drops no
+zero-variance column on either), so `_align_attribution_columns` is a guard rather than a real
+reconciliation - but a future dataset with a constant column would need it.
+
+> **`svm` caveat.** `SVC.predict()` (one-vs-one voting) and `predict_proba`'s argmax disagree on 34
+> of the 60 sampled UNSW-NB15 instances - a known `SVC` + Platt-scaling effect under class imbalance
+> (0 disagreements for every other model). The agreement numbers stay valid, since SHAP and LIME both
+> explain the `predict_proba`-argmax class and so always describe the *same* class as each other, but
+> for those instances that class is not the one the pipeline's `.predict()` returns.
