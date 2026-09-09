@@ -716,9 +716,11 @@ there would be one informative number per panel, so the heatmaps here vary **mod
 `k` sweeps `1, 3, 5, 8, 10` by default (`--k`): the paper varies `k` the same way and finds agreement
 falls as `k` grows, and its practitioners reported looking at "the top 5 to 10 features".
 
-Metrics are averaged over a **class-balanced 60-row test sample** (56 on CIC-IDS2017, whose
-`Infiltration` class has only 11 test rows) rather than the ~85-96%-`Benign` stratified sample the
-global plots use - the question is SHAP/LIME consistency across attack types. The draw depends only
+Metrics are averaged over a **class-balanced test sample** of ~60 rows (exactly 60 on UNSW-NB15:
+6 per class x 10; 56 on CIC-IDS2017: 8 per class x 7, the remainder dropped by integer division -
+every class, `Infiltration` included, has more than 8 test rows, so none is row-capped at this size)
+rather than the ~85-96%-`Benign` stratified sample the global plots use - the question is SHAP/LIME
+consistency across attack types. The draw depends only
 on the test split and the seed, never on the model, so **all four models are compared on the
 identical instances**; the result is therefore a statement about the two methods, not about which
 rows each model happened to get.

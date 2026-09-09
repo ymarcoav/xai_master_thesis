@@ -87,21 +87,27 @@ def compute_shap_values(
     importance/PDP, which already operate on the original feature space directly by wrapping
     the whole pipeline rather than the bare model.
 
-    Base-value footing differs by explainer and is not fully unifiable here: the tree path
-    (random_forest, xgboost) runs TreeExplainer with feature_perturbation="tree_path_dependent"
-    (no background - xgboost's SHAP build rejects the interventional+background path outright),
-    so its base value is the model's own class_weight/sample_weight-adjusted internal prior,
-    which for this project's balanced weighting sits near 1/n_classes. The permutation path
-    (svm, neural_network) uses background_data directly; pipeline.py passes a class-balanced
-    sample there so its base value lands on that same near-uniform footing rather than on the
-    85-96%-Benign raw prior. xgboost's base value is in margin space and still not directly
-    comparable in level to the others (attribution directions are).
+    Output space and base-value footing differ by explainer and are not fully unifiable here:
+
+      - random_forest: TreeExplainer in probability space, feature_perturbation=
+        "tree_path_dependent" (no background). shap_values and base_values are probabilities;
+        base_values sit near 1/n_classes given this project's balanced class weighting.
+      - xgboost: TreeExplainer, same path, but in *raw margin* (log-odds) space - shap 0.52 /
+        xgboost 3.4 reject model_output="probability" for this model ("Model does not have a
+        known objective or output type"), so its values and base_values are log-odds, not
+        probabilities, and are not comparable *in level* to random_forest's (attribution
+        directions and relative magnitudes still are). plot_shap_waterfall labels which space
+        each plot is in.
+      - svm, neural_network: model-agnostic permutation explainer over predict_proba, so
+        probability space. background_data is used exactly as passed (no sub-sampling);
+        pipeline.py passes a class-balanced sample so the per-instance base_values land on the
+        same near-1/n_classes footing rather than on the 85-96%-Benign raw prior.
 
     The permutation path is seeded (random_state, default 42) and run at a fixed permutation
     count (_SHAP_PERMUTATION_MULTIPLIER, via max_evals) rather than SHAP's ~4-permutation
     default, so svm/neural_network SHAP values are both reproducible and materially lower
-    variance; the background sub-sample is drawn with the same seed. The tree path is exact and
-    already deterministic, so random_state does not affect it.
+    variance. The tree path is exact and already deterministic, so random_state does not
+    affect it.
 
     Returns (shap_values, base_values, display_data, feature_names):
       - shap_values: shape (n_samples, n_original_features, n_classes), already collapsed
@@ -128,12 +134,11 @@ def compute_shap_values(
         shap_values, expected_value = _expand_binary_class_dimension(shap_values, expected_value, n_classes)
         base_values = np.broadcast_to(expected_value, (n_samples, expected_value.shape[0]))
     else:
-        background_summary = shap.sample(
-            background_transformed, min(50, len(background_transformed)), random_state=random_state
-        )
+        # background_transformed is already the curated class-balanced reference sample
+        # (pipeline.py's _SHAP_BACKGROUND_SIZE rows); pass it as-is, no further sub-sampling.
         max_evals = _SHAP_PERMUTATION_MULTIPLIER * (2 * x_transformed.shape[1] + 1)
         explainer = shap.Explainer(
-            predict_proba_fn(model), background_summary, algorithm="permutation", seed=random_state
+            predict_proba_fn(model), background_transformed, algorithm="permutation", seed=random_state
         )
         explanation = explainer(x_transformed, max_evals=max_evals)
         shap_values = np.asarray(explanation.values)
@@ -178,6 +183,13 @@ def _collapse_to_original_features(
 
     Numeric features map 1:1 onto a transformed column, so their SHAP values pass through
     unchanged; only their displayed value changes (original units instead of quantile-scaled).
+
+    Dummies are summed *signed*, not by magnitude: within one instance the active level's dummy
+    and the inactive levels' dummies partly offset, and their signed sum is that categorical's
+    net contribution to the prediction (which is what a local waterfall should show). A
+    consequence is that plot_shap_bar's global bar for a categorical is mean|net contribution|,
+    which can sit below the sum of its dummies' individual mean|SHAP| when levels pull opposite
+    ways - intended, not a bug.
     """
     # Longest-name-first so a categorical column name that happens to prefix another (e.g. a
     # column "a" and a column "a_b") doesn't grab the wrong dummy block.
@@ -266,8 +278,16 @@ def plot_shap_waterfall(
     class_index: int,
     output_path: str | Path,
     max_display: int = 10,
+    *,
+    value_label: str = "model output",
 ) -> Path:
-    """Local waterfall plot explaining one instance's prediction for one class."""
+    """Local waterfall plot explaining one instance's prediction for one class.
+
+    value_label names the space the x-axis (E[f(x)] -> f(x)) lives in - "probability" for
+    random_forest / svm / neural_network, "log-odds (XGBoost raw margin)" for xgboost, whose
+    TreeExplainer cannot emit probabilities on this shap/xgboost build (see compute_shap_values).
+    It is drawn as the plot title so an xgboost margin plot is not mistaken for a probability one.
+    """
     explanation = shap.Explanation(
         values=shap_values[instance_index, :, class_index],
         base_values=base_values[instance_index, class_index],
@@ -275,6 +295,7 @@ def plot_shap_waterfall(
         feature_names=feature_names,
     )
     shap.plots.waterfall(explanation, show=False, max_display=max_display)
+    plt.gca().set_title(f"Attributions in {value_label} space", fontsize="medium", loc="left", pad=12)
     return _save_current_figure(output_path)
 
 

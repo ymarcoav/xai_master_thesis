@@ -473,7 +473,13 @@ _SAFE_TO_DISCRETIZE_LIME = {"unsw_nb15"}
 # global SHAP bar / PFI rankings were effectively a two-class problem. 500 class-balanced rows
 # put every class in the ranking; classes with fewer test rows than their even share (e.g.
 # CIC-IDS2017 Infiltration, ~11 rows) contribute all of them.
-_SHAP_BACKGROUND_SIZE = 100
+#
+# The background is only consulted by the permutation path (svm, neural_network); the tree
+# path ignores it. compute_shap_values passes it to shap.Explainer as-is (no further
+# sub-sampling), so this is the exact reference distribution - keep it small, since svm's
+# permutation SHAP cost scales with it (~90-410 s/instance at 50 rows). 50 divides evenly
+# into both datasets' class counts (5/class x 10 on UNSW-NB15, 7/class x 7 on CIC-IDS2017).
+_SHAP_BACKGROUND_SIZE = 50
 _GLOBAL_EXPLANATION_SAMPLE_SIZE = 500
 
 
@@ -643,6 +649,10 @@ def _generate_instance_explanations(
     )
     predicted_classes = pipeline.predict(instances_x)
 
+    # xgboost's TreeExplainer is in raw-margin (log-odds) space on this shap/xgboost build;
+    # every other model's SHAP values are probabilities (see compute_shap_values).
+    waterfall_space = "log-odds (XGBoost raw margin)" if model_name == "xgboost" else "probability"
+
     for row_index, (kind, predicted_class) in enumerate(zip(instance_kinds, predicted_classes, strict=True)):
         class_index = class_names.index(predicted_class)
         paths[f"shap_waterfall_{kind}"] = plot_shap_waterfall(
@@ -653,6 +663,7 @@ def _generate_instance_explanations(
             row_index,
             class_index,
             output_dir / f"shap_waterfall_{kind}.png",
+            value_label=waterfall_space,
         )
         paths[f"lime_{kind}"] = explain_instance_with_lime(
             pipeline,
@@ -939,6 +950,18 @@ def generate_agreement_heatmaps(
     """
     experiments = _dataset_experiment_paths(dataset_name, config_dir)
     k_values = list(k_values)
+
+    # The class-balanced instance draw in compute_explanation_attributions is seeded from each
+    # experiment's own random_state, and the heatmap only means anything if every model is
+    # scored on the *same* rows (that is what makes it a statement about SHAP vs LIME rather
+    # than about which instances each model happened to get). Fail loudly if the configs
+    # disagree rather than silently comparing models on different samples.
+    seeds = {model: load_yaml(path).get("random_state", 42) for model, path in experiments}
+    if len(set(seeds.values())) > 1:
+        raise ValueError(
+            f"agreement heatmaps need one shared random_state across all {dataset_name} "
+            f"experiments (the instance draw depends on it); got {seeds}"
+        )
 
     means = {metric: np.zeros((len(experiments), len(k_values))) for metric in AGREEMENT_METRICS}
     sems = {metric: np.zeros((len(experiments), len(k_values))) for metric in AGREEMENT_METRICS}
