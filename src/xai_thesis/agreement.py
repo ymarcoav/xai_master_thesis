@@ -122,6 +122,12 @@ def plot_agreement_heatmap(
     per-instance methods, SHAP and LIME, so the method-pair matrix would be 2x2), and
     dpi is this project's usual 150 rather than the reference's 2000.
 
+    The colormap is sequential "Reds", light for low agreement and dark for high, matching
+    the paper's own convention (its Figure 1 caption: "lower values (lighter colors)
+    indicating stronger disagreement"). A diverging map would be wrong here regardless of
+    taste: agreement runs 0 to 1 with no meaningful midpoint, so the white band a diverging
+    palette puts at 0.5 would imply a neutral point that does not exist.
+
     sems is None for the global (SHAP vs permutation importance) panels: those compare two
     single dataset-level rankings, so there is one value per cell and no across-instance
     spread to report. footnote adds a further line under the plot - used to record which
@@ -130,7 +136,7 @@ def plot_agreement_heatmap(
     fig, ax = plt.subplots(figsize=(1.5 * len(k_values) + 3.5, 0.75 * len(row_labels) + 2.5))
     sns.heatmap(
         values,
-        cmap=sns.color_palette("vlag", as_cmap=True),
+        cmap=sns.color_palette("Reds", as_cmap=True),
         vmin=0,
         vmax=1,
         xticklabels=[f"k = {k}" for k in k_values],

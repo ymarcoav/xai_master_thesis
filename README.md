@@ -841,7 +841,11 @@ Outputs:
 **One standardised figure set.** Across both panels and both datasets that is **eight heatmaps** -
 `local_agreement_{feature,rank}.png` and `global_agreement_{feature,rank}.png` per dataset - all on the
 class-balanced 500-row basis, `random_state=42`, the same two metrics and the same fixed `[0, 1]`
-colour scale, with models as rows. An alternative `--basis`/`--size` writes **only** a CSV, suffixed
+sequential-`Reds` scale (light = low agreement, dark = high), with models as rows. The scale is
+sequential rather than diverging because agreement runs 0 to 1 with no meaningful midpoint - a
+diverging palette's white band at 0.5 would imply a neutral point that does not exist - and it
+matches the paper's own convention (Figure 1: "lower values (lighter colors) indicating stronger
+disagreement"). An alternative `--basis`/`--size` writes **only** a CSV, suffixed
 `_<basis><size>`; it does not draw a heatmap unless `write_plots=True` is passed explicitly. The
 alternative bases exist to justify the default (below), and are reported as numbers - a near-identical
 heatmap per basis would bury the figure the thesis actually uses.
