@@ -250,10 +250,15 @@ def test_compute_permutation_importance_writes_png_and_ranks_features(tmp_path) 
     x, y = _make_dataset()
     pipeline = _fitted_pipeline("random_forest", x, y)
 
-    output_path, top_features = compute_permutation_importance(pipeline, x, y, tmp_path / "pfi.png", n_repeats=3)
+    output_path, top_features, result = compute_permutation_importance(
+        pipeline, x, y, tmp_path / "pfi.png", n_repeats=3
+    )
 
     assert output_path.exists()
     assert set(top_features) == {"feature_a", "feature_b"}
+    # The raw Bunch comes back too, so callers needing the ranking don't recompute it.
+    assert result.importances_mean.shape == (x.shape[1],)
+    assert result.importances.shape == (x.shape[1], 3)
 
 
 def test_select_curated_instances_finds_correct_and_misclassified() -> None:

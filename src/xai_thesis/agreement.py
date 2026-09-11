@@ -103,13 +103,15 @@ def agreement_over_k(
 
 def plot_agreement_heatmap(
     values: np.ndarray,
-    sems: np.ndarray,
+    sems: np.ndarray | None,
     row_labels: Sequence[str],
     k_values: Sequence[int],
     output_path: str | Path,
     *,
     metric: str,
     title: str,
+    pair_label: str = "SHAP vs LIME",
+    footnote: str = "",
 ) -> Path:
     """Annotated heatmap of agreement values, rows = models, columns = k.
 
@@ -119,6 +121,11 @@ def plot_agreement_heatmap(
     the axes are models x k rather than method x method (this project has only two
     per-instance methods, SHAP and LIME, so the method-pair matrix would be 2x2), and
     dpi is this project's usual 150 rather than the reference's 2000.
+
+    sems is None for the global (SHAP vs permutation importance) panels: those compare two
+    single dataset-level rankings, so there is one value per cell and no across-instance
+    spread to report. footnote adds a further line under the plot - used to record which
+    model/dataset cells were left out and why.
     """
     fig, ax = plt.subplots(figsize=(1.5 * len(k_values) + 3.5, 0.75 * len(row_labels) + 2.5))
     sns.heatmap(
@@ -137,14 +144,17 @@ def plot_agreement_heatmap(
     )
     ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
     ax.set_title(title)
-    fig.text(
-        0.5,
-        0.01,
-        f"SHAP vs LIME, mean over instances. Standard errors: "
-        f"min={sems.min():.3f}, max={sems.max():.3f}",
-        ha="center",
-        fontsize="small",
-    )
+
+    if sems is None:
+        caption = f"{pair_label}, one ranking pair per model (no across-instance spread)."
+    else:
+        caption = (
+            f"{pair_label}, mean over instances. "
+            f"Standard errors: min={sems.min():.3f}, max={sems.max():.3f}"
+        )
+    if footnote:
+        caption = f"{caption}\n{footnote}"
+    fig.text(0.5, 0.01, caption, ha="center", fontsize="small")
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)

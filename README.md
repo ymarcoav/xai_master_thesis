@@ -26,6 +26,30 @@ pip install -e ".[dev]"
 project needs the CPU build only; if `pip` pulls a large CUDA wheel, install it explicitly
 first: `pip install torch --index-url https://download.pytorch.org/whl/cpu`.
 
+### Pinned environment
+
+`pyproject.toml` lists dependencies unpinned, for development. **`requirements.lock` pins the exact
+environment that produced everything in `outputs/`** - every model, metric and explanation figure -
+and is what the thesis's numbers should be reproduced against:
+
+```powershell
+py -3.14 -m venv .venv
+.venv/Scripts/python -m pip install -r requirements.lock
+.venv/Scripts/python -m pip install -e . --no-deps
+```
+
+Python 3.14.0 (CPython, Windows 11). The versions that actually change explanation results:
+
+| package | pinned | why it matters |
+| --- | --- | --- |
+| `shap` | 0.52.0 | `_SHAP_PERMUTATION_MULTIPLIER` is set from `npermutations = max_evals // (2 * n_features + 1)`, the arithmetic in this version's `shap/explainers/_permutation.py:169`. A version changing that formula, or the `max_evals=500` default it compensates for, changes how many permutations `svm`/`neural_network` SHAP actually runs. Also the version whose `PermutationExplainer` accepts `seed=`, and whose `TreeExplainer` rejects `model_output="probability"` for `xgboost` - which is why that model's attributions are in log-odds space. |
+| `lime` | 0.2.0.1 | `LimeTabularExplainer`'s `num_samples=5000` default and `sqrt(n_features) * 0.75` kernel width are this version's; both feed the local agreement panel. |
+| `scikit-learn` | 1.9.0 | `permutation_importance` (global panel, PFI plots), `SVC` + Platt scaling, the preprocessing pipeline. |
+| `xgboost` | 3.4.1 | Pairs with `shap` for the `TreeExplainer` output-space behaviour above. |
+| `torch` | 2.13.0+cpu | `TorchMLPClassifier`; the CPU build, seeded via `torch.use_deterministic_algorithms`. |
+| `pandas` | 3.0.4 | `DataFrame.applymap` was removed here - the reason `agreement.py`'s port of the reference `agreement_fraction` uses `.astype(str)`. |
+| `numpy` / `scipy` | 2.4.6 / 1.18.0 | `rankdata(method="dense")` and the SEM used by the agreement metrics. |
+
 ## Datasets
 
 Four intrusion detection datasets are supported: UNSW-NB15, CIC-IDS2017, DAPT2020, and NSL-KDD. Each
@@ -643,8 +667,8 @@ stating when writing this up:
   with zero rows, making the global rankings a two-class problem. The trade-off: the rankings no longer
   reflect deployment prevalence (documented separately in `label_distribution.png`), and the
   permutation-importance macro-F1 drop is measured under the rebalanced distribution - intentional, and
-  noted in `generate_explanations()`. Switching the basis moved the global SHAP-vs-PFI agreement
-  numbers materially on the imbalanced datasets (see the agreement table below).
+  noted in `generate_explanations()`. What switching the basis did to the global rankings is measured
+  under Cross-method agreement below.
 
 ### Interview stimuli
 
@@ -672,11 +696,17 @@ plots at all if the model never misclassifies it in the test set (no stimulus pa
 class in the current list was re-checked to have both a correct and a misclassified test instance
 for all four models.
 
-### Cross-method agreement (SHAP vs LIME)
+### Cross-method agreement
 
-`generate_agreement_heatmaps` in `pipeline.py` (`scripts/agreement.py`) measures how far the two
-per-instance explanation methods actually agree, using the two top-k metrics of **Krishna et al.,
-"The Disagreement Problem in Explainable Machine Learning" (TMLR 2024)**:
+Two panels, both built from the same two top-k metrics of **Krishna et al., "The Disagreement
+Problem in Explainable Machine Learning" (TMLR 2024)**, so local and global read on one scale:
+
+| panel | pair | unit compared |
+| --- | --- | --- |
+| local | SHAP vs LIME | one attribution vector per *instance*, averaged over a shared sample |
+| global | mean \|SHAP\| pooled across classes vs permutation importance | one *dataset-level* ranking per model |
+
+The two metrics:
 
 - **Feature agreement** - fraction of the top-`k` features (ranked by `|attribution|`) the two
   explanations have in common, `|topk(A) n topk(B)| / k`. The paper's interviewed practitioners
@@ -691,13 +721,20 @@ numerically identical to it across 144 randomised comparisons (both metrics x si
 twelve matrices, including tie-heavy and near-identical cases) before the reference copy was
 removed. The only edit is the original's `DataFrame.applymap(str)` written as `.astype(str)`
 (`applymap` was removed in pandas 3.0). The paper's other two metrics - sign agreement and signed
-rank agreement - are deliberately not implemented; this project reports only the two above.
+rank agreement - are deliberately not implemented; this project reports only the two above. No
+rank-correlation measure is reported either: the paper's own rank correlation is defined over a
+user-supplied set of features of interest, this project has no such set, and reporting one number
+per panel keeps local and global directly comparable.
 
 ```powershell
-python scripts/agreement.py --dataset unsw_nb15
-python scripts/agreement.py                      # every dataset
-python scripts/agreement.py --overwrite          # recompute the cached attribution matrices
+python scripts/agreement.py --dataset unsw_nb15            # both panels
+python scripts/agreement.py --scope global                # global only
+python scripts/agreement.py --scope global --basis stratified --size 200
+python scripts/agreement.py                               # every dataset
+python scripts/agreement.py --overwrite                   # recompute the caches
 ```
+
+#### Local: SHAP vs LIME
 
 **Only SHAP and LIME enter these metrics.** They are defined over two explanations *of the same
 prediction*, so they need a per-instance attribution vector from each method; permutation importance
@@ -742,3 +779,111 @@ reconciliation - but a future dataset with a constant column would need it.
 > (0 disagreements for every other model). The agreement numbers stay valid, since SHAP and LIME both
 > explain the `predict_proba`-argmax class and so always describe the *same* class as each other, but
 > for those instances that class is not the one the pipeline's `.predict()` returns.
+
+
+**Local agreement at k = 5** (mean +/- standard error over the shared instance set):
+
+| model | UNSW-NB15 feature@5 | UNSW-NB15 rank@5 | CIC-IDS2017 feature@5 | CIC-IDS2017 rank@5 |
+| --- | --- | --- | --- | --- |
+| `random_forest` | 0.237 +/- 0.029 | 0.047 +/- 0.011 | 0.261 +/- 0.029 | 0.054 +/- 0.013 |
+| `xgboost` | 0.277 +/- 0.025 | 0.113 +/- 0.015 | 0.182 +/- 0.019 | 0.036 +/- 0.011 |
+| `neural_network` | 0.520 +/- 0.023 | 0.150 +/- 0.017 | 0.379 +/- 0.033 | 0.064 +/- 0.014 |
+| `svm` | 0.570 +/- 0.029 | 0.287 +/- 0.029 | *omitted* | *omitted* |
+
+`svm` on CIC-IDS2017 is the one cell computed for no panel, local or global. Its permutation
+SHAP was measured at **408 s/instance** (10-instance run at `_SHAP_PERMUTATION_MULTIPLIER = 50`,
+2026-09-09), which is 6.8 h for the 60-instance local set and ~57 h for the 500-row global one,
+against ~90 s/instance for the same model on UNSW-NB15. The pair is listed in
+`_AGREEMENT_EXCLUDED` in `pipeline.py` with that measurement as its reason, dropped from the
+heatmap rows, and named in each panel's footnote, so the omission is visible in the figure
+rather than only here. Lowering the multiplier for `svm` alone was rejected: an inconsistent
+permutation count across models would make the cross-model comparison meaningless.
+
+#### Global: SHAP vs permutation importance
+
+`generate_global_agreement` applies the *same two metrics* to the two global rankings a model
+produces: mean `|SHAP|` pooled across classes (what `shap_bar.png` stacks) and
+`permutation_importance(...).importances_mean` (what `permutation_importance.png` plots). Each cell
+is a single number rather than a mean over instances, because a global ranking is one vector per
+model - so these panels carry no standard error.
+
+The two rankings are **not recomputed** for the figure. `generate_explanations()` caches exactly the
+pair it plotted into `outputs/metrics/agreement/global/<experiment>__<basis><size>.npz`, and the
+agreement panel reads that back, so the figure describes the ranking the thesis actually shows
+rather than an independent re-run of it - and `svm`, at ~90 s/instance over 500 rows, is computed
+once instead of twice.
+
+Permutation importance goes slightly negative when permuting a feature happens to *improve* the
+score. Since the metrics rank by `|value|`, those are clipped to zero first
+(`_as_importance_vector`): a negative permutation importance means "no measurable importance", not
+"strongly important the other way", and without the clip a feature scoring `-0.004` would outrank
+one scoring `+0.001`.
+
+Outputs (`_<basis><size>` suffix on anything that is not the default `balanced`/500):
+
+- `outputs/plots/<dataset>/global_agreement_feature.png`
+- `outputs/plots/<dataset>/global_agreement_rank.png`
+- `outputs/metrics/agreement/<dataset>_global_agreement.csv` - the same numbers plus each model's
+  top-5 features under both methods.
+
+**Sample basis.** `--basis`/`--size` select the rows the rankings are built on, which is how the
+2026-09-09 switch away from a prevalence-proportional draw is reproduced:
+
+| basis | draw | what used it |
+| --- | --- | --- |
+| A | stratified, 200 rows | the global plots before 2026-09-09 (191/200 `Benign` on UNSW-NB15) |
+| B | class-balanced, 60 rows | the local panel's instance set, reused as a global basis |
+| C | class-balanced, 500 rows | **current default** - the sample `generate_explanations()` plots |
+
+**Global agreement at k = 5, by basis** (`random_forest` also run at 1000 rows as a
+convergence check; `svm` appears under the default basis only - see the runtime note below):
+
+*UNSW-NB15*
+
+| model | basis | rows | classes | feature@5 | rank@5 | SHAP top-5 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `random_forest` | A stratified, 200 | 200 | 6 | 0.80 | 0.40 | sttl, ct_state_ttl, sbytes, service, proto |
+|  | B balanced, 60 | 60 | 10 | 0.80 | 0.20 | proto, service, sbytes, sttl, smean |
+|  | C **balanced, 500** | 500 | 10 | 0.80 | 0.40 | proto, service, sbytes, sttl, dbytes |
+|  | C' balanced, 1000 | 951 | 10 | 0.80 | 0.40 | proto, service, sbytes, sttl, dbytes |
+| `xgboost` | A stratified, 200 | 200 | 6 | 0.60 | 0.20 | sttl, proto, dbytes, sbytes, dmean |
+|  | B balanced, 60 | 60 | 10 | 1.00 | 0.20 | proto, sbytes, sttl, service, smean |
+|  | C **balanced, 500** | 500 | 10 | 1.00 | 0.20 | proto, sttl, sbytes, service, smean |
+| `neural_network` | A stratified, 200 | 200 | 6 | 0.60 | 0.40 | sttl, dttl, state, service, proto |
+|  | B balanced, 60 | 60 | 10 | 1.00 | 0.40 | dttl, service, proto, sttl, state |
+|  | C **balanced, 500** | 500 | 10 | 1.00 | 0.40 | dttl, service, sttl, proto, state |
+
+*CIC-IDS2017*
+
+| model | basis | rows | classes | feature@5 | rank@5 | SHAP top-5 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `random_forest` | A stratified, 200 | 200 | 3 | 0.60 | 0.20 | Bwd Packet Length Std, Init_Win_bytes_backward, Init_Win_bytes_forward, Fwd IAT Std, Bwd Packet Length Mean |
+|  | B balanced, 60 | 56 | 7 | 0.80 | 0.40 | Fwd Packet Length Max, Fwd IAT Std, Total Backward Packets, Bwd Packet Length Std, Init_Win_bytes_backward |
+|  | C **balanced, 500** | 437 | 7 | 0.80 | 0.20 | Fwd IAT Std, Total Backward Packets, Bwd Header Length, Bwd Packet Length Std, Fwd Packet Length Max |
+|  | C' balanced, 1000 | 863 | 7 | 0.80 | 0.20 | Fwd IAT Std, Total Backward Packets, Bwd Header Length, Bwd Packet Length Std, Init_Win_bytes_backward |
+| `xgboost` | A stratified, 200 | 200 | 3 | 0.40 | 0.00 | Init_Win_bytes_forward, Init_Win_bytes_backward, Flow IAT Min, min_seg_size_forward, Bwd Packets/s |
+|  | B balanced, 60 | 56 | 7 | 0.40 | 0.00 | Init_Win_bytes_forward, Init_Win_bytes_backward, Bwd Packets/s, Flow IAT Min, min_seg_size_forward |
+|  | C **balanced, 500** | 437 | 7 | 0.60 | 0.40 | Init_Win_bytes_backward, Init_Win_bytes_forward, Bwd Packets/s, Flow IAT Min, Fwd Packets/s |
+| `neural_network` | A stratified, 200 | 200 | 3 | 0.40 | 0.40 | PSH Flag Count, Init_Win_bytes_forward, ACK Flag Count, min_seg_size_forward, Bwd IAT Total |
+|  | B balanced, 60 | 56 | 7 | 0.80 | 0.60 | PSH Flag Count, Init_Win_bytes_forward, ACK Flag Count, Init_Win_bytes_backward, min_seg_size_forward |
+|  | C **balanced, 500** | 437 | 7 | 0.80 | 0.20 | PSH Flag Count, Init_Win_bytes_forward, Init_Win_bytes_backward, ACK Flag Count, min_seg_size_forward |
+
+Reading the table:
+
+- **A -> C is a change of object, not just of score.** The stratified draw only ever sees 6 of
+  UNSW-NB15's 10 classes and 3 of CIC-IDS2017's 7, so its "global" ranking describes a handful of
+  classes. Feature agreement rises in 5 of the 6 model/dataset pairs on the switch, and features
+  that lead under A - UNSW-NB15's `ct_state_ttl`, CIC-IDS2017's `Bwd Packet Length Std` - leave the
+  top 5 entirely under C.
+- **B -> C moves rankings, which is why C' exists.** Feature agreement is mostly stable, but three
+  of six models swap a top-5 member between the 60-row and 500-row balanced draws
+  (`smean`->`dbytes`, `Init_Win_bytes_backward`->`Bwd Header Length`,
+  `min_seg_size_forward`->`Fwd Packets/s`), and CIC-IDS2017's `random_forest` reorders heavily.
+- **500 rows is converged.** Doubling to ~1000 (`random_forest`, both datasets) reproduces every
+  feature- and rank-agreement value at every `k` on UNSW-NB15, and every value on CIC-IDS2017 except
+  rank agreement at `k = 10`; the only top-5 movement is CIC-IDS2017's fifth-ranked feature. The
+  B -> C movement was therefore small-sample noise at n = 56-60, not a sign that 500 is still short.
+- **Global rank agreement is a single ranking pair, so it does not average.** At `k = 5` it can only
+  take values in steps of 0.2, and one feature shifting one position moves it a whole step. Feature
+  agreement is the more stable read at this scale; the local panel, averaged over ~60 instances, is
+  where rank agreement carries a meaningful standard error.

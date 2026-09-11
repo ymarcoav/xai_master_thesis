@@ -464,7 +464,7 @@ def compute_permutation_importance(
     n_repeats: int = 10,
     random_state: int = 42,
     top_n: int = 10,
-) -> tuple[Path, list[str]]:
+) -> tuple[Path, list[str], Any]:
     """Permutation feature importance on the full pipeline (raw, pre-encoding feature names).
 
     top_n defaults to 10 (changed from 15 on 2026-08-29) to match every other explanation plot
@@ -473,6 +473,11 @@ def compute_permutation_importance(
     currently unused by pipeline.py's own caller (originally consumed by plot_partial_dependence,
     removed 2026-08-28) but kept in the return signature since it's a real, free-standing return
     value some other caller could still want.
+
+    The third return is sklearn's raw Bunch (importances_mean / _std / the full repeat matrix),
+    so a caller that needs the ranking itself - pipeline.py's global agreement cache - reuses
+    this one computation instead of running permutation_importance a second time over the same
+    rows, which for svm is hours.
     """
     result = permutation_importance(
         pipeline, x_data, y_data, scoring=scoring, n_repeats=n_repeats, random_state=random_state, n_jobs=1
@@ -491,7 +496,7 @@ def compute_permutation_importance(
     fig.tight_layout()
     plot_path = _save_figure(fig, output_path)
 
-    return plot_path, top_features
+    return plot_path, top_features, result
 
 
 def select_curated_instances(

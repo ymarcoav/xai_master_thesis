@@ -87,3 +87,23 @@ def test_plot_agreement_heatmap_writes_png(tmp_path) -> None:
     )
 
     assert output_path.exists()
+
+
+def test_plot_agreement_heatmap_without_sems_writes_png(tmp_path) -> None:
+    # The global (SHAP vs permutation importance) panels compare two single dataset-level
+    # rankings, so there is one value per cell and no across-instance spread to annotate.
+    values = np.array([[0.4, 0.8], [1.0, 0.6]])
+
+    output_path = plot_agreement_heatmap(
+        values,
+        None,
+        ["random_forest", "xgboost"],
+        [3, 5],
+        tmp_path / "global_agreement_feature.png",
+        metric="feature",
+        title="Feature agreement - SHAP vs permutation importance, test",
+        pair_label="SHAP vs permutation importance",
+        footnote="svm omitted: permutation SHAP measured at 408 s/instance",
+    )
+
+    assert output_path.exists()

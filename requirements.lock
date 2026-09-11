@@ -1,0 +1,76 @@
+# Exact environment that produced every model, metric and explanation figure in outputs/.
+#
+# Python 3.14.0 (CPython, Windows 11, AMD64)
+#
+# Recreate with:
+#     py -3.14 -m venv .venv
+#     .venv/Scripts/python -m pip install -r requirements.lock
+#     .venv/Scripts/python -m pip install -e . --no-deps
+#
+# Why this file exists: the explanation results are version-sensitive, so a thesis reporting
+# exact attributions has to pin what produced them. Three specific dependencies:
+#
+#   shap 0.52.0    _SHAP_PERMUTATION_MULTIPLIER in explainability.py is set from
+#                  npermutations = max_evals // (2 * n_features + 1), which is the arithmetic in
+#                  this version's shap/explainers/_permutation.py:169. A version that changes
+#                  that formula, or the max_evals=500 default it compensates for, changes how
+#                  many permutations svm/neural_network SHAP actually runs. This version is also
+#                  the one whose PermutationExplainer accepts seed= (used for reproducibility)
+#                  and whose TreeExplainer rejects model_output="probability" for xgboost,
+#                  putting that model's attributions in log-odds space.
+#   lime 0.2.0.1   LimeTabularExplainer's default num_samples=5000 and its kernel width
+#                  sqrt(n_features)*0.75 are this version's; both feed the local agreement.
+#   pandas 3.0.4   DataFrame.applymap was removed here, which is why agreement.py's port of the
+#                  reference agreement_fraction uses .astype(str) instead.
+#
+# torch is the CPU build; if pip resolves a CUDA wheel, install it first from
+# https://download.pytorch.org/whl/cpu (see README Setup).
+
+cloudpickle==3.1.2
+colorama==0.4.6
+contourpy==1.3.3
+cycler==0.12.1
+filelock==3.32.3
+fonttools==4.63.0
+fsspec==2026.7.0
+ImageIO==2.37.3
+iniconfig==2.3.0
+Jinja2==3.1.6
+joblib==1.5.3
+kiwisolver==1.5.0
+lazy-loader==0.5
+lime==0.2.0.1
+llvmlite==0.47.0
+MarkupSafe==3.0.3
+matplotlib==3.11.0
+mpmath==1.3.0
+narwhals==2.22.1
+networkx==3.6.1
+numba==0.65.1
+numpy==2.4.6
+packaging==26.2
+pandas==3.0.4
+pillow==12.2.0
+pluggy==1.6.0
+Pygments==2.20.0
+pyparsing==3.3.2
+pytest==9.1.1
+python-dateutil==2.9.0.post0
+PyYAML==6.0.3
+ruff==0.15.20
+scikit-image==0.26.0
+scikit-learn==1.9.0
+scipy==1.18.0
+seaborn==0.13.2
+setuptools==78.1.0
+shap==0.52.0
+six==1.17.0
+slicer==0.0.8
+sympy==1.14.0
+threadpoolctl==3.6.0
+tifffile==2026.6.1
+torch==2.13.0+cpu
+tqdm==4.68.3
+typing_extensions==4.16.0
+tzdata==2026.2
+xgboost==3.4.1
