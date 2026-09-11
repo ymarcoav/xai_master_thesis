@@ -81,7 +81,7 @@ def test_plot_agreement_heatmap_writes_png(tmp_path) -> None:
         sems,
         ["random_forest", "xgboost"],
         [3, 5],
-        tmp_path / "agreement_feature.png",
+        tmp_path / "local_agreement_feature.png",
         metric="feature",
         title="Feature agreement - SHAP vs LIME, test",
     )

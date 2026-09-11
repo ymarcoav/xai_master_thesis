@@ -1068,7 +1068,7 @@ def generate_agreement_heatmaps(
             sems[metric],
             [model for model, _ in experiments],
             k_values,
-            output_dir / f"agreement_{metric}.png",
+            output_dir / f"local_agreement_{metric}.png",
             metric=metric,
             title=f"{AGREEMENT_METRIC_TITLES[metric]} - SHAP vs LIME, {dataset_name}",
             footnote="; ".join(excluded_notes),
@@ -1076,7 +1076,7 @@ def generate_agreement_heatmaps(
         for metric in AGREEMENT_METRICS
     }
 
-    csv_path = ensure_directory(Path(metrics_dir) / "agreement") / f"{dataset_name}_agreement.csv"
+    csv_path = ensure_directory(Path(metrics_dir) / "agreement") / f"{dataset_name}_local_agreement.csv"
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
         writer.writeheader()

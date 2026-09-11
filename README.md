@@ -746,9 +746,9 @@ Krishna et al. draw one method-by-method heatmap per model. With the method pair
 there would be one informative number per panel, so the heatmaps here vary **model (rows) x top-`k`
 (columns)** instead, one pair of panels per dataset:
 
-- `outputs/plots/<dataset>/agreement_feature.png`
-- `outputs/plots/<dataset>/agreement_rank.png`
-- `outputs/metrics/agreement/<dataset>_agreement.csv` - the same numbers plus standard errors.
+- `outputs/plots/<dataset>/local_agreement_feature.png`
+- `outputs/plots/<dataset>/local_agreement_rank.png`
+- `outputs/metrics/agreement/<dataset>_local_agreement.csv` - the same numbers plus standard errors.
 
 `k` sweeps `1, 5, 10, 20` by default (`--k`). The paper varies `k` the same way and finds agreement
 falls as `k` grows, and its practitioners reported looking at "the top 5 to 10 features" - but its
@@ -839,7 +839,7 @@ Outputs:
   top-5 features under both methods.
 
 **One standardised figure set.** Across both panels and both datasets that is **eight heatmaps** -
-`agreement_{feature,rank}.png` and `global_agreement_{feature,rank}.png` per dataset - all on the
+`local_agreement_{feature,rank}.png` and `global_agreement_{feature,rank}.png` per dataset - all on the
 class-balanced 500-row basis, `random_state=42`, the same two metrics and the same fixed `[0, 1]`
 colour scale, with models as rows. An alternative `--basis`/`--size` writes **only** a CSV, suffixed
 `_<basis><size>`; it does not draw a heatmap unless `write_plots=True` is passed explicitly. The
