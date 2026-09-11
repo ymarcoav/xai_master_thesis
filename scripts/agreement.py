@@ -50,7 +50,7 @@ def main() -> None:
         type=int,
         nargs="+",
         default=None,
-        help="Top-k values for the heatmap columns (default: 1 3 5 8 10).",
+        help="Top-k values for the heatmap columns (default: 1 5 10 20 local, 5 10 20 global).",
     )
     parser.add_argument(
         "--n-instances",
@@ -100,20 +100,20 @@ def main() -> None:
         "overwrite": args.overwrite,
         "models": args.models,
     }
-    if args.k:
-        shared["k_values"] = args.k
 
     for dataset_name in datasets:
         if args.scope in ("local", "both"):
-            paths = generate_agreement_heatmaps(
-                dataset_name, n_instances=args.n_instances, **shared
-            )
+            local_kwargs = dict(shared, n_instances=args.n_instances)
+            if args.k:
+                local_kwargs["k_values"] = args.k
+            paths = generate_agreement_heatmaps(dataset_name, **local_kwargs)
             for kind, path in paths.items():
                 print(f"{dataset_name} local: wrote {kind}: {path}")
         if args.scope in ("global", "both"):
-            paths = generate_global_agreement(
-                dataset_name, basis=args.basis, size=args.size, **shared
-            )
+            global_kwargs = dict(shared, basis=args.basis, size=args.size)
+            if args.k:
+                global_kwargs["k_values"] = args.k
+            paths = generate_global_agreement(dataset_name, **global_kwargs)
             for kind, path in paths.items():
                 print(f"{dataset_name} global ({args.basis}-{args.size}): wrote {kind}: {path}")
 

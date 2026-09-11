@@ -1136,6 +1136,10 @@ def test_generate_global_agreement_writes_heatmaps_and_csv(tmp_path) -> None:
         plots_dir=plots_dir,
         k_values=[1, 3],
         size=9,
+        # The fixture's test split is far smaller than _GLOBAL_EXPLANATION_SAMPLE_SIZE, so this
+        # run is technically a non-default basis and would be CSV-only; ask for the heatmaps
+        # explicitly, since drawing them is what this test is about.
+        write_plots=True,
     )
 
     assert set(paths) == {"feature", "rank", "csv"}
@@ -1228,3 +1232,39 @@ def test_generate_explanations_caches_the_global_rankings_it_plots(tmp_path) -> 
     cached = np.load(cache_path, allow_pickle=False)
     assert cached["shap"].shape == cached["permutation"].shape == cached["feature_names"].shape
     assert (cached["shap"] >= 0).all(), "mean |SHAP| is a magnitude"
+
+
+def test_global_agreement_on_a_non_default_basis_writes_csv_but_no_heatmap(tmp_path) -> None:
+    """Only the default basis gets a heatmap.
+
+    The alternative bases exist to justify the default, and are reported as numbers; emitting a
+    near-identical heatmap for each would bury the one figure the thesis uses.
+    """
+    from xai_thesis.pipeline import generate_global_agreement
+
+    dataset_config_dir, experiment_path, models_dir = _write_dapt2020_style_fixture(tmp_path)
+    metrics_dir = tmp_path / "metrics"
+    plots_dir = tmp_path / "plots"
+    run_experiment(
+        experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=metrics_dir
+    )
+    shared = {
+        "config_dir": tmp_path,
+        "dataset_config_dir": dataset_config_dir,
+        "models_dir": models_dir,
+        "metrics_dir": metrics_dir,
+        "plots_dir": plots_dir,
+        "k_values": [1, 3],
+    }
+
+    alternative = generate_global_agreement("dapt2020", basis="stratified", size=8, **shared)
+    assert set(alternative) == {"csv"}
+    assert alternative["csv"].exists()
+    assert not list(plots_dir.rglob("global_agreement*.png"))
+
+    # ...but it can still be asked for explicitly.
+    forced = generate_global_agreement(
+        "dapt2020", basis="stratified", size=8, write_plots=True, **shared
+    )
+    assert set(forced) == {"feature", "rank", "csv"}
+    assert all(path.exists() for path in forced.values())

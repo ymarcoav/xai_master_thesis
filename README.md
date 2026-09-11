@@ -750,8 +750,20 @@ there would be one informative number per panel, so the heatmaps here vary **mod
 - `outputs/plots/<dataset>/agreement_rank.png`
 - `outputs/metrics/agreement/<dataset>_agreement.csv` - the same numbers plus standard errors.
 
-`k` sweeps `1, 3, 5, 8, 10` by default (`--k`): the paper varies `k` the same way and finds agreement
-falls as `k` grows, and its practitioners reported looking at "the top 5 to 10 features".
+`k` sweeps `1, 5, 10, 20` by default (`--k`). The paper varies `k` the same way and finds agreement
+falls as `k` grows, and its practitioners reported looking at "the top 5 to 10 features" - but its
+`k` is a far larger share of the feature space than copying its numbers would give here: its
+headline `k = 5` is 5 of COMPAS's **7** features (71%), and it sweeps to 100%, framed as
+25/50/75/100%. Five of this project's 40 (UNSW-NB15) / 59 (CIC-IDS2017) columns is 8-12%, so the
+sweep runs to 20 - 50% of UNSW-NB15, 34% of CIC-IDS2017 - rather than stopping at 10 and squashing
+the whole figure into the top quarter of the ranking. It stops short of the feature count because
+feature agreement is 1.0 there by definition.
+
+`k = 1` is a local-panel column only. There it is the mean of ~60 per-instance outcomes with a real
+standard error - "how often do the two methods even name the same single most important feature?",
+which is what an analyst reading the top driver of an alert cares about. On the global panel it
+would be a single ranking pair and could only ever read 0.0 or 1.0, so **the global sweep starts at
+5** (`5, 10, 20`).
 
 Metrics are averaged over a **class-balanced test sample** of ~60 rows (exactly 60 on UNSW-NB15:
 6 per class x 10; 56 on CIC-IDS2017: 8 per class x 7, the remainder dropped by integer division -
@@ -819,12 +831,20 @@ score. Since the metrics rank by `|value|`, those are clipped to zero first
 "strongly important the other way", and without the clip a feature scoring `-0.004` would outrank
 one scoring `+0.001`.
 
-Outputs (`_<basis><size>` suffix on anything that is not the default `balanced`/500):
+Outputs:
 
 - `outputs/plots/<dataset>/global_agreement_feature.png`
 - `outputs/plots/<dataset>/global_agreement_rank.png`
 - `outputs/metrics/agreement/<dataset>_global_agreement.csv` - the same numbers plus each model's
   top-5 features under both methods.
+
+**One standardised figure set.** Across both panels and both datasets that is **eight heatmaps** -
+`agreement_{feature,rank}.png` and `global_agreement_{feature,rank}.png` per dataset - all on the
+class-balanced 500-row basis, `random_state=42`, the same two metrics and the same fixed `[0, 1]`
+colour scale, with models as rows. An alternative `--basis`/`--size` writes **only** a CSV, suffixed
+`_<basis><size>`; it does not draw a heatmap unless `write_plots=True` is passed explicitly. The
+alternative bases exist to justify the default (below), and are reported as numbers - a near-identical
+heatmap per basis would bury the figure the thesis actually uses.
 
 **Sample basis.** `--basis`/`--size` select the rows the rankings are built on, which is how the
 2026-09-09 switch away from a prevalence-proportional draw is reproduced:
@@ -836,7 +856,8 @@ Outputs (`_<basis><size>` suffix on anything that is not the default `balanced`/
 | C | class-balanced, 500 rows | **current default** - the sample `generate_explanations()` plots |
 
 **Global agreement at k = 5, by basis** (`random_forest` also run at 1000 rows as a
-convergence check; `svm` appears under the default basis only - see the runtime note below):
+convergence check; `svm` under the default basis only - the alternative bases were a
+methodological comparison and are not worth 5 h and 1.5 h of its permutation SHAP):
 
 *UNSW-NB15*
 
@@ -852,6 +873,7 @@ convergence check; `svm` appears under the default basis only - see the runtime 
 | `neural_network` | A stratified, 200 | 200 | 6 | 0.60 | 0.40 | sttl, dttl, state, service, proto |
 |  | B balanced, 60 | 60 | 10 | 1.00 | 0.40 | dttl, service, proto, sttl, state |
 |  | C **balanced, 500** | 500 | 10 | 1.00 | 0.40 | dttl, service, sttl, proto, state |
+| `svm` | C **balanced, 500** | 500 | 10 | 0.80 | 0.00 | dttl, proto, state, service, dmean |
 
 *CIC-IDS2017*
 

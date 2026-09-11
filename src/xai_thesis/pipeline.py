@@ -804,10 +804,22 @@ def generate_interview_stimuli(
 # about the two methods rather than about which rows each model happened to get.
 _AGREEMENT_SAMPLE_SIZE = 60
 
-# Top-k values the heatmaps sweep. Krishna et al. vary k the same way (their Figure 2,
-# where agreement falls as k grows); their interviewed practitioners reported looking at
-# "the top 5 to 10 features", which this range brackets.
-_AGREEMENT_K_VALUES = (1, 3, 5, 8, 10)
+# Top-k values the heatmaps sweep. Krishna et al. vary k the same way (their Figure 2, where
+# agreement falls as k grows), but their k is a far larger share of the feature space than a
+# naive copy of their numbers would give here: their headline k=5 is 5 of COMPAS's 7 features
+# (71%), and they sweep to 100%, framing it as 25/50/75/100%. Five of this project's 40
+# (UNSW-NB15) / 59 (CIC-IDS2017) columns is 8-12%. So the sweep runs to 20 (50% of UNSW-NB15,
+# 34% of CIC-IDS2017) rather than stopping at 10, which would have squashed the whole figure
+# into the top quarter of the ranking. It stops short of the feature count because feature
+# agreement is 1.0 there by definition.
+#
+# k=1 is kept for the local panel only. There it is the mean of ~60 per-instance outcomes with
+# a real standard error - "how often do the two methods even name the same single most
+# important feature?", which is what an analyst reading the top driver of an alert cares about.
+# On the global panel it would be a single ranking pair, so it could only ever read 0.0 or 1.0;
+# that is a coin flip, not a measurement, so the global sweep starts at 5.
+_AGREEMENT_K_VALUES = (1, 5, 10, 20)
+_GLOBAL_AGREEMENT_K_VALUES = (5, 10, 20)
 
 # Fixed row order for the heatmaps, so panels line up across datasets and metrics.
 _AGREEMENT_MODEL_ORDER = ("random_forest", "xgboost", "neural_network", "svm")
@@ -1220,10 +1232,11 @@ def generate_global_agreement(
     models_dir: str | Path = "outputs/models",
     metrics_dir: str | Path = "outputs/metrics",
     plots_dir: str | Path = "outputs/plots",
-    k_values: Sequence[int] = _AGREEMENT_K_VALUES,
+    k_values: Sequence[int] = _GLOBAL_AGREEMENT_K_VALUES,
     size: int = _GLOBAL_EXPLANATION_SAMPLE_SIZE,
     basis: str = "balanced",
     models: Sequence[str] | None = None,
+    write_plots: bool | None = None,
     overwrite: bool = False,
 ) -> dict[str, Path]:
     """Feature- and rank-agreement heatmaps between the two *global* rankings for one dataset.
@@ -1233,7 +1246,8 @@ def generate_global_agreement(
     importance. Each cell is a single number rather than a mean over instances, because a global
     ranking is one vector per model - so there is no standard error to report here.
 
-    Returns {"feature": path, "rank": path, "csv": path}. The CSV additionally records each
+    Returns {"feature": path, "rank": path, "csv": path} on the default basis; an alternative
+    basis returns {"csv": path} only (see write_plots). The CSV additionally records each
     model's top-5 features under both methods, which is what shows whether the ranking itself
     (not just the agreement score) moved when the sample basis changed.
     """
@@ -1284,9 +1298,16 @@ def generate_global_agreement(
                     }
                 )
 
-    output_dir = ensure_directory(Path(plots_dir) / dataset_name)
+    # Exactly one standardised heatmap pair per dataset: the default basis only. The other
+    # bases exist to justify that choice (see _GLOBAL_AGREEMENT_BASES) and are reported as
+    # numbers - emitting a heatmap for each would bury the figure the thesis actually uses
+    # under near-identical variants. Pass write_plots=True to override.
     default_basis = basis == "balanced" and size == _GLOBAL_EXPLANATION_SAMPLE_SIZE
     suffix = "" if default_basis else f"_{basis}{size}"
+    if write_plots is None:
+        write_plots = default_basis
+
+    output_dir = ensure_directory(Path(plots_dir) / dataset_name)
     paths = {
         metric: plot_agreement_heatmap(
             values[metric],
@@ -1303,7 +1324,7 @@ def generate_global_agreement(
             footnote="; ".join(excluded_notes),
         )
         for metric in AGREEMENT_METRICS
-    }
+    } if write_plots else {}
 
     csv_name = f"{dataset_name}_global_agreement{suffix}.csv"
     csv_path = ensure_directory(Path(metrics_dir) / "agreement") / csv_name
