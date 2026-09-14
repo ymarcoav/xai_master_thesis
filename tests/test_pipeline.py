@@ -828,8 +828,7 @@ def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
     processed_dir = tmp_path / "processed" / "dapt2020"
     processed_dir.mkdir(parents=True)
 
-    # Reconnaissance/Benign overlap deliberately, so the model misclassifies some instances and
-    # generate_explanations() has a genuine hardest class to target the beeswarm at.
+    # Reconnaissance/Benign overlap deliberately, so the model is not trivially perfect.
     # protocol_type is categorical and strongly predictive, so it ranks high in permutation
     # importance.
     rng = np.random.default_rng(0)
@@ -898,7 +897,7 @@ def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, plots_dir=plots_dir
     )
 
-    assert set(paths) == {"shap_bar", "shap_beeswarm", "permutation_importance"}
+    assert set(paths) == {"shap_bar", "permutation_importance"}
     for path in paths.values():
         assert path.exists()
     # Local SHAP/LIME plots are interview stimuli only - generate_explanations writes none.

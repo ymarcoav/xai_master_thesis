@@ -38,7 +38,6 @@ from xai_thesis.explainability import (
     compute_shap_values,
     explain_instance_with_lime,
     plot_shap_bar,
-    plot_shap_beeswarm,
     plot_shap_waterfall,
     select_curated_instances,
 )
@@ -296,7 +295,7 @@ def tune_hyperparameters(
 #   <dataset>/data/                                label distribution, missing values, split, correlation
 #   <dataset>/agreement/                           local_/global_agreement_{feature,rank}.png
 #   <dataset>/<model>_baseline/performance/        confusion_matrix.png, roc_curves.png
-#   <dataset>/<model>_baseline/global/             shap_bar, shap_beeswarm, permutation_importance
+#   <dataset>/<model>_baseline/global/             shap_bar, permutation_importance
 #   <dataset>/<model>_baseline/interview/<class>/  shap_waterfall_*, lime_* (interview stimuli)
 
 
@@ -445,32 +444,6 @@ def generate_feature_correlation(
     return plot_feature_correlation(features, output_path, title=f"{dataset_config.name} feature correlation")
 
 
-def _hardest_class_and_confusion(
-    y_test: pd.Series, predictions: pd.Series
-) -> tuple[str, str] | tuple[None, None]:
-    """The class this trained model handles worst (lowest recall), and the class it is most
-    often mistaken for.
-
-    Replaces the old hand-maintained _CLASS_OF_INTEREST dict (one curated
-    (target, confused_with) pair per dataset): that had to be re-verified by eye against every
-    retrain, and after the stratified-split retune CIC-IDS2017's curated pair (DoS/DDoS ->
-    Benign) had dissolved to ~0% confusion while still sitting in the config. Deriving both
-    ends from this model's own test predictions keeps the explanation anchored to a real,
-    current error pattern with no per-dataset config to go stale. Ties on recall break toward
-    the better-supported class (more instances to curate from). Returns (None, None) if the
-    model never misclassifies its lowest-recall class (e.g. a trivially separable toy model).
-    """
-    counts = y_test.value_counts()
-    recall = {
-        label: int(((y_test == label) & (predictions == label)).sum()) / int(counts[label])
-        for label in counts.index
-    }
-    target_class = min(recall, key=lambda label: (recall[label], -counts[label]))
-    confused_with_class = _most_common_confusion(y_test, predictions, target_class)
-    if confused_with_class is None:
-        return None, None
-    return target_class, confused_with_class
-
 # SHAP background size, and the number of test instances the global SHAP/PFI plots explain.
 # The global sample is drawn class-balanced (see _class_balanced_sample), not stratified: a
 # prevalence-proportional draw of this project's test sets is 85-96% Benign and leaves most
@@ -518,10 +491,10 @@ def generate_explanations(
     plots_dir: str | Path = "outputs/plots",
     sample_size: int = _GLOBAL_EXPLANATION_SAMPLE_SIZE,
 ) -> dict[str, Path]:
-    """Generate SHAP, LIME, and permutation importance explanations for an already-trained
-    experiment, saving plots under plots_dir/<dataset>/<model>_baseline/global/.
+    """Generate the global SHAP bar and permutation importance plots for an already-trained
+    experiment, saving them under plots_dir/<dataset>/<model>_baseline/global/.
 
-    The global SHAP bar/beeswarm and permutation-importance plots explain a sample_size-row
+    The global SHAP bar and permutation-importance plots explain a sample_size-row
     *class-balanced* sample of the test set (_class_balanced_sample): ~even rows per class, a
     class with fewer test rows than its even share contributing all of them. This is a
     deliberate switch away from a stratified (prevalence-proportional) draw, which at
@@ -546,11 +519,9 @@ def generate_explanations(
     output_dir = ensure_directory(_experiment_plot_dir(plots_dir, dataset_config.name, experiment_name, "global"))
     class_names = list(pipeline.named_steps["model"].classes_)
 
-    # The global SHAP beeswarm targets the class this model handles worst, derived from its own
-    # test predictions (see _hardest_class_and_confusion). Local (per-instance) SHAP/LIME plots
-    # are not produced here: they exist only as interview stimuli (generate_interview_stimuli).
-    predictions = pd.Series(pipeline.predict(x_test), index=x_test.index)
-    target_class, _ = _hardest_class_and_confusion(y_test, predictions)
+    # Local (per-instance) SHAP/LIME plots are not produced here: they exist only as interview
+    # stimuli (generate_interview_stimuli). The global SHAP beeswarm was removed on 2026-09-14,
+    # unused in the thesis.
 
     sample_x = _class_balanced_sample(x_test, y_test, sample_size, random_state=random_state)
     sample_y = y_test.loc[sample_x.index]
@@ -571,11 +542,6 @@ def generate_explanations(
     paths["shap_bar"] = plot_shap_bar(
         shap_values, x_transformed, feature_names, class_names, output_dir / "shap_bar.png"
     )
-    if target_class in class_names:
-        target_index = class_names.index(target_class)
-        paths["shap_beeswarm"] = plot_shap_beeswarm(
-            shap_values, x_transformed, feature_names, target_index, output_dir / "shap_beeswarm.png"
-        )
 
     # sample_x/sample_y are class-balanced (see above), so this PFI measures each feature's
     # macro-F1 drop under a *rebalanced* class distribution, not the natural 85-96%-Benign one.
@@ -675,8 +641,7 @@ def _generate_instance_explanations(
 
 def _most_common_confusion(y_test: pd.Series, predictions: pd.Series, target_class: str) -> str | None:
     """The class target_class is most often predicted as, when the model gets it wrong -
-    derived from real predictions rather than hand-picked. Used by both
-    _hardest_class_and_confusion (generate_explanations) and generate_interview_stimuli().
+    derived from real predictions rather than hand-picked. Used by generate_interview_stimuli().
     None if the model never misclassifies target_class in this test set (e.g. a class with
     100% recall via massive over-prediction rather than genuine skill, so no misclassified
     example exists at all).
@@ -688,10 +653,8 @@ def _most_common_confusion(y_test: pd.Series, predictions: pd.Series, target_cla
     return wrong.value_counts().idxmax()
 
 
-# Well-known attack classes for interview stimulus curation - a deliberately different selection
-# criterion from generate_explanations() (which anchors on the class each model handles *worst*,
-# for the thesis's own explainability-chapter error analysis); this one picks classes a security
-# practitioner would recognize by name, for showing to interview subjects. Chosen 2026-08-17 with
+# Well-known attack classes for interview stimulus curation: classes a security practitioner would
+# recognize by name, for showing to interview subjects. Chosen 2026-08-17 with
 # the user, re-checked 2026-09-01 against the stratified-split / retuned / Destination-Port-removed
 # data - every listed class has >=1 correct and >=1 misclassified test instance for every model.
 # Ruled out: UNSW-NB15's Worms (~120/51 rows), Generic/Analysis/Backdoor/Shellcode (not
@@ -718,9 +681,8 @@ def generate_interview_stimuli(
 ) -> dict[str, dict[str, Path]]:
     """Generate SHAP waterfall + LIME stimuli for interview use: one correct + one misclassified
     instance per well-known class in _INTERVIEW_STIMULUS_CLASSES, for an already-trained
-    experiment. Separate from generate_explanations()'s hardest-class analysis - this exists
-    purely to curate concrete cases to show interview subjects, picked for real-world
-    recognizability rather than by which class the model handles worst.
+    experiment. Classes are picked for real-world recognizability, to curate concrete cases to
+    show interview subjects.
     Saves under plots_dir/<dataset>/<model>_baseline/interview/<class>/, keyed in the return
     value by target class name, then by "shap_waterfall_correct"/"lime_correct"/etc. - a class
     maps to an empty dict if the model never misclassifies it in this test set (no stimulus pair

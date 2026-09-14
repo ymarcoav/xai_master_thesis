@@ -1,4 +1,4 @@
-"""Generate global explainability artifacts (SHAP bar/beeswarm, PFI) for a trained model.
+"""Generate global explainability artifacts (SHAP bar, PFI) for a trained model.
 
 Local SHAP/LIME plots are interview stimuli only - see scripts/interview_stimuli.py.
 """

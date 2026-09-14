@@ -10,7 +10,6 @@ from xai_thesis.explainability import (
     compute_shap_values,
     explain_instance_with_lime,
     plot_shap_bar,
-    plot_shap_beeswarm,
     plot_shap_waterfall,
     predict_proba_fn,
     select_curated_instances,
@@ -162,17 +161,15 @@ def test_compute_shap_values_expands_binary_classifier_to_per_class_shape() -> N
     assert np.allclose(base_values[:, 0], -base_values[:, 1])
 
 
-def test_plot_shap_bar_and_beeswarm_write_png(tmp_path) -> None:
+def test_plot_shap_bar_writes_png(tmp_path) -> None:
     x, y = _make_dataset()
     pipeline = _fitted_pipeline("random_forest", x, y)
     shap_values, _, x_transformed, feature_names = compute_shap_values(pipeline, "random_forest", x, x.iloc[:30])
     class_names = list(pipeline.named_steps["model"].classes_)
 
     bar_path = plot_shap_bar(shap_values, x_transformed, feature_names, class_names, tmp_path / "bar.png")
-    beeswarm_path = plot_shap_beeswarm(shap_values, x_transformed, feature_names, 0, tmp_path / "beeswarm.png")
 
     assert bar_path.exists()
-    assert beeswarm_path.exists()
 
 
 def test_plot_shap_waterfall_writes_png(tmp_path) -> None:

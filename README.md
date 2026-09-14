@@ -573,7 +573,7 @@ outputs/plots/<dataset_name>/
 ├── agreement/              local_agreement_{feature,rank}, global_agreement_{feature,rank}
 └── <model>_baseline/
     ├── performance/        confusion_matrix, roc_curves
-    ├── global/             shap_bar, shap_beeswarm, permutation_importance
+    ├── global/             shap_bar, permutation_importance
     └── interview/<class>/  shap_waterfall_{correct,misclassified}, lime_{correct,misclassified}
 ```
 
@@ -620,9 +620,8 @@ python scripts/explain.py  # all experiments
   top-8 feature sets moved by ~10-25% and their ordering by more between independent runs); 50 settles
   it. The multiplier is the knob to lower if the `svm` permutation path becomes intractable - cost
   scales ~linearly in it (CIC-IDS2017 `svm`: ~48 s/instance at 4 permutations, ~430 s at 50).
-  `generate_explanations` produces a global bar plot (mean |SHAP value| per feature, stacked by class)
-  and a global beeswarm for the class each model handles worst. Local waterfall plots are produced
-  only as interview stimuli (see Interview stimuli below).
+  `generate_explanations` produces a global bar plot (mean |SHAP value| per feature, stacked by
+  class). Local waterfall plots are produced only as interview stimuli (see Interview stimuli below).
 - **LIME** (`LimeTabularExplainer`): local explanations for the same interview-stimulus instances as
   the SHAP waterfalls, so SHAP and LIME can be compared directly on identical cases. Rendered via `explain_instance_with_lime` in
   `explainability.py`, LIME's own unmodified `explanation.as_pyplot_figure()` - the single-panel
@@ -649,16 +648,11 @@ python scripts/explain.py  # all experiments
   class for this technique the way `PartialDependenceDisplay` exists for PDP, so a custom chart is the
   established way to visualize this, not a deviation from one.
 
-The beeswarm's class is **not** hand-picked: `generate_explanations()` takes the class *this trained
-model* handles worst - the lowest per-class recall on its own test predictions
-(`_hardest_class_and_confusion` in `pipeline.py`). Deriving it from the model's own predictions
-replaced a hand-maintained `_CLASS_OF_INTEREST` dict that had to be re-verified by eye against every
-retrain. `generate_explanations()` used to also write local SHAP waterfall + LIME plots for one
-correct and one misclassified instance of that class. Those were removed on 2026-09-14: local plots
-are now produced only as interview stimuli (below), and the old top-level `lime_*.png` /
-`shap_waterfall_*.png` files were deleted from `outputs/plots/`. On the current models the hardest class is a rare attack category on both datasets:
-`DoS` or `Analysis`/`Backdoor` for UNSW-NB15 (where `Analysis`↔`Backdoor` remains a strong two-way
-confusion, ~44-69% each way across the tree/NN models), `Infiltration` or `Bot` for CIC-IDS2017.
+`generate_explanations()` used to also write a global SHAP beeswarm for the class each model handles
+worst (`_hardest_class_and_confusion`), plus local SHAP waterfall + LIME plots for one correct and one
+misclassified instance of that class. All three were removed on 2026-09-14 because the thesis uses
+none of them: local plots are now produced only as interview stimuli (below), and the old
+`shap_beeswarm.png`, `lime_*.png` and `shap_waterfall_*.png` files were deleted from `outputs/plots/`.
 
 Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/global/`.
 
@@ -678,7 +672,7 @@ stating when writing this up:
   rather than a uniform random sample that would be 85-96% `Benign`, so `svm`/`neural_network` land on
   roughly the same near-uniform footing as `random_forest`. `xgboost`'s base value remains margin-space
   and comparable in attribution *direction* only, not level.
-- **The global sample is class-balanced, not prevalence-weighted.** The global SHAP bar/beeswarm and
+- **The global sample is class-balanced, not prevalence-weighted.** The global SHAP bar and
   permutation importance explain a **500-row class-balanced** test sample (`_class_balanced_sample`,
   `random_state=42`) - 50 rows/class on UNSW-NB15 (all 10 classes), 71/class on CIC-IDS2017 except
   `Infiltration`, which has only 11 test rows and contributes all of them (437 rows total). This
@@ -692,8 +686,7 @@ stating when writing this up:
 ### Interview stimuli
 
 The only source of local SHAP/LIME plots (`generate_interview_stimuli` in `pipeline.py`): concrete
-examples to show expert-interview subjects. Unlike the beeswarm in `generate_explanations()` above
-(which targets the class each model handles *worst*), this picks classes a security
+examples to show expert-interview subjects. It picks classes a security
 practitioner would recognize by name, so interview time isn't spent explaining an unfamiliar
 label: `Reconnaissance`/`Exploits` for UNSW-NB15, `DoS/DDoS`/`Brute Force`/`Bot` for CIC-IDS2017
 (`_INTERVIEW_STIMULUS_CLASSES` in `pipeline.py` — see its comment for the excluded classes, and for
