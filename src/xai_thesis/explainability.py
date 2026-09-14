@@ -92,12 +92,19 @@ def compute_shap_values(
       - random_forest: TreeExplainer in probability space, feature_perturbation=
         "tree_path_dependent" (no background). shap_values and base_values are probabilities;
         base_values sit near 1/n_classes given this project's balanced class weighting.
-      - xgboost: TreeExplainer, same path, but in *raw margin* (log-odds) space - shap 0.52 /
-        xgboost 3.4 reject model_output="probability" for this model ("Model does not have a
-        known objective or output type"), so its values and base_values are log-odds, not
-        probabilities, and are not comparable *in level* to random_forest's (attribution
-        directions and relative magnitudes still are). plot_shap_waterfall labels which space
-        each plot is in.
+      - xgboost: TreeExplainer, same path, but in *raw margin* (log-odds) space, not
+        probabilities. Root cause, confirmed directly against shap 0.52.0 / xgboost 3.4.1: shap's
+        TreeExplainer converts to probability space via a per-objective link-function lookup
+        table that only covers binary objectives (binary:logistic, etc.) - this project's
+        xgboost models use multi:softprob (every dataset here is multiclass), which isn't in that
+        table, so probability output is unsupported regardless of feature_perturbation choice:
+        tree_path_dependent (this project's mode, no background needed) rejects it outright
+        ('Only model_output="raw" is supported for feature_perturbation="tree_path_dependent"'),
+        and interventional (background-based) rejects it too, with a different message ('Model
+        does not have a known objective or output type'). xgboost's values and base_values are
+        therefore not comparable *in level* to random_forest's (attribution directions and
+        relative magnitudes still are). plot_shap_waterfall's x-axis label states which space
+        each plot is in (see its value_label parameter).
       - svm, neural_network: model-agnostic permutation explainer over predict_proba, so
         probability space. background_data is used exactly as passed (no sub-sampling);
         pipeline.py passes a class-balanced sample so the per-instance base_values land on the
@@ -261,19 +268,21 @@ def plot_shap_waterfall(
     class_index: int,
     output_path: str | Path,
     max_display: int = 10,
+    *,
+    value_label: str = "probability",
 ) -> Path:
     """Local waterfall plot explaining one instance's prediction for one class.
 
     The x-axis is the model output, running from the base value E[f(X)] (bottom-left tick) to
     this instance's prediction f(x) (top-right tick, both drawn on the plot by shap itself); each
-    bar is one feature's signed contribution to that movement. Labeled with a plain, model-generic
-    "Model output" (shap itself ships no label here - its own is commented out in the library
-    source, with that same wording) rather than naming the space it's in, so this local plot
-    carries the same kind of x-axis label explain_instance_with_lime's plot does, without a
-    per-model caption. Note for anyone writing this plot up: the units differ by model - random_forest
-    / svm / neural_network are probabilities, but xgboost's TreeExplainer emits raw-margin
-    (log-odds) values on this shap/xgboost build, not probabilities (see compute_shap_values) - so
-    that distinction has to be made in surrounding text, not read off the axis.
+    bar is one feature's signed contribution to that movement. value_label names the space that
+    axis lives in - "probability" for random_forest / svm / neural_network (this function's
+    default), "log-odds" for xgboost, whose TreeExplainer emits raw-margin values on this
+    shap/xgboost build rather than probabilities (see compute_shap_values's docstring for the
+    confirmed root cause: shap's probability-conversion path has no link function registered for
+    xgboost's multiclass objective, multi:softprob, so there is no way to get probabilities out
+    of it here) - drawn as the x-axis label so an xgboost margin plot is not mistaken for a
+    probability one.
     """
     explanation = shap.Explanation(
         values=shap_values[instance_index, :, class_index],
@@ -288,7 +297,7 @@ def plot_shap_waterfall(
     # bottom where the E[f(X)] -> f(x) tick values actually are. labelpad clears the "E[f(X)] = "
     # annotation shap draws just under the bottom axis (see the library's own xlabel comment,
     # commented out, at the same position - this project's label just isn't commented out).
-    plt.gcf().axes[0].set_xlabel("Model output", fontsize=12, labelpad=28)
+    plt.gcf().axes[0].set_xlabel(f"Model output: {value_label}", fontsize=12, labelpad=28)
     return _save_current_figure(output_path)
 
 
