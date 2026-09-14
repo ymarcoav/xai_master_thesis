@@ -229,6 +229,15 @@ def plot_shap_bar(
     waterfall's own max_display and compute_permutation_importance below), not
     shap.summary_plot's own default. Left unspecified, summary_plot silently defaults max_display
     to 7 on the multi-class/list-of-arrays code path this function's plot_type="bar" call takes.
+
+    The x-axis is each feature's mean |SHAP value|, summed across the stacked per-class segments -
+    shap.summary_plot's own default label spells that out ("mean(|SHAP value|) (average impact on
+    model output magnitude)"), but on this project's class counts (7-10 classes, so a wide legend)
+    the label is longer than the 8-inch-wide figure shap.summary_plot fixes internally, and gets
+    cut off mid-word: bbox_inches="tight" on save (_save_figure) does not widen the canvas to fit
+    it (confirmed - a short label at the same figure width does not get cut, so this is a label-
+    length problem, not a save-path one). Overridden here to the shorter form for exactly that
+    reason, not merely for brevity.
     """
     shap.summary_plot(
         [shap_values[:, :, class_idx] for class_idx in range(shap_values.shape[2])],
@@ -239,6 +248,7 @@ def plot_shap_bar(
         max_display=max_display,
         show=False,
     )
+    plt.gca().set_xlabel("mean(|SHAP value|)", fontsize=13)
     return _save_current_figure(output_path)
 
 
@@ -251,15 +261,19 @@ def plot_shap_waterfall(
     class_index: int,
     output_path: str | Path,
     max_display: int = 10,
-    *,
-    value_label: str = "model output",
 ) -> Path:
     """Local waterfall plot explaining one instance's prediction for one class.
 
-    value_label names the space the x-axis (E[f(x)] -> f(x)) lives in - "probability" for
-    random_forest / svm / neural_network, "log-odds (XGBoost raw margin)" for xgboost, whose
-    TreeExplainer cannot emit probabilities on this shap/xgboost build (see compute_shap_values).
-    It is drawn as the plot title so an xgboost margin plot is not mistaken for a probability one.
+    The x-axis is the model output, running from the base value E[f(X)] (bottom-left tick) to
+    this instance's prediction f(x) (top-right tick, both drawn on the plot by shap itself); each
+    bar is one feature's signed contribution to that movement. Labeled with a plain, model-generic
+    "Model output" (shap itself ships no label here - its own is commented out in the library
+    source, with that same wording) rather than naming the space it's in, so this local plot
+    carries the same kind of x-axis label explain_instance_with_lime's plot does, without a
+    per-model caption. Note for anyone writing this plot up: the units differ by model - random_forest
+    / svm / neural_network are probabilities, but xgboost's TreeExplainer emits raw-margin
+    (log-odds) values on this shap/xgboost build, not probabilities (see compute_shap_values) - so
+    that distinction has to be made in surrounding text, not read off the axis.
     """
     explanation = shap.Explanation(
         values=shap_values[instance_index, :, class_index],
@@ -268,7 +282,13 @@ def plot_shap_waterfall(
         feature_names=feature_names,
     )
     shap.plots.waterfall(explanation, show=False, max_display=max_display)
-    plt.gca().set_title(f"Attributions in {value_label} space", fontsize="medium", loc="left", pad=12)
+    # shap.plots.waterfall adds a twiny() top axis for the E[f(X)] tick mark and leaves it as
+    # the current axes (plt.gca()), so the label has to be set on the original bottom axis
+    # (fig.axes[0]) explicitly, or it lands on the twin and renders at the top instead of the
+    # bottom where the E[f(X)] -> f(x) tick values actually are. labelpad clears the "E[f(X)] = "
+    # annotation shap draws just under the bottom axis (see the library's own xlabel comment,
+    # commented out, at the same position - this project's label just isn't commented out).
+    plt.gcf().axes[0].set_xlabel("Model output", fontsize=12, labelpad=28)
     return _save_current_figure(output_path)
 
 
@@ -409,6 +429,12 @@ def explain_instance_with_lime(
 ) -> Path:
     """Local LIME explanation for one instance, rendered as LIME's default single-panel
     feature-weight bar chart. See _build_lime_explanation for the encoding/explainer details.
+
+    as_pyplot_figure() draws its own title ("Local explanation for class <name>") and no x-axis
+    label at all; both are overridden here - the title dropped (redundant with the file's own
+    "interview_<class>" folder and "lime_correct"/"lime_misclassified" name), and a plain generic
+    "Feature weight" x-axis label added instead (matching plot_shap_waterfall's equally generic
+    "Model output" label), since the axis otherwise carries no explanation of what the numbers mean.
     """
     explanation, label, _columns = _build_lime_explanation(
         pipeline,
@@ -421,6 +447,9 @@ def explain_instance_with_lime(
         discretize_continuous=discretize_continuous,
     )
     fig = explanation.as_pyplot_figure(label=label)
+    ax = fig.axes[0]
+    ax.set_title("")
+    ax.set_xlabel("Feature weight")
 
     return _save_figure(fig, output_path)
 

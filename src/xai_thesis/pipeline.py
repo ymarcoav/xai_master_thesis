@@ -610,10 +610,10 @@ def _generate_instance_explanations(
     )
     predicted_classes = pipeline.predict(instances_x)
 
-    # xgboost's TreeExplainer is in raw-margin (log-odds) space on this shap/xgboost build;
-    # every other model's SHAP values are probabilities (see compute_shap_values).
-    waterfall_space = "log-odds (XGBoost raw margin)" if model_name == "xgboost" else "probability"
-
+    # xgboost's TreeExplainer is in raw-margin (log-odds) space on this shap/xgboost build; every
+    # other model's SHAP values are probabilities (see compute_shap_values). plot_shap_waterfall's
+    # x-axis label is deliberately generic ("Model output", not per-model) - see its docstring -
+    # so that distinction is worth knowing when writing a caption for an xgboost waterfall figure.
     for row_index, (kind, predicted_class) in enumerate(zip(instance_kinds, predicted_classes, strict=True)):
         class_index = class_names.index(predicted_class)
         paths[f"shap_waterfall_{kind}"] = plot_shap_waterfall(
@@ -624,7 +624,6 @@ def _generate_instance_explanations(
             row_index,
             class_index,
             output_dir / f"shap_waterfall_{kind}.png",
-            value_label=waterfall_space,
         )
         paths[f"lime_{kind}"] = explain_instance_with_lime(
             pipeline,
