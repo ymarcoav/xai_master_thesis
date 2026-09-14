@@ -828,10 +828,8 @@ def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
     processed_dir = tmp_path / "processed" / "dapt2020"
     processed_dir.mkdir(parents=True)
 
-    # Reconnaissance/Benign overlap deliberately, so the model both classifies some
-    # Reconnaissance instances correctly and confuses others with Benign - exercising both
-    # the "correct" and "misclassified" curated-instance paths for whichever class
-    # generate_explanations() picks as hardest.
+    # Reconnaissance/Benign overlap deliberately, so the model misclassifies some instances and
+    # generate_explanations() has a genuine hardest class to target the beeswarm at.
     # protocol_type is categorical and strongly predictive, so it ranks high in permutation
     # importance.
     rng = np.random.default_rng(0)
@@ -900,9 +898,13 @@ def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, plots_dir=plots_dir
     )
 
-    assert {"shap_bar", "shap_beeswarm", "permutation_importance"} <= set(paths)
+    assert set(paths) == {"shap_bar", "shap_beeswarm", "permutation_importance"}
     for path in paths.values():
         assert path.exists()
+    # Local SHAP/LIME plots are interview stimuli only - generate_explanations writes none.
+    experiment_dir = plots_dir / "dapt2020" / "test_experiment"
+    assert not list(experiment_dir.glob("shap_waterfall_*.png"))
+    assert not list(experiment_dir.glob("lime_*.png"))
 
 
 def _write_dapt2020_style_fixture(tmp_path) -> tuple[Path, Path, Path]:

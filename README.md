@@ -610,10 +610,11 @@ python scripts/explain.py  # all experiments
   top-8 feature sets moved by ~10-25% and their ordering by more between independent runs); 50 settles
   it. The multiplier is the knob to lower if the `svm` permutation path becomes intractable - cost
   scales ~linearly in it (CIC-IDS2017 `svm`: ~48 s/instance at 4 permutations, ~430 s at 50).
-  Produces a global bar plot (mean |SHAP value| per feature, stacked by class), a global beeswarm
-  for the class each model handles worst, and local waterfall plots for two curated test instances.
-- **LIME** (`LimeTabularExplainer`): local explanations for the same two curated instances, so SHAP and
-  LIME can be compared directly on identical cases. Rendered via `explain_instance_with_lime` in
+  `generate_explanations` produces a global bar plot (mean |SHAP value| per feature, stacked by class)
+  and a global beeswarm for the class each model handles worst. Local waterfall plots are produced
+  only as interview stimuli (see Interview stimuli below).
+- **LIME** (`LimeTabularExplainer`): local explanations for the same interview-stimulus instances as
+  the SHAP waterfalls, so SHAP and LIME can be compared directly on identical cases. Rendered via `explain_instance_with_lime` in
   `explainability.py`, LIME's own unmodified `explanation.as_pyplot_figure()` - the single-panel
   horizontal bar chart LIME ships by default, not a custom reproduction of anything. A custom three-panel
   reproduction of LIME's `show_in_notebook()` layout (`explain_instance_with_lime_full`) existed briefly
@@ -638,14 +639,14 @@ python scripts/explain.py  # all experiments
   class for this technique the way `PartialDependenceDisplay` exists for PDP, so a custom chart is the
   established way to visualize this, not a deviation from one.
 
-The two curated instances per experiment (one correctly classified, one misclassified) are **not**
-random: `generate_explanations()` anchors on the class *this trained model* handles worst - the
-lowest per-class recall on its own test predictions - and the class it is most often mistaken for
-(`_hardest_class_and_confusion` / `_most_common_confusion` in `pipeline.py`). Deriving both ends from
-the model's own predictions replaced a hand-maintained `_CLASS_OF_INTEREST` dict (one curated pair per
-dataset) that had to be re-verified by eye against every retrain - and after the stratified-split
-re-tune its CIC-IDS2017 entry (`DoS/DDoS`→`Benign`) had dissolved to ~0% confusion while still sitting
-in the config. On the current models the hardest class is a rare attack category on both datasets:
+The beeswarm's class is **not** hand-picked: `generate_explanations()` takes the class *this trained
+model* handles worst - the lowest per-class recall on its own test predictions
+(`_hardest_class_and_confusion` in `pipeline.py`). Deriving it from the model's own predictions
+replaced a hand-maintained `_CLASS_OF_INTEREST` dict that had to be re-verified by eye against every
+retrain. `generate_explanations()` used to also write local SHAP waterfall + LIME plots for one
+correct and one misclassified instance of that class. Those were removed on 2026-09-14: local plots
+are now produced only as interview stimuli (below), and the old top-level `lime_*.png` /
+`shap_waterfall_*.png` files were deleted from `outputs/plots/`. On the current models the hardest class is a rare attack category on both datasets:
 `DoS` or `Analysis`/`Backdoor` for UNSW-NB15 (where `Analysis`↔`Backdoor` remains a strong two-way
 confusion, ~44-69% each way across the tree/NN models), `Infiltration` or `Bot` for CIC-IDS2017.
 
@@ -680,9 +681,9 @@ stating when writing this up:
 
 ### Interview stimuli
 
-A second, separate curated-instance mechanism (`generate_interview_stimuli` in `pipeline.py`), for
-picking concrete SHAP/LIME examples to show expert-interview subjects. Unlike `generate_explanations()`
-above (anchors on the class each model handles *worst*), this one picks classes a security
+The only source of local SHAP/LIME plots (`generate_interview_stimuli` in `pipeline.py`): concrete
+examples to show expert-interview subjects. Unlike the beeswarm in `generate_explanations()` above
+(which targets the class each model handles *worst*), this picks classes a security
 practitioner would recognize by name, so interview time isn't spent explaining an unfamiliar
 label: `Reconnaissance`/`Exploits` for UNSW-NB15, `DoS/DDoS`/`Brute Force`/`Bot` for CIC-IDS2017
 (`_INTERVIEW_STIMULUS_CLASSES` in `pipeline.py` — see its comment for the excluded classes, and for
@@ -690,8 +691,8 @@ why `PortScan` was dropped on 2026-09-01: removing the leaky `Destination Port` 
 under dedup from ~159k rows to ~2k, so it no longer samples real scanning traffic). For each
 configured class the model's most common real misclassification target is derived dynamically from
 the test set (`_most_common_confusion`) rather than hand-picked, then one correct and one
-misclassified SHAP waterfall + LIME plot are generated via the same instance-explanation logic
-`generate_explanations` uses (`_generate_instance_explanations`).
+misclassified SHAP waterfall + LIME plot are generated (`_generate_instance_explanations`), under
+`outputs/plots/<dataset>/<model>_baseline/interview_<class>/`.
 
 ```powershell
 python scripts/interview_stimuli.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml

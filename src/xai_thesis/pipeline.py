@@ -534,12 +534,11 @@ def generate_explanations(
     output_dir = ensure_directory(_experiment_plot_dir(plots_dir, dataset_config.name, experiment_name))
     class_names = list(pipeline.named_steps["model"].classes_)
 
-    # Curated correct/misclassified instance explanations are anchored to the class this model
-    # handles worst and the class it most often confuses it with, both derived from the model's
-    # own test predictions (see _hardest_class_and_confusion). The global SHAP beeswarm targets
-    # that same class.
+    # The global SHAP beeswarm targets the class this model handles worst, derived from its own
+    # test predictions (see _hardest_class_and_confusion). Local (per-instance) SHAP/LIME plots
+    # are not produced here: they exist only as interview stimuli (generate_interview_stimuli).
     predictions = pd.Series(pipeline.predict(x_test), index=x_test.index)
-    target_class, confused_with_class = _hardest_class_and_confusion(y_test, predictions)
+    target_class, _ = _hardest_class_and_confusion(y_test, predictions)
 
     sample_x = _class_balanced_sample(x_test, y_test, sample_size, random_state=random_state)
     sample_y = y_test.loc[sample_x.index]
@@ -587,25 +586,6 @@ def generate_explanations(
         class_counts=sample_y.value_counts(),
     )
 
-    if target_class is not None:
-        paths.update(
-            _generate_instance_explanations(
-                pipeline,
-                x_train,
-                x_test,
-                y_test,
-                background_x,
-                target_class,
-                confused_with_class,
-                class_names,
-                model_name,
-                dataset_config.categorical_columns,
-                output_dir,
-                random_state,
-                predictions=predictions,
-            )
-        )
-
     return paths
 
 
@@ -627,10 +607,9 @@ def _generate_instance_explanations(
 ) -> dict[str, Path]:
     """SHAP waterfall + LIME plots for one curated (target_class, confused_with_class) instance
     pair - a correct classification and a misclassification of target_class as
-    confused_with_class specifically. Shared by generate_explanations() (target = the class
-    this model handles worst, derived from its own predictions) and generate_interview_stimuli()
-    (multiple well-known classes per dataset, picked for interview relevance instead). Pass
-    predictions to reuse an already-computed full-test-set prediction.
+    confused_with_class specifically. Used only by generate_interview_stimuli(): local plots
+    are interview stimuli, and generate_explanations() no longer writes any (removed
+    2026-09-14). Pass predictions to reuse an already-computed full-test-set prediction.
     """
     paths: dict[str, Path] = {}
     instances = select_curated_instances(
