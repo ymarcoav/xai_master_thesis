@@ -540,7 +540,7 @@ python scripts/confusion_matrix.py --experiment configs/experiments/unsw_nb15_ra
 python scripts/confusion_matrix.py  # all experiments
 ```
 
-Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/confusion_matrix.png`.
+Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/performance/confusion_matrix.png`.
 
 Aggregate one-vs-rest ROC curves - macro- and micro-averaged, plus the chance diagonal, with each AUC in
 the legend - for a trained experiment, or all of them:
@@ -550,7 +550,7 @@ python scripts/roc_curve.py --experiment configs/experiments/unsw_nb15_random_fo
 python scripts/roc_curve.py  # all experiments
 ```
 
-Written to `outputs/plots/<dataset_name>/<model>_baseline/roc_curves.png`. Deliberately aggregated (no
+Written to `outputs/plots/<dataset_name>/<model>_baseline/performance/roc_curves.png`. Deliberately aggregated (no
 per-class curves - unreadable at 7-10 classes, and that detail is already in the confusion matrix and
 per-class F1): the macro-average AUC equals the `roc_auc_macro` in `outputs/metrics/` and is the one to
 read; the micro-average is `Benign`-dominated and hugs the top-left corner regardless of rare-class
@@ -563,11 +563,21 @@ python scripts/label_distribution.py --dataset unsw_nb15
 python scripts/label_distribution.py  # all datasets
 ```
 
-Plots are written to `outputs/plots/<dataset_name>/label_distribution.png` - as of 2026-08-17,
-`outputs/plots/` is organized per dataset first (`outputs/plots/<dataset_name>/`), holding
-dataset-level plots like this one directly and one `<model>_baseline/` subfolder per trained
-experiment for its confusion matrix and explanation plots - not a flat mix of ~20 experiment
-folders and 4 dataset folders sharing one namespace, as it was before.
+Plots are written to `outputs/plots/<dataset_name>/data/label_distribution.png`. `outputs/plots/`
+is organized per dataset first, then grouped by purpose (since 2026-09-14), so no plot sits loose in
+a dataset or model folder:
+
+```text
+outputs/plots/<dataset_name>/
+├── data/                   label_distribution, missing_values, train_test_split, feature_correlation
+├── agreement/              local_agreement_{feature,rank}, global_agreement_{feature,rank}
+└── <model>_baseline/
+    ├── performance/        confusion_matrix, roc_curves
+    ├── global/             shap_bar, shap_beeswarm, permutation_importance
+    └── interview/<class>/  shap_waterfall_{correct,misclassified}, lime_{correct,misclassified}
+```
+
+The folder helpers are `_dataset_plot_dir` and `_experiment_plot_dir` in `pipeline.py`.
 
 Missing-value summary, train/test split balance, and feature correlation, for a dataset or all
 datasets:
@@ -577,8 +587,8 @@ python scripts/dataset_diagnostics.py --dataset unsw_nb15
 python scripts/dataset_diagnostics.py  # all datasets
 ```
 
-Plots are written alongside `label_distribution.png` in the same per-dataset folder:
-`outputs/plots/<dataset_name>/missing_values.png`, `train_test_split.png`, and
+Plots are written alongside `label_distribution.png` in the same `data/` folder:
+`outputs/plots/<dataset_name>/data/missing_values.png`, `train_test_split.png`, and
 `feature_correlation.png`.
 
 ## Explainability
@@ -650,7 +660,7 @@ are now produced only as interview stimuli (below), and the old top-level `lime_
 `DoS` or `Analysis`/`Backdoor` for UNSW-NB15 (where `Analysis`↔`Backdoor` remains a strong two-way
 confusion, ~44-69% each way across the tree/NN models), `Infiltration` or `Bot` for CIC-IDS2017.
 
-Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/`.
+Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/global/`.
 
 ### Limitation: SHAP base-value footing across models
 
@@ -692,15 +702,15 @@ under dedup from ~159k rows to ~2k, so it no longer samples real scanning traffi
 configured class the model's most common real misclassification target is derived dynamically from
 the test set (`_most_common_confusion`) rather than hand-picked, then one correct and one
 misclassified SHAP waterfall + LIME plot are generated (`_generate_instance_explanations`), under
-`outputs/plots/<dataset>/<model>_baseline/interview_<class>/`.
+`outputs/plots/<dataset>/<model>_baseline/interview/<class>/`.
 
 ```powershell
 python scripts/interview_stimuli.py --experiment configs/experiments/unsw_nb15_random_forest_baseline.yaml
 python scripts/interview_stimuli.py  # all experiments
 ```
 
-Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/interview_<class>/` (e.g.
-`outputs/plots/unsw_nb15/random_forest_baseline/interview_Reconnaissance/`). A class maps to no
+Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/interview/<class>/` (e.g.
+`outputs/plots/unsw_nb15/random_forest_baseline/interview/Reconnaissance/`). A class maps to no
 plots at all if the model never misclassifies it in the test set (no stimulus pair possible); every
 class in the current list was re-checked to have both a correct and a misclassified test instance
 for all four models.
@@ -782,8 +792,8 @@ Krishna et al. draw one method-by-method heatmap per model. With the method pair
 there would be one informative number per panel, so the heatmaps here vary **model (rows) x top-`k`
 (columns)** instead, one pair of panels per dataset:
 
-- `outputs/plots/<dataset>/local_agreement_feature.png`
-- `outputs/plots/<dataset>/local_agreement_rank.png`
+- `outputs/plots/<dataset>/agreement/local_agreement_feature.png`
+- `outputs/plots/<dataset>/agreement/local_agreement_rank.png`
 - `outputs/metrics/agreement/<dataset>_local_agreement.csv` - the same numbers plus standard errors.
 
 `k` sweeps `1, 5, 10, 20` by default (`--k`). The paper varies `k` the same way and finds agreement
@@ -879,8 +889,8 @@ one scoring `+0.001`.
 
 Outputs:
 
-- `outputs/plots/<dataset>/global_agreement_feature.png`
-- `outputs/plots/<dataset>/global_agreement_rank.png`
+- `outputs/plots/<dataset>/agreement/global_agreement_feature.png`
+- `outputs/plots/<dataset>/agreement/global_agreement_rank.png`
 - `outputs/metrics/agreement/<dataset>_global_agreement.csv` - the same numbers plus each model's
   top-5 features under both methods.
 

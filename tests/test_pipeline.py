@@ -195,7 +195,7 @@ def test_generate_label_distribution_writes_png(tmp_path) -> None:
     plots_dir = tmp_path / "plots"
     output_path = generate_label_distribution(dataset_config_path, plots_dir=plots_dir)
 
-    assert output_path == plots_dir / "toy" / "label_distribution.png"
+    assert output_path == plots_dir / "toy" / "data" / "label_distribution.png"
     assert output_path.exists()
 
 
@@ -231,7 +231,7 @@ def test_generate_missing_value_summary_writes_png(tmp_path) -> None:
     plots_dir = tmp_path / "plots"
     output_path = generate_missing_value_summary(dataset_config_path, plots_dir=plots_dir)
 
-    assert output_path == plots_dir / "toy" / "missing_values.png"
+    assert output_path == plots_dir / "toy" / "data" / "missing_values.png"
     assert output_path.exists()
 
 
@@ -241,7 +241,7 @@ def test_generate_train_test_split_comparison_writes_png(tmp_path) -> None:
     plots_dir = tmp_path / "plots"
     output_path = generate_train_test_split_comparison(dataset_config_path, plots_dir=plots_dir)
 
-    assert output_path == plots_dir / "toy" / "train_test_split.png"
+    assert output_path == plots_dir / "toy" / "data" / "train_test_split.png"
     assert output_path.exists()
 
 
@@ -251,7 +251,7 @@ def test_generate_feature_correlation_writes_png(tmp_path) -> None:
     plots_dir = tmp_path / "plots"
     output_path = generate_feature_correlation(dataset_config_path, plots_dir=plots_dir)
 
-    assert output_path == plots_dir / "toy" / "feature_correlation.png"
+    assert output_path == plots_dir / "toy" / "data" / "feature_correlation.png"
     assert output_path.exists()
 
 
@@ -635,9 +635,9 @@ def test_generate_confusion_matrix_and_roc_curves_write_pngs_for_trained_experim
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, plots_dir=plots_dir
     )
 
-    assert cm_path == plots_dir / "toy" / "experiment" / "confusion_matrix.png"
+    assert cm_path == plots_dir / "toy" / "experiment" / "performance" / "confusion_matrix.png"
     assert cm_path.exists()
-    assert roc_path == plots_dir / "toy" / "experiment" / "roc_curves.png"
+    assert roc_path == plots_dir / "toy" / "experiment" / "performance" / "roc_curves.png"
     assert roc_path.exists()
 
 
@@ -903,8 +903,9 @@ def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
         assert path.exists()
     # Local SHAP/LIME plots are interview stimuli only - generate_explanations writes none.
     experiment_dir = plots_dir / "dapt2020" / "test_experiment"
-    assert not list(experiment_dir.glob("shap_waterfall_*.png"))
-    assert not list(experiment_dir.glob("lime_*.png"))
+    assert all(path.parent == experiment_dir / "global" for path in paths.values())
+    assert not list(experiment_dir.rglob("shap_waterfall_*.png"))
+    assert not list(experiment_dir.rglob("lime_*.png"))
 
 
 def _write_dapt2020_style_fixture(tmp_path) -> tuple[Path, Path, Path]:
@@ -1006,7 +1007,7 @@ def test_generate_interview_stimuli_writes_plots_for_configured_classes(tmp_path
     )
     for path in paths.values():
         assert path.exists()
-    assert paths["lime_correct"].parent == plots_dir / "dapt2020" / "test_experiment" / "interview_Reconnaissance"
+    assert paths["lime_correct"].parent == plots_dir / "dapt2020" / "test_experiment" / "interview" / "Reconnaissance"
 
 
 def test_generate_interview_stimuli_skips_class_with_no_misclassifications(tmp_path, monkeypatch) -> None:

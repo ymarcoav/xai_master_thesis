@@ -292,16 +292,28 @@ def tune_hyperparameters(
     return tuned_params
 
 
-def _experiment_plot_dir(plots_dir: str | Path, dataset_name: str, experiment_name: str) -> Path:
-    """Per-experiment plot folder, nested under its dataset (plots_dir/<dataset>/<model>_baseline/)
-    rather than flat (plots_dir/<dataset>_<model>_baseline/) - keeps outputs/plots/ organized by
-    dataset instead of mixing ~20 experiment folders and 4 dataset-level folders (label
-    distribution, missing values, etc. - see generate_label_distribution and friends) in one flat
-    namespace. Every experiment name in this project follows "<dataset>_<model>_baseline", so
-    stripping the dataset prefix leaves just the model-identifying part as the subfolder name.
+# Layout of outputs/plots/, grouped by purpose so no plot sits loose in a dataset or model folder:
+#   <dataset>/data/                                label distribution, missing values, split, correlation
+#   <dataset>/agreement/                           local_/global_agreement_{feature,rank}.png
+#   <dataset>/<model>_baseline/performance/        confusion_matrix.png, roc_curves.png
+#   <dataset>/<model>_baseline/global/             shap_bar, shap_beeswarm, permutation_importance
+#   <dataset>/<model>_baseline/interview/<class>/  shap_waterfall_*, lime_* (interview stimuli)
+
+
+def _dataset_plot_dir(plots_dir: str | Path, dataset_name: str, section: str) -> Path:
+    """One purpose-named folder of dataset-level plots ("data" or "agreement"); see the layout above."""
+    return Path(plots_dir) / dataset_name / section
+
+
+def _experiment_plot_dir(plots_dir: str | Path, dataset_name: str, experiment_name: str, section: str) -> Path:
+    """One purpose-named folder ("performance", "global" or "interview") inside a trained
+    experiment's plot folder; see the layout above. The experiment folder is nested under its
+    dataset (plots_dir/<dataset>/<model>_baseline/) rather than flat. Every experiment name in this
+    project follows "<dataset>_<model>_baseline", so stripping the dataset prefix leaves just the
+    model-identifying part as the folder name.
     """
     model_folder = experiment_name.removeprefix(f"{dataset_name}_")
-    return Path(plots_dir) / dataset_name / model_folder
+    return Path(plots_dir) / dataset_name / model_folder / section
 
 
 def generate_confusion_matrix(
@@ -321,10 +333,10 @@ def generate_confusion_matrix(
     model = joblib.load(Path(models_dir) / f"{experiment_name}.joblib")
     predictions = model.predict(x_test)
 
-    # Same per-experiment folder generate_explanations() writes into, so every plot for one
-    # trained experiment (confusion matrix and explanations alike) lives in one place.
-    output_path = _experiment_plot_dir(plots_dir, dataset_config.name, experiment_name) / "confusion_matrix.png"
-    return plot_confusion_matrix(y_test, predictions, output_path, normalize=normalize)
+    # Same experiment folder generate_explanations() writes into (its performance/ section), so
+    # every plot for one trained experiment lives under one folder.
+    output_dir = _experiment_plot_dir(plots_dir, dataset_config.name, experiment_name, "performance")
+    return plot_confusion_matrix(y_test, predictions, output_dir / "confusion_matrix.png", normalize=normalize)
 
 
 def generate_roc_curves(
@@ -344,8 +356,8 @@ def generate_roc_curves(
     model = joblib.load(Path(models_dir) / f"{experiment_name}.joblib")
     probabilities = model.predict_proba(x_test)
 
-    output_path = _experiment_plot_dir(plots_dir, dataset_config.name, experiment_name) / "roc_curves.png"
-    return plot_roc_curves(y_test, probabilities, list(model.classes_), output_path)
+    output_dir = _experiment_plot_dir(plots_dir, dataset_config.name, experiment_name, "performance")
+    return plot_roc_curves(y_test, probabilities, list(model.classes_), output_dir / "roc_curves.png")
 
 
 def generate_label_distribution(
@@ -363,7 +375,7 @@ def generate_label_distribution(
     # Per-dataset folder (distinct namespace from the per-experiment folders used for
     # confusion matrices/explanations, since a dataset name is never equal to one of its own
     # experiment names) - this plot isn't tied to any one trained model.
-    output_path = Path(plots_dir) / dataset_config.name / "label_distribution.png"
+    output_path = _dataset_plot_dir(plots_dir, dataset_config.name, "data") / "label_distribution.png"
     return plot_label_distribution(labels, output_path)
 
 
@@ -383,7 +395,7 @@ def generate_missing_value_summary(
     test_df = pd.read_csv(Path(dataset_config.processed_path) / "test.csv")
     combined = pd.concat([train_df, test_df], ignore_index=True)
 
-    output_path = Path(plots_dir) / dataset_config.name / "missing_values.png"
+    output_path = _dataset_plot_dir(plots_dir, dataset_config.name, "data") / "missing_values.png"
     return plot_missing_values(combined, output_path, title=f"{dataset_config.name} missing values")
 
 
@@ -398,7 +410,7 @@ def generate_train_test_split_comparison(
     train_df = pd.read_csv(Path(dataset_config.processed_path) / "train.csv")
     test_df = pd.read_csv(Path(dataset_config.processed_path) / "test.csv")
 
-    output_path = Path(plots_dir) / dataset_config.name / "train_test_split.png"
+    output_path = _dataset_plot_dir(plots_dir, dataset_config.name, "data") / "train_test_split.png"
     return plot_train_test_split_distribution(
         train_df[dataset_config.label_column],
         test_df[dataset_config.label_column],
@@ -429,7 +441,7 @@ def generate_feature_correlation(
     if len(features) > sample_size:
         features = features.sample(n=sample_size, random_state=42)
 
-    output_path = Path(plots_dir) / dataset_config.name / "feature_correlation.png"
+    output_path = _dataset_plot_dir(plots_dir, dataset_config.name, "data") / "feature_correlation.png"
     return plot_feature_correlation(features, output_path, title=f"{dataset_config.name} feature correlation")
 
 
@@ -507,7 +519,7 @@ def generate_explanations(
     sample_size: int = _GLOBAL_EXPLANATION_SAMPLE_SIZE,
 ) -> dict[str, Path]:
     """Generate SHAP, LIME, and permutation importance explanations for an already-trained
-    experiment, saving plots under plots_dir/<dataset>/<model>_baseline/.
+    experiment, saving plots under plots_dir/<dataset>/<model>_baseline/global/.
 
     The global SHAP bar/beeswarm and permutation-importance plots explain a sample_size-row
     *class-balanced* sample of the test set (_class_balanced_sample): ~even rows per class, a
@@ -531,7 +543,7 @@ def generate_explanations(
     model_name = experiment["model"]
 
     pipeline = joblib.load(Path(models_dir) / f"{experiment_name}.joblib")
-    output_dir = ensure_directory(_experiment_plot_dir(plots_dir, dataset_config.name, experiment_name))
+    output_dir = ensure_directory(_experiment_plot_dir(plots_dir, dataset_config.name, experiment_name, "global"))
     class_names = list(pipeline.named_steps["model"].classes_)
 
     # The global SHAP beeswarm targets the class this model handles worst, derived from its own
@@ -709,7 +721,7 @@ def generate_interview_stimuli(
     experiment. Separate from generate_explanations()'s hardest-class analysis - this exists
     purely to curate concrete cases to show interview subjects, picked for real-world
     recognizability rather than by which class the model handles worst.
-    Saves under plots_dir/<dataset>/<model>_baseline/interview_<class>/, keyed in the return
+    Saves under plots_dir/<dataset>/<model>_baseline/interview/<class>/, keyed in the return
     value by target class name, then by "shap_waterfall_correct"/"lime_correct"/etc. - a class
     maps to an empty dict if the model never misclassifies it in this test set (no stimulus pair
     possible, see _most_common_confusion).
@@ -731,7 +743,7 @@ def generate_interview_stimuli(
     background_x = _class_balanced_sample(
         x_train, y_train, _SHAP_BACKGROUND_SIZE, random_state=random_state
     )
-    experiment_dir = _experiment_plot_dir(plots_dir, dataset_config.name, experiment_name)
+    interview_dir = _experiment_plot_dir(plots_dir, dataset_config.name, experiment_name, "interview")
 
     results: dict[str, dict[str, Path]] = {}
     for target_class in stimulus_classes:
@@ -741,7 +753,7 @@ def generate_interview_stimuli(
         if confused_with_class is None:
             results[target_class] = {}
             continue
-        output_dir = ensure_directory(experiment_dir / f"interview_{target_class.replace('/', '-')}")
+        output_dir = ensure_directory(interview_dir / target_class.replace("/", "-"))
         results[target_class] = _generate_instance_explanations(
             pipeline,
             x_train,
@@ -1023,7 +1035,7 @@ def generate_agreement_heatmaps(
                 for k, mean, sem in zip(k_values, metric_means, metric_sems)
             )
 
-    output_dir = ensure_directory(Path(plots_dir) / dataset_name)
+    output_dir = ensure_directory(_dataset_plot_dir(plots_dir, dataset_name, "agreement"))
     paths = {
         metric: plot_agreement_heatmap(
             means[metric],
@@ -1269,7 +1281,7 @@ def generate_global_agreement(
     if write_plots is None:
         write_plots = default_basis
 
-    output_dir = ensure_directory(Path(plots_dir) / dataset_name)
+    output_dir = ensure_directory(_dataset_plot_dir(plots_dir, dataset_name, "agreement"))
     paths = {
         metric: plot_agreement_heatmap(
             values[metric],
