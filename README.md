@@ -832,10 +832,15 @@ reconciliation - but a future dataset with a constant column would need it.
 
 | model | UNSW-NB15 feature@5 | UNSW-NB15 rank@5 | CIC-IDS2017 feature@5 | CIC-IDS2017 rank@5 |
 | --- | --- | --- | --- | --- |
-| `random_forest` | 0.237 +/- 0.029 | 0.047 +/- 0.011 | 0.261 +/- 0.029 | 0.054 +/- 0.013 |
-| `xgboost` | 0.277 +/- 0.025 | 0.113 +/- 0.015 | 0.182 +/- 0.019 | 0.036 +/- 0.011 |
-| `neural_network` | 0.520 +/- 0.023 | 0.150 +/- 0.017 | 0.379 +/- 0.033 | 0.064 +/- 0.014 |
-| `svm` | 0.570 +/- 0.029 | 0.287 +/- 0.029 | *pending* | *pending* |
+| `random_forest` | 0.237 +/- 0.029 | 0.047 +/- 0.011 | 0.271 +/- 0.022 | 0.061 +/- 0.013 |
+| `xgboost` | 0.277 +/- 0.025 | 0.113 +/- 0.015 | 0.214 +/- 0.022 | 0.039 +/- 0.011 |
+| `neural_network` | 0.520 +/- 0.023 | 0.150 +/- 0.017 | 0.389 +/- 0.028 | 0.079 +/- 0.015 |
+| `svm` | 0.570 +/- 0.029 | 0.287 +/- 0.029 | 0.518 +/- 0.023 | 0.164 +/- 0.023 |
+
+LIME is discretized on both datasets, so both halves of the table use the same LIME configuration.
+The CIC-IDS2017 columns were recomputed on 2026-09-14, when discretization was enabled there. Only
+the LIME matrices changed: the cached SHAP matrices, instance sample, and explained classes are
+identical.
 
 **No model/dataset combination is excluded: `_AGREEMENT_EXCLUDED` in `pipeline.py` is empty, and a
 test pins it that way.**
