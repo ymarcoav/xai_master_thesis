@@ -808,16 +808,21 @@ reconciliation - but a future dataset with a constant column would need it.
 | `random_forest` | 0.237 +/- 0.029 | 0.047 +/- 0.011 | 0.261 +/- 0.029 | 0.054 +/- 0.013 |
 | `xgboost` | 0.277 +/- 0.025 | 0.113 +/- 0.015 | 0.182 +/- 0.019 | 0.036 +/- 0.011 |
 | `neural_network` | 0.520 +/- 0.023 | 0.150 +/- 0.017 | 0.379 +/- 0.033 | 0.064 +/- 0.014 |
-| `svm` | 0.570 +/- 0.029 | 0.287 +/- 0.029 | *omitted* | *omitted* |
+| `svm` | 0.570 +/- 0.029 | 0.287 +/- 0.029 | *pending* | *pending* |
 
-`svm` on CIC-IDS2017 is the one cell computed for no panel, local or global. Its permutation
-SHAP was measured at **408 s/instance** (10-instance run at `_SHAP_PERMUTATION_MULTIPLIER = 50`,
-2026-09-09), which is 6.8 h for the 60-instance local set and ~57 h for the 500-row global one,
-against ~90 s/instance for the same model on UNSW-NB15. The pair is listed in
-`_AGREEMENT_EXCLUDED` in `pipeline.py` with that measurement as its reason, dropped from the
-heatmap rows, and named in each panel's footnote, so the omission is visible in the figure
-rather than only here. Lowering the multiplier for `svm` alone was rejected: an inconsistent
-permutation count across models would make the cross-model comparison meaningless.
+**No model/dataset combination is excluded: `_AGREEMENT_EXCLUDED` in `pipeline.py` is empty, and a
+test pins it that way.**
+
+CIC-IDS2017's `svm` was excluded for a while on cost. The exclusion was withdrawn because every
+model/dataset combination belongs in the analysis - not because the cost fell. Measured over full
+runs, that model's permutation SHAP takes **~440 s/instance**: about 7 h for its 56-instance local
+cell and about 53 h for its 437-row global cell.
+
+The mechanism is kept for any pair that genuinely cannot be computed - anything listed there is
+dropped from the heatmap rows **and** named in the panel's footnote, so an omission is visible in
+the figure rather than only in prose. Lowering
+`_SHAP_PERMUTATION_MULTIPLIER` for `svm` alone was rejected throughout: an inconsistent permutation
+count across models would make the cross-model comparison meaningless.
 
 #### Global: SHAP vs permutation importance
 

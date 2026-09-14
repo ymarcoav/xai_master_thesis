@@ -811,16 +811,13 @@ _GLOBAL_AGREEMENT_K_VALUES = (5, 10, 20)
 # Fixed row order for the heatmaps, so panels line up across datasets and metrics.
 _AGREEMENT_MODEL_ORDER = ("random_forest", "xgboost", "neural_network", "svm")
 
-# (dataset, model) pairs deliberately left out of both agreement panels, with the measured
-# reason. Every agreement figure needs per-instance permutation SHAP for the non-tree models,
-# and cic_ids2017's svm was measured at 408 s/instance (10-instance run at
-# _SHAP_PERMUTATION_MULTIPLIER=50, 2026-09-09) - 6.8 h for the 60-instance local set and ~57 h
-# for the 500-row global one, against ~90 s/instance for the same model on unsw_nb15, which is
-# included. Excluded cells are dropped from the heatmap rows and named in its footnote, so the
-# omission is visible in the figure rather than only in the text.
-_AGREEMENT_EXCLUDED: dict[tuple[str, str], str] = {
-    ("cic_ids2017", "svm"): "permutation SHAP measured at 408 s/instance",
-}
+# (dataset, model) pairs left out of both agreement panels, with the measured reason. Empty: no
+# combination is left out. cic_ids2017/svm was excluded for a while on cost - its permutation SHAP
+# runs ~440 s/instance, ~53 h for the 437-row global cell - and that was withdrawn because every
+# combination belongs in the analysis, not because the cost fell. Kept as a mechanism because an
+# omission that only lives in prose is invisible in the figure: anything listed here is dropped
+# from the heatmap rows *and* named in the panel's footnote.
+_AGREEMENT_EXCLUDED: dict[tuple[str, str], str] = {}
 
 
 def _partition_excluded(

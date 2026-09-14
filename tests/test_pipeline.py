@@ -1099,22 +1099,48 @@ def test_global_ranking_sample_rejects_unknown_basis() -> None:
         _global_ranking_sample(x, y, 2, basis="kmeans", random_state=42)
 
 
-def test_partition_excluded_drops_configured_pairs_and_reports_why() -> None:
+def test_no_model_dataset_combination_is_excluded_by_default() -> None:
+    """Every model/dataset pair must appear in the agreement panels.
+
+    cic_ids2017/svm was excluded for a while on cost; that was withdrawn because every combination
+    belongs in the analysis. This pins the shipped list empty so a cell cannot be dropped again
+    without a test failing.
+    """
+    from xai_thesis.pipeline import _AGREEMENT_EXCLUDED
+
+    assert _AGREEMENT_EXCLUDED == {}
+
+
+def test_partition_excluded_drops_configured_pairs_and_reports_why(monkeypatch) -> None:
+    """The exclusion mechanism itself still works, for any future pair that needs it."""
+    from xai_thesis import pipeline as pipeline_module
+    from xai_thesis.pipeline import _partition_excluded
+
+    monkeypatch.setattr(
+        pipeline_module, "_AGREEMENT_EXCLUDED", {("toy", "svm"): "measured at 999 s/instance"}
+    )
+    experiments = [("random_forest", Path("rf.yaml")), ("svm", Path("svm.yaml"))]
+
+    included, notes = _partition_excluded("toy", experiments)
+
+    assert [model for model, _ in included] == ["random_forest"]
+    assert notes == ["svm omitted: measured at 999 s/instance"]
+
+    # A dataset with no exclusions keeps every model and reports nothing.
+    included, notes = _partition_excluded("other", experiments)
+    assert [model for model, _ in included] == ["random_forest", "svm"]
+    assert notes == []
+
+
+def test_partition_excluded_honours_an_explicit_model_filter() -> None:
     from xai_thesis.pipeline import _partition_excluded
 
     experiments = [("random_forest", Path("rf.yaml")), ("svm", Path("svm.yaml"))]
 
-    included, notes = _partition_excluded("cic_ids2017", experiments)
+    included, notes = _partition_excluded("unsw_nb15", experiments, models=["random_forest"])
 
     assert [model for model, _ in included] == ["random_forest"]
-    assert len(notes) == 1
-    assert "svm omitted" in notes[0]
-    assert "408 s/instance" in notes[0]
-
-    # A dataset with no exclusions keeps every model and reports nothing.
-    included, notes = _partition_excluded("unsw_nb15", experiments)
-    assert [model for model, _ in included] == ["random_forest", "svm"]
-    assert notes == []
+    assert notes == ["svm not requested"]
 
 
 def test_generate_global_agreement_writes_heatmaps_and_csv(tmp_path) -> None:
