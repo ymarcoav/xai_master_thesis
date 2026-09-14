@@ -704,6 +704,33 @@ plots at all if the model never misclassifies it in the test set (no stimulus pa
 class in the current list was re-checked to have both a correct and a misclassified test instance
 for all four models.
 
+### Interview stimulus candidates
+
+`scripts/stimulus_candidates.py` (`src/xai_thesis/stimuli.py`) profiles each model's errors on what
+makes a misclassification a good interview stimulus - one the analyst has to reason about rather
+than dismiss. The model is **confident** in its wrong answer (`confidence` = the probability it gave
+the class `.predict()` returned, which is the class a waterfall stimulus explains), and the flow
+carried **real traffic in both directions**.
+
+```powershell
+python scripts/stimulus_candidates.py                  # the agreement instance set
+python scripts/stimulus_candidates.py --scope benign   # every benign test flow
+```
+
+- `--scope instance_set` (default) profiles the class-balanced set the local agreement panel uses,
+  so SHAP and LIME attributions already exist for every row. It holds only 6 (UNSW-NB15) / 8
+  (CIC-IDS2017) benign rows, so it **cannot** say whether confident false positives exist.
+- `--scope benign` profiles every benign test flow and keeps the false positives, which is how that
+  question is actually answered.
+
+Errors are typed IDS-style, with benign as the negative class: false positive (a benign flow the
+model alerted on), false negative (an attack predicted benign), attack confusion (an attack put in
+the wrong attack class). Responder traffic is `none` / `packets_only` / `payload`, but `payload`
+only means "more than zero bytes", which a 6-byte exchange passes - so a candidate additionally
+needs `--min-bytes` (default 100) in **each** direction. Output goes to
+`outputs/metrics/stimuli/<dataset>_error_profile.csv` and `<dataset>_benign_false_positives.csv`;
+each model's rows are replaced independently, so a slow model can be rerun on its own.
+
 ### Cross-method agreement
 
 Two panels, both built from the same two top-k metrics of **Krishna et al., "The Disagreement
