@@ -306,14 +306,13 @@ def _build_lime_explainer(
     *,
     categorical_columns: Sequence[str] = (),
     random_state: int = 42,
-    discretize_continuous: bool = False,
-) -> tuple[LimeTabularExplainer, Callable[[np.ndarray], np.ndarray], list[str], dict[str, dict[str, int]]]:
+    discretize_continuous: bool = True,
+) -> tuple[LimeTabularExplainer, Callable[[np.ndarray], np.ndarray], Callable[[pd.Series], np.ndarray], list[str]]:
     """Build a LimeTabularExplainer and the matching predict function for a fitted pipeline.
 
-    Returns (explainer, predict_fn_on_encoded, columns, category_to_code): `columns` is the
-    (zero-variance-dropped) feature order LIME's local_exp indices refer to, and
-    `category_to_code` maps each categorical column's original string values to the integer
-    codes LIME expects (see _encode_lime_instance).
+    Returns (explainer, predict_fn_on_encoded, encode_instance, columns): `encode_instance`
+    turns one raw test row into the vector explain_instance expects, and `columns` is the
+    (zero-variance-dropped) feature order LIME's local_exp indices refer to.
 
     Split out from _build_lime_explanation so a batch caller (e.g. the agreement metric, which
     explains dozens of instances) builds the explainer - which scans all of x_train - once
@@ -323,13 +322,16 @@ def _build_lime_explainer(
     (categorical_names then supplies the display strings); the pipeline itself still expects the
     original values, so encoding/decoding happens transparently here.
 
-    LIME's default quantile-based discretization of continuous features crashes outright (scipy
-    truncnorm "scale must be positive") on the kind of heavily-skewed distributions common in
-    these datasets (e.g. CIC-IDS2017's flag counts, ~99% zero) - bin edges collapse regardless
-    of cardinality. discretize_continuous defaults to False (sidesteps the discretizer entirely,
-    perturbing continuous features via a Gaussian around each feature's std instead) and should
-    only be set True for a dataset verified not to hit this crash (confirmed safe for
-    UNSW-NB15 specifically).
+    discretize_continuous=True (LIME's own default) bins each continuous feature into training
+    quartiles, which is what gives the bar chart its readable range labels ("dttl > 29.00")
+    rather than bare feature names. The discretizer needs NaN-free training data: it computes a
+    std per bin, a single NaN makes that std NaN, and scipy's truncnorm then rejects it ("scale
+    must be positive") as soon as explain_instance perturbs a row. That is what crashed LIME on
+    CIC-IDS2017, where Flow Bytes/s and Flow Packets/s hold 1,120 NaN cells (inf mapped to NaN at
+    load time) - column skew was wrongly blamed before, and discretization was switched off
+    there as a workaround. Numeric NaNs, in both the training data and each explained row, are
+    therefore filled with x_train's column medians: exactly what the pipeline's own
+    SimpleImputer(strategy="median") substitutes, so the model's prediction for a row is unchanged.
     """
     all_columns = list(x_train.columns)
     numeric_columns = x_train.select_dtypes(include="number").columns
@@ -347,6 +349,15 @@ def _build_lime_explainer(
     x_train_encoded = x_train[columns].copy()
     for column in categorical_columns:
         x_train_encoded[column] = x_train_encoded[column].astype(str).map(category_to_code[column])
+    fill_columns = [column for column in columns if column in numeric_columns and column not in categorical_columns]
+    fill_values = x_train_encoded[fill_columns].median()
+    x_train_encoded[fill_columns] = x_train_encoded[fill_columns].fillna(fill_values)
+
+    def _encode_instance(instance: pd.Series) -> np.ndarray:
+        instance_encoded = instance[columns].copy()
+        for column, mapping in category_to_code.items():
+            instance_encoded[column] = mapping[str(instance[column])]
+        return instance_encoded.fillna(fill_values).to_numpy(dtype=float)
 
     model = pipeline.named_steps["model"]
     predict_fn = predict_proba_fn(model)
@@ -373,20 +384,7 @@ def _build_lime_explainer(
         random_state=random_state,
         discretize_continuous=discretize_continuous,
     )
-    return explainer, _predict_fn_on_encoded, columns, category_to_code
-
-
-def _encode_lime_instance(
-    instance: pd.Series,
-    columns: list[str],
-    category_to_code: dict[str, dict[str, int]],
-) -> np.ndarray:
-    """Reduce one row to LIME's feature order (zero-variance columns dropped) with categoricals
-    label-encoded to the codes _build_lime_explainer registered."""
-    instance_encoded = instance[columns].copy()
-    for column, mapping in category_to_code.items():
-        instance_encoded[column] = mapping[str(instance[column])]
-    return instance_encoded.to_numpy(dtype=float)
+    return explainer, _predict_fn_on_encoded, _encode_instance, columns
 
 
 def _build_lime_explanation(
@@ -398,7 +396,7 @@ def _build_lime_explanation(
     categorical_columns: Sequence[str] = (),
     num_features: int = 8,
     random_state: int = 42,
-    discretize_continuous: bool = False,
+    discretize_continuous: bool = True,
 ) -> tuple[Any, int, list[str]]:
     """Build the explainer and run explain_instance for a single row. Returns
     (explanation, predicted_label, columns).
@@ -407,7 +405,7 @@ def _build_lime_explanation(
     project's catalog is multiclass, so there's no fixed two-class layout to special-case.
     See _build_lime_explainer for the encoding/discretization details.
     """
-    explainer, predict_fn_on_encoded, columns, category_to_code = _build_lime_explainer(
+    explainer, predict_fn_on_encoded, encode_instance, columns = _build_lime_explainer(
         pipeline,
         x_train,
         class_names,
@@ -416,7 +414,7 @@ def _build_lime_explanation(
         discretize_continuous=discretize_continuous,
     )
     explanation = explainer.explain_instance(
-        _encode_lime_instance(instance, columns, category_to_code),
+        encode_instance(instance),
         predict_fn_on_encoded,
         num_features=num_features,
         top_labels=1,
@@ -434,7 +432,7 @@ def explain_instance_with_lime(
     categorical_columns: Sequence[str] = (),
     num_features: int = 8,
     random_state: int = 42,
-    discretize_continuous: bool = False,
+    discretize_continuous: bool = True,
 ) -> Path:
     """Local LIME explanation for one instance, rendered as LIME's default single-panel
     feature-weight bar chart. See _build_lime_explanation for the encoding/explainer details.

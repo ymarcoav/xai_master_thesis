@@ -623,6 +623,14 @@ python scripts/explain.py  # all experiments
   image. LIME's real native plotting surface is just this one function -
   `show_in_notebook`/`save_to_file` only produce an HTML+D3 widget with no static-image path, and there
   is no other LIME-native alternative to fall back on.
+  Continuous features are discretized into training quartiles on **both** datasets (LIME's default
+  `discretize_continuous=True`), which is what gives the bars their range labels (`dttl > 29.00`)
+  rather than bare feature names. CIC-IDS2017 used to run without it, because the discretizer
+  crashed there (scipy `truncnorm`: "scale must be positive"). That was blamed on column skew, but
+  the real cause was the 1,120 NaN cells in `Flow Bytes/s` and `Flow Packets/s`, which make LIME's
+  per-bin standard deviation NaN. `_build_lime_explainer` now fills numeric NaNs, in the training
+  data and in each explained row, with `x_train`'s column medians. Those are the same values the
+  pipeline's own `SimpleImputer(strategy="median")` uses, so model predictions are unchanged.
 - **Permutation feature importance** (`sklearn.inspection.permutation_importance`): run on the full
   pipeline, so importances are reported in terms of the original feature names, not the one-hot-expanded
   ones. Rendered as a hand-built horizontal bar chart, unlike the SHAP/LIME plots above - checked directly

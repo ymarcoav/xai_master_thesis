@@ -246,6 +246,24 @@ def test_explain_instance_with_lime_works_with_discretize_continuous(tmp_path) -
     assert output_path.exists()
 
 
+def test_explain_instance_with_lime_discretizes_despite_missing_values(tmp_path) -> None:
+    # A NaN in a continuous training column made LIME's per-bin std NaN and crashed its
+    # truncnorm sampling ("scale must be positive") - the real CIC-IDS2017 failure (Flow
+    # Bytes/s, Flow Packets/s) that had discretization switched off there. The explained row
+    # carries a NaN too, as CIC-IDS2017 test rows can.
+    x, y = _make_dataset()
+    x = x.copy()
+    x.loc[x.index[:5], "feature_a"] = np.nan
+    pipeline = _fitted_pipeline("random_forest", x, y)
+    class_names = list(pipeline.named_steps["model"].classes_)
+
+    output_path = explain_instance_with_lime(
+        pipeline, x, x.iloc[0], class_names, tmp_path / "lime_missing.png", discretize_continuous=True
+    )
+
+    assert output_path.exists()
+
+
 def test_compute_permutation_importance_writes_png_and_ranks_features(tmp_path) -> None:
     x, y = _make_dataset()
     pipeline = _fitted_pipeline("random_forest", x, y)

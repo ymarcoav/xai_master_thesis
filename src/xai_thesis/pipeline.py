@@ -34,7 +34,6 @@ from xai_thesis.evaluation import (
 )
 from xai_thesis.explainability import (
     _build_lime_explainer,
-    _encode_lime_instance,
     compute_permutation_importance,
     compute_shap_values,
     explain_instance_with_lime,
@@ -460,14 +459,6 @@ def _hardest_class_and_confusion(
         return None, None
     return target_class, confused_with_class
 
-# LIME's default discretize_continuous=True crashes on CIC-IDS2017's heavily-skewed columns
-# (scipy truncnorm "scale must be positive" - confirmed reproducible, see explainability.py);
-# verified safe for UNSW-NB15 specifically (30/30 test instances, no error) before enabling it
-# there. This is orthogonal to binary vs. multiclass (it's about column skew, not class count),
-# so UNSW-NB15's switch to multiclass doesn't change whether this is still safe there - it's
-# restricted to unsw_nb15 here simply because that's the only dataset this was ever verified for.
-_SAFE_TO_DISCRETIZE_LIME = {"unsw_nb15"}
-
 # SHAP background size, and the number of test instances the global SHAP/PFI plots explain.
 # The global sample is drawn class-balanced (see _class_balanced_sample), not stratified: a
 # prevalence-proportional draw of this project's test sets is 85-96% Benign and leaves most
@@ -612,7 +603,6 @@ def generate_explanations(
                 output_dir,
                 random_state,
                 predictions=predictions,
-                discretize_continuous=dataset_config.name in _SAFE_TO_DISCRETIZE_LIME,
             )
         )
 
@@ -634,7 +624,6 @@ def _generate_instance_explanations(
     random_state: int,
     *,
     predictions: pd.Series | None = None,
-    discretize_continuous: bool,
 ) -> dict[str, Path]:
     """SHAP waterfall + LIME plots for one curated (target_class, confused_with_class) instance
     pair - a correct classification and a misclassification of target_class as
@@ -688,7 +677,6 @@ def _generate_instance_explanations(
             output_dir / f"lime_{kind}.png",
             categorical_columns=categorical_columns,
             random_state=random_state,
-            discretize_continuous=discretize_continuous,
         )
 
     return paths
@@ -789,7 +777,6 @@ def generate_interview_stimuli(
             output_dir,
             random_state,
             predictions=predictions,
-            discretize_continuous=dataset_config.name in _SAFE_TO_DISCRETIZE_LIME,
         )
     return results
 
@@ -931,19 +918,18 @@ def compute_explanation_attributions(
     # One LIME explainer for the whole loop - building it scans all of x_train.
     # num_features = every column so the surrogate weight vector comes back dense rather
     # than truncated to LIME's default top 8, which the top-k metrics need.
-    lime_explainer, lime_predict_fn, lime_columns, lime_category_to_code = _build_lime_explainer(
+    lime_explainer, lime_predict_fn, lime_encode_instance, lime_columns = _build_lime_explainer(
         pipeline,
         x_train,
         class_names,
         categorical_columns=categorical_columns,
         random_state=random_state,
-        discretize_continuous=dataset_config.name in _SAFE_TO_DISCRETIZE_LIME,
     )
     lime_rows: list[np.ndarray] = []
     explained_class: list[int] = []
     for instance_index in sample_x.index:
         explanation = lime_explainer.explain_instance(
-            _encode_lime_instance(x_test.loc[instance_index], lime_columns, lime_category_to_code),
+            lime_encode_instance(x_test.loc[instance_index]),
             lime_predict_fn,
             num_features=len(lime_columns),
             top_labels=1,
