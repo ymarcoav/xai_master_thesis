@@ -1101,16 +1101,35 @@ def test_global_ranking_sample_rejects_unknown_basis() -> None:
         _global_ranking_sample(x, y, 2, basis="kmeans", random_state=42)
 
 
-def test_no_model_dataset_combination_is_excluded_by_default() -> None:
-    """Every model/dataset pair must appear in the agreement panels.
+def test_only_cic_svm_global_is_excluded_by_default() -> None:
+    """Every local cell is computed; the one global cell not computed is cic_ids2017/svm.
 
-    cic_ids2017/svm was excluded for a while on cost; that was withdrawn because every combination
-    belongs in the analysis. This pins the shipped list empty so a cell cannot be dropped again
-    without a test failing.
+    Pins both lists so a cell cannot be dropped, or the omission lose its stated reason, without
+    a test failing. The global exclusion must carry the measured cost, since it is printed in the
+    panel's footnote.
     """
-    from xai_thesis.pipeline import _AGREEMENT_EXCLUDED
+    from xai_thesis.pipeline import _AGREEMENT_EXCLUDED, _GLOBAL_AGREEMENT_EXCLUDED
 
     assert _AGREEMENT_EXCLUDED == {}
+    assert list(_GLOBAL_AGREEMENT_EXCLUDED) == [("cic_ids2017", "svm")]
+    assert "53 h" in _GLOBAL_AGREEMENT_EXCLUDED[("cic_ids2017", "svm")]
+
+
+def test_partition_excluded_uses_the_exclusion_list_it_is_given() -> None:
+    from xai_thesis.pipeline import _GLOBAL_AGREEMENT_EXCLUDED, _partition_excluded
+
+    experiments = [("random_forest", Path("rf.yaml")), ("svm", Path("svm.yaml"))]
+
+    included, notes = _partition_excluded(
+        "cic_ids2017", experiments, excluded=_GLOBAL_AGREEMENT_EXCLUDED
+    )
+    assert [model for model, _ in included] == ["random_forest"]
+    assert notes and notes[0].startswith("svm omitted:")
+
+    # The local panel's default list is empty, so the same call without it keeps svm.
+    included, notes = _partition_excluded("cic_ids2017", experiments)
+    assert [model for model, _ in included] == ["random_forest", "svm"]
+    assert notes == []
 
 
 def test_partition_excluded_drops_configured_pairs_and_reports_why(monkeypatch) -> None:

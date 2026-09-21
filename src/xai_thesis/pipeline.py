@@ -770,30 +770,46 @@ _GLOBAL_AGREEMENT_K_VALUES = (5, 10, 20)
 # Fixed row order for the heatmaps, so panels line up across datasets and metrics.
 _AGREEMENT_MODEL_ORDER = ("random_forest", "xgboost", "neural_network", "svm")
 
-# (dataset, model) pairs left out of both agreement panels, with the measured reason. Empty: no
-# combination is left out. cic_ids2017/svm was excluded for a while on cost - its permutation SHAP
-# runs ~440 s/instance, ~53 h for the 437-row global cell - and that was withdrawn because every
-# combination belongs in the analysis, not because the cost fell. Kept as a mechanism because an
-# omission that only lives in prose is invisible in the figure: anything listed here is dropped
-# from the heatmap rows *and* named in the panel's footnote.
+# (dataset, model) pairs left out of the *local* agreement panel, with the measured reason.
+# Empty: every local cell is computed, including cic_ids2017/svm (~7 h for its 56 instances).
+# Kept as a mechanism because an omission that only lives in prose is invisible in the figure:
+# anything listed here is dropped from the heatmap rows *and* named in the panel's footnote.
 _AGREEMENT_EXCLUDED: dict[tuple[str, str], str] = {}
+
+# Same, for the *global* (SHAP vs permutation importance) panel. cic_ids2017/svm is the one
+# cell not computed: its permutation SHAP runs ~440 s/instance, ~53 h for the 437-row global
+# sample, and that run has not been done - there is no cached ranking for it. Left out of the
+# global panel only (its local cell exists), and named in the panel's footnote so the figure
+# shows three models on CIC-IDS2017 for a stated reason rather than for an unstated one.
+_GLOBAL_AGREEMENT_EXCLUDED: dict[tuple[str, str], str] = {
+    ("cic_ids2017", "svm"): (
+        "global run not computed - permutation SHAP ~440 s/instance, ~53 h for the 437-row sample"
+    ),
+}
 
 
 def _partition_excluded(
-    dataset_name: str, experiments: Sequence[tuple[str, Path]], models: Sequence[str] | None = None
+    dataset_name: str,
+    experiments: Sequence[tuple[str, Path]],
+    models: Sequence[str] | None = None,
+    excluded: dict[tuple[str, str], str] | None = None,
 ) -> tuple[list[tuple[str, Path]], list[str]]:
     """Split (model, config) pairs into those to compute and a note per model left out.
 
-    Two reasons a model is left out: the permanent _AGREEMENT_EXCLUDED list (too expensive to
-    compute at all, with the measured cost as its reason), and an explicit `models` filter,
+    Two reasons a model is left out: a permanent exclusion list (too expensive to compute, with
+    the measured cost as its reason) - `excluded`, defaulting to the local panel's
+    _AGREEMENT_EXCLUDED; the global panel passes _GLOBAL_AGREEMENT_EXCLUDED - and an explicit
+    `models` filter,
     which the alternative-basis runs use to keep a methodological comparison off the models
     whose permutation SHAP costs hours.
     """
+    if excluded is None:
+        excluded = _AGREEMENT_EXCLUDED
     included: list[tuple[str, Path]] = []
     notes: list[str] = []
     for model, path in experiments:
-        if (dataset_name, model) in _AGREEMENT_EXCLUDED:
-            notes.append(f"{model} omitted: {_AGREEMENT_EXCLUDED[(dataset_name, model)]}")
+        if (dataset_name, model) in excluded:
+            notes.append(f"{model} omitted: {excluded[(dataset_name, model)]}")
         elif models is not None and model not in models:
             notes.append(f"{model} not requested")
         else:
@@ -1194,7 +1210,10 @@ def generate_global_agreement(
     (not just the agreement score) moved when the sample basis changed.
     """
     experiments, excluded_notes = _partition_excluded(
-        dataset_name, _dataset_experiment_paths(dataset_name, config_dir), models
+        dataset_name,
+        _dataset_experiment_paths(dataset_name, config_dir),
+        models,
+        excluded=_GLOBAL_AGREEMENT_EXCLUDED,
     )
     k_values = list(k_values)
 

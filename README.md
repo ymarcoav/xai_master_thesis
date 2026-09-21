@@ -846,17 +846,18 @@ The CIC-IDS2017 columns were recomputed on 2026-09-14, when discretization was e
 the LIME matrices changed: the cached SHAP matrices, instance sample, and explained classes are
 identical.
 
-**No model/dataset combination is excluded: `_AGREEMENT_EXCLUDED` in `pipeline.py` is empty, and a
-test pins it that way.**
+**One model/dataset cell is missing: CIC-IDS2017 `svm` on the global panel.** Its permutation SHAP
+takes **~440 s/instance** over full runs: about 7 h for its 56-instance local cell (computed, and in
+the local panel) but about 53 h for its 437-row global cell, which has **not been run** - no cached
+ranking exists for it. `_GLOBAL_AGREEMENT_EXCLUDED` in `pipeline.py` lists exactly that pair, so the
+CIC-IDS2017 global heatmaps show three models and say so in their footnote (`svm omitted: global run
+not computed - ...`). Every other combination is computed: `_AGREEMENT_EXCLUDED` (the local panel's
+list) is empty, and a test pins both lists. Running the global cell would mean removing that entry
+and accepting the ~53 h.
 
-CIC-IDS2017's `svm` was excluded for a while on cost. The exclusion was withdrawn because every
-model/dataset combination belongs in the analysis - not because the cost fell. Measured over full
-runs, that model's permutation SHAP takes **~440 s/instance**: about 7 h for its 56-instance local
-cell and about 53 h for its 437-row global cell.
-
-The mechanism is kept for any pair that genuinely cannot be computed - anything listed there is
-dropped from the heatmap rows **and** named in the panel's footnote, so an omission is visible in
-the figure rather than only in prose. Lowering
+The mechanism is kept for any pair that genuinely cannot be computed - anything listed is dropped
+from the heatmap rows **and** named in the footnote, so an omission is visible in the figure rather
+than only in prose. Lowering
 `_SHAP_PERMUTATION_MULTIPLIER` for `svm` alone was rejected throughout: an inconsistent permutation
 count across models would make the cross-model comparison meaningless.
 
