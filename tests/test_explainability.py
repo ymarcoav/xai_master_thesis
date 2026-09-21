@@ -5,6 +5,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.svm import LinearSVC
 
 from xai_thesis.explainability import (
+    _build_lime_explanation,
     clean_feature_names,
     compute_permutation_importance,
     compute_shap_values,
@@ -194,6 +195,25 @@ def test_explain_instance_with_lime_writes_png(tmp_path) -> None:
     output_path = explain_instance_with_lime(pipeline, x, x.iloc[0], class_names, tmp_path / "lime.png")
 
     assert output_path.exists()
+
+
+def test_lime_class_index_overrides_the_naturally_top_ranked_class() -> None:
+    # x.iloc[0] is drawn from class_0's cluster (center=0), so predict_proba naturally ranks
+    # class_0 highest - the real-world case this guards is svm, where pipeline.predict() (used
+    # to pick a SHAP plot's class) and predict_proba's argmax (LIME's default top_labels=1 pick)
+    # can disagree, so a same-instance SHAP/LIME pair need an explicit override to agree on which
+    # class both explain. class_index=2 forces LIME to explain the third class ("class_2")
+    # instead, proving the override actually overrides rather than being silently ignored.
+    x, y = _make_dataset()
+    pipeline = _fitted_pipeline("random_forest", x, y)
+    class_names = list(pipeline.named_steps["model"].classes_)
+    natural_top_class = class_names[int(np.argmax(pipeline.predict_proba(x.iloc[[0]])[0]))]
+    assert natural_top_class == "class_0"
+
+    explanation, label, _columns = _build_lime_explanation(pipeline, x, x.iloc[0], class_names, class_index=2)
+
+    assert label == 2
+    assert explanation.available_labels() == [2]
 
 
 def test_explain_instance_with_lime_works_without_predict_proba(tmp_path) -> None:

@@ -399,12 +399,21 @@ def _build_lime_explanation(
     num_features: int = 8,
     random_state: int = 42,
     discretize_continuous: bool = True,
+    class_index: int | None = None,
 ) -> tuple[Any, int, list[str]]:
     """Build the explainer and run explain_instance for a single row. Returns
     (explanation, predicted_label, columns).
 
-    top_labels=1 explains whichever class was actually predicted - every dataset in this
-    project's catalog is multiclass, so there's no fixed two-class layout to special-case.
+    class_index, if given, pins the explanation to that specific class (LIME's labels=
+    argument) instead of the default top_labels=1 (whichever class predict_proba ranks
+    highest). This matters because a SHAP plot generated for the same instance is keyed to
+    whichever class pipeline.predict() returns, and for svm those two can disagree: sklearn's
+    SVC.predict() uses one-vs-one vote counting, not predict_proba's Platt-scaled argmax (see
+    this project's README for the measured rate on the agreement sample). Confirmed to bite in
+    practice, not just in theory: 6 of the 10 curated svm interview instances had SHAP and LIME
+    explaining different classes for the same row before class_index was threaded through here -
+    left at the default (None, top_labels=1) every other model still agrees with class_index by
+    construction, so their plots are unaffected either way.
     See _build_lime_explainer for the encoding/discretization details.
     """
     explainer, predict_fn_on_encoded, encode_instance, columns = _build_lime_explainer(
@@ -415,11 +424,12 @@ def _build_lime_explanation(
         random_state=random_state,
         discretize_continuous=discretize_continuous,
     )
+    explain_kwargs = {"labels": (class_index,)} if class_index is not None else {"top_labels": 1}
     explanation = explainer.explain_instance(
         encode_instance(instance),
         predict_fn_on_encoded,
         num_features=num_features,
-        top_labels=1,
+        **explain_kwargs,
     )
     return explanation, explanation.available_labels()[0], columns
 
@@ -435,15 +445,18 @@ def explain_instance_with_lime(
     num_features: int = 8,
     random_state: int = 42,
     discretize_continuous: bool = True,
+    class_index: int | None = None,
 ) -> Path:
     """Local LIME explanation for one instance, rendered as LIME's default single-panel
-    feature-weight bar chart. See _build_lime_explanation for the encoding/explainer details.
+    feature-weight bar chart. See _build_lime_explanation for the encoding/explainer details,
+    including what class_index is for and why it matters (pins the explained class to match a
+    same-instance SHAP plot, since they otherwise pick the explained class two different ways).
 
     as_pyplot_figure() draws its own title ("Local explanation for class <name>") and no x-axis
     label at all; both are overridden here - the title dropped (redundant with the file's own
-    "interview_<class>" folder and "lime_correct"/"lime_misclassified" name), and a plain generic
-    "Feature weight" x-axis label added instead (matching plot_shap_waterfall's equally generic
-    "Model output" label), since the axis otherwise carries no explanation of what the numbers mean.
+    "interview_<class>" folder and "lime_correct"/"lime_misclassified" name), and a plain
+    "Feature weight" x-axis label added instead, since the axis otherwise carries no explanation
+    of what the numbers mean.
     """
     explanation, label, _columns = _build_lime_explanation(
         pipeline,
@@ -454,6 +467,7 @@ def explain_instance_with_lime(
         num_features=num_features,
         random_state=random_state,
         discretize_continuous=discretize_continuous,
+        class_index=class_index,
     )
     fig = explanation.as_pyplot_figure(label=label)
     ax = fig.axes[0]

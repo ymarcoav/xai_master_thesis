@@ -626,6 +626,11 @@ def _generate_instance_explanations(
             output_dir / f"shap_waterfall_{kind}.png",
             value_label=waterfall_space,
         )
+        # class_index (same one the SHAP waterfall above was just plotted for) pins LIME to
+        # that class too, rather than letting it pick its own via top_labels=1 - the two
+        # otherwise disagree for svm, whose pipeline.predict() (one-vs-one voting) doesn't
+        # always match predict_proba's argmax (what top_labels=1 selects). See
+        # _build_lime_explanation's docstring for the confirmed real-world impact.
         paths[f"lime_{kind}"] = explain_instance_with_lime(
             pipeline,
             x_train,
@@ -634,6 +639,7 @@ def _generate_instance_explanations(
             output_dir / f"lime_{kind}.png",
             categorical_columns=categorical_columns,
             random_state=random_state,
+            class_index=class_index,
         )
 
     return paths
