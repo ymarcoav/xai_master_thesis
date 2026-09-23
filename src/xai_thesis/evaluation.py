@@ -127,7 +127,24 @@ def plot_confusion_matrix(
         colorbar_label = "Count (log scale)"
         cbar_extend = "max" if matrix.max() > robust_vmax else "neither"
 
-    figure_size = max(6, len(labels) * 0.6)
+    # 0.85 per label, not 0.6: at 0.6 a 10-class matrix got the same 6-inch canvas as a
+    # 7-class one (both hit the floor), so its cells were ~30% narrower while the annotated
+    # counts were just as long. On UNSW-NB15 the Benign diagonal (573,282 - six digits) drew
+    # wider than its own cell, colliding with the neighbouring cell's text and clipping its
+    # own leading digit, so the published figure showed an unreadable "73282747" where two
+    # separate counts belonged. Anything at or below 7 labels keeps the previous 6-inch
+    # canvas, so the existing CIC-IDS2017 figures are unchanged.
+    figure_size = max(6.0, len(labels) * 0.85)
+    # Second guard, for whatever class count and count magnitude a future dataset brings:
+    # cap the annotation font so the widest count still fits inside one cell. The heatmap
+    # grid takes up roughly 70% of the figure width once the tick labels and colorbar are
+    # allowed for, and a digit is about 0.6 em wide. Stays at matplotlib's default 10pt for
+    # both datasets in the current catalog - it only binds on denser matrices.
+    grid_width_points = figure_size * 72 * 0.7
+    cell_width_points = grid_width_points / len(labels)
+    max_digits = len(str(int(matrix.max())))
+    annotation_size = float(np.clip(0.85 * cell_width_points / (0.6 * max_digits), 5.0, 10.0))
+
     fig, ax = plt.subplots(figsize=(figure_size, figure_size))
     # A colorbar built via sns.heatmap's own default placement is sized relative to the
     # whole figure, not the heatmap's actual plotted box - with square=True forcing the
@@ -140,6 +157,7 @@ def plot_confusion_matrix(
         display_matrix,
         annot=matrix,
         fmt="d",
+        annot_kws={"size": annotation_size},
         cmap="Blues",
         vmin=vmin,
         vmax=vmax,
