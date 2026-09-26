@@ -16,6 +16,7 @@ import pandas as pd  # noqa: E402
 import shap  # noqa: E402
 from lime.lime_tabular import LimeTabularExplainer  # noqa: E402
 from sklearn.inspection import permutation_importance  # noqa: E402
+from sklearn.metrics import f1_score  # noqa: E402
 from sklearn.pipeline import Pipeline  # noqa: E402
 
 # Models with a fast, exact structural SHAP explainer (tree ensembles). Everything else
@@ -222,6 +223,17 @@ def _collapse_to_original_features(
     return collapsed_shap, display_data, original_columns
 
 
+def class_colors(class_names: Sequence[str]) -> list[tuple[float, float, float, float]]:
+    """One fixed colour per class, indexed like class_names (model.classes_ order).
+
+    Shared by plot_shap_bar and compute_permutation_importance so a class keeps the same colour
+    across both stacked global figures regardless of how each figure orders its stack. Uses
+    shap's own red_blue_circle map at the same evenly spaced points shap's multiclass bar uses,
+    so the palette looks like shap's default, just keyed to class instead of stack position.
+    """
+    return [shap.plots.colors.red_blue_circle(i / len(class_names)) for i in range(len(class_names))]
+
+
 def plot_shap_bar(
     shap_values: np.ndarray,
     x_transformed: np.ndarray,
@@ -245,7 +257,16 @@ def plot_shap_bar(
     it (confirmed - a short label at the same figure width does not get cut, so this is a label-
     length problem, not a save-path one). Overridden here to the shorter form for exactly that
     reason, not merely for brevity.
+
+    Class colours come from class_colors, not shap's default: shap colours each segment by its
+    stack position, so a class's colour depended on its importance rank and differed from the
+    permutation-importance plot's for the same model (UNSW-NB15 random_forest: first-stack blue
+    was Fuzzers here, Worms there). Stack order itself is unchanged from shap's default.
     """
+    # Same stack order shap picks by default (classes by overall mean |SHAP|), but coloured by
+    # class rather than by stack position - see class_colors.
+    class_inds = np.argsort(-np.abs(shap_values).mean(axis=(0, 1)))
+    palette = class_colors(class_names)
     shap.summary_plot(
         [shap_values[:, :, class_idx] for class_idx in range(shap_values.shape[2])],
         x_transformed,
@@ -254,6 +275,8 @@ def plot_shap_bar(
         plot_type="bar",
         max_display=max_display,
         show=False,
+        class_inds=list(class_inds),
+        color=lambda stack_index: palette[class_inds[stack_index]],
     )
     plt.gca().set_xlabel("mean(|SHAP value|)", fontsize=13)
     return _save_current_figure(output_path)
@@ -483,12 +506,28 @@ def compute_permutation_importance(
     y_data: pd.Series,
     output_path: str | Path,
     *,
-    scoring: str = "f1_macro",
     n_repeats: int = 10,
     random_state: int = 42,
     top_n: int = 10,
 ) -> tuple[Path, list[str], Any]:
-    """Permutation feature importance on the full pipeline (raw, pre-encoding feature names).
+    """Permutation feature importance on the full pipeline (raw, pre-encoding feature names),
+    as each feature's macro-F1 drop, drawn stacked by class like plot_shap_bar.
+
+    The per-class split is exact, not an approximation: macro-F1 is the plain mean of the K
+    per-class F1 scores, so a feature's macro-F1 drop is (1/K) * sum_k (class k's F1 drop), and
+    the segments drawn are those (1/K)-scaled per-class drops - they sum to the bar's total. All
+    K+1 scores come from one multi-metric permutation_importance call (one set of predictions
+    per shuffle, every metric scored from it), so this costs the same as the old macro-only run.
+    Both scores use labels=model.classes_, so a class absent from y_data would count as F1 0
+    before and after shuffling (a zero segment, but still one of the K in the mean); pipeline.py
+    passes a class-balanced sample, where every class is present.
+
+    Unlike mean|SHAP| segments, a class's F1 drop can be negative (shuffling a feature can
+    slightly help one class while hurting others). Negative segments are drawn left of zero
+    rather than clipped, so the positive and negative parts together still sum to the total.
+    Stack order mirrors plot_shap_bar (classes sorted by total contribution), and each class
+    gets the same colour as in plot_shap_bar (class_colors), so the two global figures for a
+    model can be read side by side.
 
     top_n defaults to 10 (changed from 15 on 2026-08-29) to match every other explanation plot
     in this project - see plot_shap_bar's docstring for the full story of why these needed
@@ -497,29 +536,87 @@ def compute_permutation_importance(
     removed 2026-08-28) but kept in the return signature since it's a real, free-standing return
     value some other caller could still want.
 
-    The third return is sklearn's raw Bunch (importances_mean / _std / the full repeat matrix),
-    so a caller that needs the ranking itself - pipeline.py's global agreement cache - reuses
-    this one computation instead of running permutation_importance a second time over the same
-    rows, which for svm is hours.
+    The third return is sklearn's raw macro-F1 Bunch (importances_mean / _std / the full repeat
+    matrix), so a caller that needs the ranking itself - pipeline.py's global agreement cache -
+    reuses this one computation instead of running permutation_importance a second time over
+    the same rows, which for svm is hours.
     """
-    result = permutation_importance(
-        pipeline, x_data, y_data, scoring=scoring, n_repeats=n_repeats, random_state=random_state, n_jobs=1
+    class_names = [str(name) for name in pipeline.named_steps["model"].classes_]
+    labels = list(pipeline.named_steps["model"].classes_)
+
+    def _scorer(estimator: Any, x: pd.DataFrame, y: pd.Series) -> dict[str, float]:
+        per_class = f1_score(y, estimator.predict(x), labels=labels, average=None, zero_division=0)
+        scores = {f"f1::{name}": float(score) for name, score in zip(class_names, per_class)}
+        return {"f1_macro": float(per_class.mean()), **scores}
+
+    results = permutation_importance(
+        pipeline, x_data, y_data, scoring=_scorer, n_repeats=n_repeats, random_state=random_state, n_jobs=1
     )
+    result = results["f1_macro"]
+    # (n_features, n_classes): each class's share of the macro-F1 drop.
+    per_class_drops = [results[f"f1::{name}"].importances_mean for name in class_names]
+    contributions = np.column_stack(per_class_drops) / len(class_names)
+
     order = np.argsort(result.importances_mean)[::-1][:top_n]
     top_features = [x_data.columns[i] for i in order]
-
-    fig, ax = plt.subplots(figsize=(8, max(4, len(order) * 0.35)))
-    ax.barh(
-        [x_data.columns[i] for i in order][::-1],
-        result.importances_mean[order][::-1],
-        xerr=result.importances_std[order][::-1],
-        color="#4C72B0",
+    plot_path = _plot_stacked_permutation_importance(
+        contributions[order],
+        result.importances_mean[order],
+        result.importances_std[order],
+        top_features,
+        class_names,
+        output_path,
     )
-    ax.set_xlabel(f"Permutation importance ({scoring} drop)")
-    fig.tight_layout()
-    plot_path = _save_figure(fig, output_path)
 
     return plot_path, top_features, result
+
+
+def _plot_stacked_permutation_importance(
+    contributions: np.ndarray,
+    totals: np.ndarray,
+    totals_std: np.ndarray,
+    feature_names: list[str],
+    class_names: list[str],
+    output_path: str | Path,
+) -> Path:
+    """Draw compute_permutation_importance's per-class stacked bars, most important on top.
+
+    contributions is (n_features, n_classes) in display order; positive segments stack right
+    from zero, negative ones left, and a black diamond with a single error bar (std of the macro
+    drop over repeats) marks each feature's net total. The marker matters once a feature has
+    negative segments: its net total then sits short of the positive stack's right edge, and a
+    bare whisker floating inside the coloured bar reads as a drawing error. Per-segment error
+    bars are left off: per-class F1 drops are much noisier than their mean, and K overlapping
+    whiskers would be unreadable.
+    """
+    n_features = contributions.shape[0]
+    y_pos = np.arange(n_features)[::-1]
+    class_order = np.argsort(-contributions.sum(axis=0))
+    palette = class_colors(class_names)
+
+    fig, ax = plt.subplots(figsize=(8, n_features * 0.4 + 1.5))
+    right = np.zeros(n_features)
+    left = np.zeros(n_features)
+    for class_index in class_order:
+        values = contributions[:, class_index]
+        positive, negative = np.clip(values, 0, None), np.clip(values, None, 0)
+        color = palette[class_index]
+        ax.barh(y_pos, positive, 0.7, left=right, color=color, label=class_names[class_index])
+        ax.barh(y_pos, negative, 0.7, left=left, color=color)
+        right += positive
+        left += negative
+
+    ax.errorbar(
+        totals, y_pos, xerr=totals_std, fmt="D", color="#222222", markersize=4, elinewidth=1, capsize=3
+    )
+    if left.min() < 0:
+        ax.axvline(0, color="#999999", linewidth=0.8)
+    ax.set_yticks(y_pos, feature_names, fontsize=13)
+    ax.set_xlabel("Permutation importance (macro-F1 drop)", fontsize=13)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.legend(frameon=False, fontsize=12)
+    fig.tight_layout()
+    return _save_figure(fig, output_path)
 
 
 def select_curated_instances(

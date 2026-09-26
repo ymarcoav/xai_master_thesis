@@ -83,14 +83,29 @@ def plot_confusion_matrix(
     class has few enough errors - render as a normal, visible white rather than being
     masked out entirely, which plain log scaling does to non-positive values.
 
-    The scale's vmax is deliberately the largest value *excluding* the single most extreme
-    cell (almost always the majority class's own diagonal entry, often orders of magnitude
-    bigger than everything else), not that cell itself: anchoring vmax to that one outlier
-    left it consuming most of the color range on its own, compressing every other cell -
-    including the off-diagonal error cells that are the actual point of a confusion matrix -
-    into a visually similar dark band near the top, exactly where the eye needs the most
-    separation. Letting that one outlier clip to the same top color (the colorbar's "extend"
-    arrow signals this) frees up the full light-to-dark range for everything else instead.
+    The scale's vmax deliberately excludes the majority class, which in this project's
+    datasets is orders of magnitude bigger than everything else: anchoring vmax to it left
+    that one cell consuming most of the color range on its own, compressing every other cell
+    - including the off-diagonal error cells that are the actual point of a confusion matrix
+    - into a visually similar pale band near the bottom, exactly where the eye needs the most
+    separation. Letting it clip to the top color (the colorbar's "extend" arrow signals this)
+    frees up the full light-to-dark range for everything else instead.
+
+    What vmax is anchored to is the *second-largest true-class total* - the second-largest
+    row sum - rather than the second-largest individual cell. Both exclude the majority
+    class, but a row sum is a property of the test set's class distribution, so it is
+    identical for every model trained on that dataset, whereas a per-matrix cell maximum is
+    not. That matters when two panels are placed side by side in one figure, as the thesis
+    does: under the old per-cell anchor the four CIC-IDS2017 panels spanned 93.6k-96.4k and
+    the four UNSW-NB15 ones 5.5k-6.9k, so two cells holding the *same* count rendered as
+    slightly different shades depending on which panel they sat in. Anchoring to the class
+    distribution makes shading directly comparable across every panel of a dataset.
+
+    Scales still differ BETWEEN datasets, which is intended, not an oversight: CIC-IDS2017's
+    second-largest class holds ~96k test flows against UNSW-NB15's ~8k. Forcing CIC-IDS2017
+    onto UNSW-NB15's scale would clip its DoS/DDoS diagonal and the whole benign-row leakage
+    band to one flat color, and the reverse would push nearly every UNSW-NB15 cell under
+    linthresh into a near-white wash. The two datasets are never shown in the same figure.
 
     linthresh (SymLogNorm's linear-region half-width around zero) is set to 5% of that
     robust vmax rather than a fixed constant like 1: with linthresh=1, every value >=1
@@ -119,8 +134,11 @@ def plot_confusion_matrix(
         cbar_extend = "neither"
     else:
         display_matrix = matrix
-        below_peak = matrix[matrix < matrix.max()]
-        robust_vmax = below_peak.max() if below_peak.size > 0 else matrix.max()
+        # Second-largest row sum (see the docstring): model-independent, so every panel of a
+        # dataset shares one scale. Falls back to the largest cell for a degenerate
+        # single-class matrix, where there is no second class to anchor to.
+        class_totals = np.sort(matrix.sum(axis=1))
+        robust_vmax = int(class_totals[-2]) if class_totals.size > 1 else int(matrix.max())
         robust_vmax = max(robust_vmax, 1)
         norm = SymLogNorm(linthresh=max(1, robust_vmax * 0.05), vmin=0, vmax=robust_vmax)
         vmin = vmax = None
