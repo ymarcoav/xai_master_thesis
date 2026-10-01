@@ -24,3 +24,6 @@ outputs/plots/*
 # same reasoning as the patterns above, just under a different directory name.
 data/_archive/
 outputs/_archive/
+
+# Hand-assembled copies of outputs for the thesis document (plots + CSVs), regenerable.
+outputs/thesis_deliverables/
