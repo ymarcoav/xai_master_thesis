@@ -719,7 +719,9 @@ Both vectors are cached per experiment as `outputs/metrics/global_importance/<ex
 and `__pfi.npz` (raw column order, plus the sample's `instance_index` and class counts), which the
 explanation report reads.
 
-**CIC-IDS2017 `svm` global SHAP is skipped by default.** Its permutation SHAP takes ~440 s/instance,
+**CIC-IDS2017 `svm` global SHAP is reported, but not recomputed by default.** Its result comes from
+one chunked run (see the note below) and is part of the thesis results like every other model's. A
+rerun skips it, because its permutation SHAP takes ~440 s/instance,
 ~53 h for the 437-row sample in one call. `generate_explanations` skips global SHAP when the
 experiment config's `skip_global_shap` flag is true. The flag defaults to true for that pair only
 (`_GLOBAL_SHAP_SKIPPED_BY_DEFAULT`), and `cic_ids2017_svm_baseline.yaml` also sets it explicitly. The
