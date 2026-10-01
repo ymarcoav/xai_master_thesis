@@ -55,8 +55,7 @@ class _StringLabelXGBClassifier(_XGBClassifier):
 # ⚠️ logistic_regression and gradient_boosting removed entirely 2026-08-24 (explicit user
 # request) - both had been flagged out-of-scope-but-functional since 2026-08-09 and archived
 # 2026-08-17, then removed outright rather than kept around unused. Their model factory
-# entries, tuning grids, archived configs/models/metrics/plots (for unsw_nb15/cic_ids2017;
-# their NSL-KDD/DAPT2020 copies too, bundled inside those datasets' own archives), and every
+# entries, tuning grids, archived configs/models/metrics/plots, and every
 # now-dead code path (explainability.py's LinearExplainer branch, _TREE_MODELS entry) were
 # deleted, not just hidden. Historical comments elsewhere in this project that reference
 # results from these two models are kept as-is - they document real findings from when those

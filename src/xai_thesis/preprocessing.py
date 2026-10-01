@@ -16,17 +16,6 @@ def split_features_target(data: pd.DataFrame, label_column: str) -> tuple[pd.Dat
     return features, target
 
 
-def split_by_official_split_column(
-    data: pd.DataFrame, split_column: str = "split"
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Split data using a dataset's own pre-assigned train/test split column (NSL-KDD - the
-    only dataset in this project that ships one; every other dataset uses
-    stratified_random_split)."""
-    train = data.loc[data[split_column] == "train"].drop(columns=[split_column]).reset_index(drop=True)
-    test = data.loc[data[split_column] == "test"].drop(columns=[split_column]).reset_index(drop=True)
-    return train, test
-
-
 def stratified_random_split(
     data: pd.DataFrame,
     label_column: str,

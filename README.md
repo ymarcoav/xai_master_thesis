@@ -6,14 +6,13 @@ Code for the master thesis titled "Evaluating Explainable AI Methods for Intrusi
 
 - `configs/datasets/`: one YAML per **active** dataset (raw/processed paths, label column, columns to drop, categorical columns).
 - `configs/experiments/`: one YAML per **active** trained model (dataset, model type, hyperparameters, metrics to report).
-- `configs/_archive/`: dataset/experiment configs for out-of-scope datasets (NSL-KDD, DAPT2020) - archived 2026-08-17, still fully functional, just not touched by the default (no-args) pipeline commands. See the Datasets/Training sections below. (`gradient_boosting`/`logistic_regression` were archived here too for a while, then removed from the project entirely on 2026-08-24 - see Training below.)
 - `data/`: raw and processed datasets. Data files are ignored by Git.
-- `data/_archive/`: raw/processed data for archived datasets (also gitignored).
+- `data/_archive/`: raw/processed data of datasets no longer in the project (also gitignored).
 - `src/xai_thesis/`: reusable project code (dataset adapters, preprocessing, models, evaluation, explainability, pipeline orchestration).
 - `scripts/`: command-line entry points for inspection, preprocessing, training, and analysis.
 - `notebooks/`: exploratory analysis and thesis figures in progress.
 - `outputs/`: generated models (`models/`), metrics (`metrics/`), and plots (`plots/`).
-- `outputs/_archive/`: models/metrics/plots for archived datasets/models. Also gitignored.
+- `outputs/_archive/`: models/metrics/plots of datasets no longer in the project. Also gitignored.
 - `tests/`: focused tests for shared code.
 
 ## Setup
@@ -52,27 +51,21 @@ Python 3.14.0 (CPython, Windows 11). The versions that actually change explanati
 
 ## Datasets
 
-Four intrusion detection datasets are supported: UNSW-NB15, CIC-IDS2017, DAPT2020, and NSL-KDD. Each
+Two intrusion detection datasets are supported: UNSW-NB15 and CIC-IDS2017. Each
 has a dataset adapter in `src/xai_thesis/datasets/` implementing dataset-specific cleanup (e.g.
 deduplication, fixing known data-quality issues, dropping identifier/leakage columns) behind a shared
 interface.
 
-> **DAPT2020 and NSL-KDD are out of scope for the thesis** (DAPT2020 since 2026-07-31, NSL-KDD since
-> 2026-08-13) **and were archived as of 2026-08-17.** Their adapter code (`src/xai_thesis/datasets/`)
-> and tests remain fully functional and unmodified - nothing was deleted - but their raw/processed data
-> moved to `data/_archive/<dataset>/`, their trained models/metrics/plots moved to
-> `outputs/_archive/<dataset>/`, and their dataset/experiment configs moved to `configs/_archive/`. The
-> thesis now covers only **UNSW-NB15 and CIC-IDS2017**, and the default (no-args) pipeline commands only
-> ever touch those two. To rerun an archived experiment: `python scripts/train.py --experiment
-> configs/_archive/experiments/nsl_kdd_random_forest_baseline.yaml --dataset-config-dir
-> configs/_archive/datasets` (the archived dataset configs' `raw_path`/`processed_path` already point at
-> the new data locations).
+> **DAPT2020 and NSL-KDD were removed from the project on 2026-10-01** (out of thesis scope since
+> 2026-07-31 / 2026-08-13, archived 2026-08-17): their adapters, tests, configs and the NSL-KDD-only
+> official-split code path are gone. Their old data and outputs may still sit, gitignored, under
+> `data/_archive/` and `outputs/_archive/`.
 
-**Every dataset in this catalog is multiclass as of 2026-07-31** - UNSW-NB15 was the last binary one.
+**Both datasets are multiclass** - UNSW-NB15 was the last binary one, switched on 2026-07-31.
 **UNSW-NB15** is multiclass over its native **10-category `attack_cat` scheme** (`Benign` + `Generic`,
 `Exploits`, `Fuzzers`, `DoS`, `Reconnaissance`, `Analysis`, `Backdoor`, `Shellcode`, `Worms`) - the
 standard categorization from the dataset's own source paper (Moustafa & Slay 2015), used essentially
-as-is throughout UNSW-NB15 literature; unlike NSL-KDD/CIC-IDS2017, there's no common further
+as-is throughout UNSW-NB15 literature; unlike CIC-IDS2017, there's no common further
 consolidation of this scheme. The dataset's native binary `label` column (0/1) is dropped in favor of
 this.
 
@@ -135,17 +128,13 @@ SHAP-plot legend (its prose description is internally inconsistent - it claims "
 profiles" while naming seven, so the figure legend, not the prose, is the source of truth). `DoS Hulk`/
 `DDoS`/`DoS GoldenEye`/`DoS slowloris`/`DoS Slowhttptest`/`Heartbleed` all fold into `DoS/DDoS`;
 `FTP-Patator`/`SSH-Patator` fold into `Brute Force`; the three native `Web Attack - <subtype>` labels fold
-into one `Web Attack` category. DAPT2020 is multiclass (its five kill-chain stages). NSL-KDD is kept
-multiclass, but not at its native ~40-way specific attack-type granularity: it's grouped into the
-conventional **DoS/Probe/R2L/U2R categories** (+ `Benign`) used throughout NSL-KDD literature -
-structurally similar to DAPT2020's multi-stage setup.
+into one `Web Attack` category.
 
 UNSW-NB15's `Worms` category is severely data-scarce - **171 rows in the processed data (120 train / 51
 test)** under the stratified split; the "174" figure sometimes quoted elsewhere is the pre-dedup raw
-count. By far the rarest class in this dataset, in the same spirit as DAPT2020's `Data Exfiltration` or
-NSL-KDD's `U2R`. For scale, `Benign` is **95.6%** of both the UNSW-NB15 train and test splits
+count. By far the rarest class in this dataset. For scale, `Benign` is **95.6%** of both the UNSW-NB15 train and test splits
 (CIC-IDS2017: 84.9% `Benign`, `Infiltration` just 24 train / 11 test rows). UNSW-NB15's dominant error
-pattern also doesn't funnel into `Benign` at all, unlike the other datasets: `Analysis`↔`Backdoor` is a
+pattern also doesn't funnel into `Benign` at all: `Analysis`↔`Backdoor` is a
 strong two-way confusion for the tree and neural-network models (~44-69% each way; the linear SVM
 separates them better) - the explainability chapter's hardest-class analysis lands here.
 
@@ -172,22 +161,14 @@ either zero-variance or a near-exact duplicate of a kept twin) still required re
 afterward - see Training below - since fewer total columns changes what `max_features="log2"` means at
 each split, which briefly looked like a real regression on the rare `Bot` class before re-tuning fixed it.
 
-One cleaning step was itself informed by the explainability analysis, not decided upfront: **DAPT2020**
-drops `Src Port`/`Dst Port` alongside its IP/timestamp columns, since SHAP and permutation importance
-surfaced suspicious port dominance (e.g. `Lateral Movement` driven by two fixed ports) that turned out to
-be a testbed-specific identity leak rather than a generalizable signal. Retraining after the fix produced
-measurably more coherent explanations (SHAP-vs-permutation-importance agreement improved), not just
-better metrics.
-
-**The same port-leak pattern resurfaced in CIC-IDS2017 itself, 2026-08-17/18** - user-flagged this time
+**A port-leak pattern surfaced in CIC-IDS2017, 2026-08-17/18** - user-flagged this time
 ("Destination Port... regularly appears in the explainability plots, but I believe it is an identifier
 that needs to be removed"), then verified directly before acting on it: `Destination Port` was carrying
 34% of `random_forest`'s total feature importance alone (>2.5x the next-highest feature, the #1 SHAP
 feature for every class), and per-class port concentration was near-total - `DoS/DDoS` 99.999% port 80,
 `Web Attack` 100% port 80, `Infiltration` 100% port 444, `Brute Force` 81%/19% port 21/22, `Bot` 55% port
 8080 - because the CICIDS2017 testbed launched each attack scenario against one fixed target service, the
-same kind of testbed-identity leak as DAPT2020's `Src Port`/`Dst Port` above, not generalizable traffic
-behavior. A broader per-class value-concentration scan across the other 57 columns found nothing else
+a testbed-identity leak, not generalizable traffic behavior. A broader per-class value-concentration scan across the other 57 columns found nothing else
 structurally identifier-like (no Source/Destination IP, Flow ID, or Protocol column exists in this raw
 CICIDS2017 variant at all); the many other high-concentration columns it flagged turned out to be
 genuine attack-traffic behavior (e.g. `PortScan`'s near-empty single-packet probes), not artifacts, and
@@ -202,16 +183,6 @@ up best, still noticeably degraded). Immediately after the drop, `DoS/DDoS`→`B
 strong independent evidence that the old numbers were substantially propped up by the port leak. (On
 the later stratified-split re-tune that confusion resolved to ~0%: with an i.i.d. split and no port
 leak, `DoS/DDoS` is cleanly separable.)
-
-**NSL-KDD**'s raw `KDDTrain+.txt`/`KDDTest+.txt` files ship with no header row and one undocumented
-trailing column (a KDD-Cup-era per-record "difficulty level" score, not a traffic feature - confirmed by
-checking actual row lengths against the dataset's documented 41 named attributes + class label, which
-is one short); the adapter assigns column names explicitly and drops that column. Its native `class`
-column (e.g. `neptune`, `buffer_overflow`) is mapped to the four attack categories via a lookup table
-compiled from, and verified against, every distinct label actually present in *both* raw files - NSL-KDD's
-test set deliberately introduces attack types absent from training (e.g. `mscan`, `httptunnel`,
-`sqlattack`) to test generalization to novel attacks, so the mapping had to cover both, not just
-training. An unrecognized label raises rather than silently falling back to `Benign`.
 
 ### Dataset inspection
 
@@ -238,8 +209,7 @@ python scripts/preprocess.py --dataset unsw_nb15
 python scripts/preprocess.py  # all datasets
 ```
 
-NSL-KDD ships with its own official train/test split, used as-is - the only dataset in this catalog that
-still does. CIC-IDS2017 and UNSW-NB15 ship without one, so they get a **stratified random split**
+Neither dataset ships with an official train/test split, so both get a **stratified random split**
 (`stratified_random_split` in `preprocessing.py`): a single `train_test_split` with a fixed
 `random_state`, `stratify` on the label so every class keeps the same share of rows in both
 partitions. This is the conventional choice in the XAI-for-IDS literature this project's methodology
@@ -251,7 +221,6 @@ just drops the per-row `source_file` loading tag every adapter adds.
 
 **The default ratio is 70/30** (`test_fraction` default in `preprocessing.py`), matching the ratio
 used by most of those reference papers; it is not motivated by anything in this project's own data.
-`nsl_kdd` is unaffected (its own official split has no ratio parameter).
 
 > **Switched from a per-(source_file, label) chronological/positional hold-out to this stratified
 > random split on 2026-08-31** (explicit user request: match the conventional XAI-for-IDS protocol).
@@ -265,8 +234,7 @@ used by most of those reference papers; it is not motivated by anything in this 
 > 2026-08-09 and archived (models/metrics/plots/configs moved to `outputs/_archive/`/
 > `configs/_archive/`) since 2026-08-17, then deleted outright rather than kept around unused:
 > their model factory entries and tuning grids (`models.py`), every archived config/model/
-> metrics/plot file (for UNSW-NB15, CIC-IDS2017, and their bundled copies within the archived
-> NSL-KDD/DAPT2020 datasets), and now-dead explanation code (`logistic_regression`'s dedicated
+> metrics/plot file, and now-dead explanation code (`logistic_regression`'s dedicated
 > `shap.LinearExplainer` branch) are all gone, not just hidden. Historical numbers/results
 > elsewhere in this document that reference these two models are kept as-is - they describe real
 > findings from when the models existed, not a claim that they still do.
@@ -294,8 +262,7 @@ python scripts/train.py --experiment configs/experiments/unsw_nb15_random_forest
 Trained pipelines (preprocessing + model) are saved to `outputs/models/<experiment_name>.joblib`,
 and metrics to `outputs/metrics/<experiment_name>.json`.
 
-All four datasets are severely class-imbalanced (NSL-KDD's `U2R` category has only 52 training rows and
-67 test rows, against 67,343/9,711 `Benign`; UNSW-NB15 is 95.6% `Benign`, CIC-IDS2017 84.9%). **All four
+Both datasets are severely class-imbalanced (UNSW-NB15 is 95.6% `Benign`, CIC-IDS2017 84.9%). **All four
 models handle this by reweighting the training objective with the same per-class weight
 `w_c = n / (k * count_c)` (scikit-learn's `class_weight="balanced"` formula), computed on the training
 split only. None of them resample rows.**
@@ -354,18 +321,13 @@ directly; scikit-learn 1.9 deprecates this in favor of wrapping with `Calibrated
 parameter still works.
 
 `svm` is measurably more expensive than every other model in this catalog, at both training and
-explanation time: an untuned fit took ~26 minutes on UNSW-NB15 (~101k training rows) and ~18 minutes on
-DAPT2020 (~59k rows, but 5 classes means an internal one-vs-one decomposition into 10 calibrated binary
-sub-models) - both slower than an earlier RBF-kernel attempt without `probability=True` (~5.5 minutes on
+explanation time: an untuned fit took ~26 minutes on UNSW-NB15's old 10%-sample (~101k training
+rows) - slower than an earlier RBF-kernel attempt without `probability=True` (~5.5 minutes on
 UNSW-NB15), confirming the calibration cost, not the kernel choice, dominates. Explanation generation is
 slower too: `svm` has no structural SHAP explainer (same permutation-based fallback as `neural_network`),
 and each permutation sample pays `SVC`'s comparatively expensive prediction cost, pushing SHAP generation
-alone to 20-30 minutes per experiment for UNSW-NB15/NSL-KDD's earlier binary versions, and ~105 minutes
-for UNSW-NB15's later 10-class multiclass version (permutation SHAP cost scales with class count, not
-just row count). NSL-KDD (~126k training rows) took only ~12 minutes to fit untuned - notably *faster*
-than either UNSW-NB15 or DAPT2020 despite having the most rows (before CIC-IDS2017 was added), a
-reminder that kernel SVM training time tracks how separable the data is (how many support vectors end up
-needed), not row count alone.
+alone to 20-30 minutes for UNSW-NB15's earlier binary version, and ~105 minutes for its later
+10-class multiclass version (permutation SHAP cost scales with class count, not just row count).
 
 **A hyperparameter set tuned for one feature space doesn't necessarily transfer to a smaller one.** When
 CIC-IDS2017's feature set was cut from ~79 to 61 columns (see Datasets above), `random_forest`'s existing
@@ -405,8 +367,8 @@ fold)` combination, the same class of failure already documented above for `grad
 stops early with a `ConvergenceWarning` and returns whatever solution it had reached - a far better
 failure mode for an unattended search loop), and the `C` search grid was trimmed to drop the values most
 likely to trigger this (`30`, `100`). Tuned results: UNSW-NB15 (`C=10`, search took 74 minutes) improved
-macro-F1 from 0.313 to **0.360**; NSL-KDD (`C=10`, search took 30 minutes) reached macro-F1 **0.626**.
-Both final fits still hit the `max_iter` cap without fully converging (visible via a
+macro-F1 from 0.313 to **0.360**.
+The final fit still hit the `max_iter` cap without fully converging (visible via a
 `ConvergenceWarning`) - a real, honestly-reported quality caveat, not hidden: the safety net trades a
 small amount of potential model quality for bounded, predictable runtime, which given the alternative
 (a silent multi-hour-or-worse hang) is the right trade for this project. **These UNSW-NB15 numbers

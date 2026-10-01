@@ -18,7 +18,7 @@ def main() -> None:
     parser.add_argument(
         "--dataset-config-dir",
         default="configs/datasets",
-        help="Directory containing dataset YAML configs (e.g. configs/_archive/datasets for an archived dataset).",
+        help="Directory containing dataset YAML configs.",
     )
     args = parser.parse_args()
 

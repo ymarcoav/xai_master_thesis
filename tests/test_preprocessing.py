@@ -3,7 +3,6 @@ import pandas as pd
 
 from xai_thesis.preprocessing import (
     build_preprocessing_pipeline,
-    split_by_official_split_column,
     split_features_target,
     stratified_random_split,
     stratified_subsample,
@@ -17,22 +16,6 @@ def test_split_features_target_separates_label_column() -> None:
 
     assert list(features.columns) == ["feature"]
     assert target.tolist() == ["benign", "attack"]
-
-
-def test_split_by_official_split_column_separates_train_and_test() -> None:
-    data = pd.DataFrame(
-        {
-            "feature": [1, 2, 3, 4],
-            "split": ["train", "train", "test", "test"],
-        }
-    )
-
-    train, test = split_by_official_split_column(data)
-
-    assert train["feature"].tolist() == [1, 2]
-    assert test["feature"].tolist() == [3, 4]
-    assert "split" not in train.columns
-    assert "split" not in test.columns
 
 
 def test_stratified_random_split_preserves_class_proportions_and_ratio() -> None:

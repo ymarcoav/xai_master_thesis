@@ -114,7 +114,7 @@ def plot_confusion_matrix(
     shade their actual share of the range would suggest - checked empirically against a
     real confusion matrix and tuned by comparing several linthresh values side by side, not
     guessed. A percentage of vmax (rather than one fixed number) keeps this behavior
-    consistent whether vmax is a few thousand (DAPT2020) or several hundred thousand
+    consistent whether vmax is ~8k (UNSW-NB15) or ~96k
     (CIC-IDS2017).
 
     Pass normalize=True to color by row-normalized share of each true class (per-class

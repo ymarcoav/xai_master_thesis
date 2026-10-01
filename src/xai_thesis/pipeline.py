@@ -44,7 +44,6 @@ from xai_thesis.explainability import (
 from xai_thesis.models import PARAM_DISTRIBUTIONS, build_model, train_model
 from xai_thesis.preprocessing import (
     build_preprocessing_pipeline,
-    split_by_official_split_column,
     split_features_target,
     stratified_random_split,
     stratified_subsample,
@@ -93,14 +92,11 @@ def preprocess_dataset(config_path: str | Path) -> tuple[Path, Path]:
 
 
 def _split_dataset(config: DatasetConfig, data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    # NSL-KDD ships with an official train/test split, used as-is. Every other dataset is
-    # split with a stratified random partition (fixed seed), stratified on the label so each
-    # class keeps the same share of rows in both splits - the conventional approach in the
-    # XAI-for-IDS literature this project follows (e.g. Arreche et al. 2024). Each adapter's
-    # clean() already drops its own non-feature columns (identifiers, capture timestamps);
-    # only "source_file", the per-row loading tag every adapter adds, is dropped here.
-    if config.name == "nsl_kdd":
-        return split_by_official_split_column(data, split_column="split")
+    # Every dataset is split with a stratified random partition (fixed seed), stratified on
+    # the label so each class keeps the same share of rows in both splits - the conventional
+    # approach in the XAI-for-IDS literature this project follows (e.g. Arreche et al. 2024).
+    # Each adapter's clean() already drops its own non-feature columns (identifiers, capture
+    # timestamps); only "source_file", the per-row loading tag every adapter adds, is dropped here.
     return stratified_random_split(data, config.label_column, drop_columns=("source_file",))
 
 

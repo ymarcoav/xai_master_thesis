@@ -497,7 +497,7 @@ def test_run_experiment_does_not_subsample_other_model_dataset_combinations(tmp_
 
     # svm on a dataset not in _FINAL_FIT_SUBSAMPLE, and random_forest (not svm) on one that
     # is - neither should trigger a subsample of the final training set.
-    for dataset_name, model in [("nsl_kdd", "svm"), ("unsw_nb15", "random_forest")]:
+    for dataset_name, model in [("toy_ids", "svm"), ("unsw_nb15", "random_forest")]:
         calls = []
         monkeypatch.setattr(pipeline_module, "stratified_subsample", lambda *a, **k: calls.append(1))
         experiment_path = _write_svm_subsample_fixture(
@@ -825,7 +825,7 @@ def test_run_experiment_rejects_unknown_preprocessing_strategy(tmp_path) -> None
 def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
     dataset_config_dir = tmp_path / "datasets"
     dataset_config_dir.mkdir()
-    processed_dir = tmp_path / "processed" / "dapt2020"
+    processed_dir = tmp_path / "processed" / "toy_ids"
     processed_dir.mkdir(parents=True)
 
     # Reconnaissance/Benign overlap deliberately, so the model is not trivially perfect.
@@ -857,10 +857,10 @@ def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
     train_df.to_csv(processed_dir / "train.csv", index=False)
     test_df.to_csv(processed_dir / "test.csv", index=False)
 
-    (dataset_config_dir / "dapt2020.yaml").write_text(
+    (dataset_config_dir / "toy_ids.yaml").write_text(
         yaml.safe_dump(
             {
-                "name": "dapt2020",
+                "name": "toy_ids",
                 "raw_path": "unused",
                 "processed_path": processed_dir.as_posix(),
                 "label_column": "Stage",
@@ -874,8 +874,8 @@ def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
     experiment_path.write_text(
         yaml.safe_dump(
             {
-                "name": "dapt2020_test_experiment",
-                "dataset": "dapt2020",
+                "name": "toy_ids_test_experiment",
+                "dataset": "toy_ids",
                 "model": "random_forest",
                 "random_state": 42,
                 "model_params": {"n_estimators": 10},
@@ -894,20 +894,24 @@ def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=metrics_dir
     )
     paths = generate_explanations(
-        experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, plots_dir=plots_dir
+        experiment_path,
+        dataset_config_dir=dataset_config_dir,
+        models_dir=models_dir,
+        plots_dir=plots_dir,
+        metrics_dir=metrics_dir,
     )
 
     assert set(paths) == {"shap_bar", "permutation_importance"}
     for path in paths.values():
         assert path.exists()
     # Local SHAP/LIME plots are interview stimuli only - generate_explanations writes none.
-    experiment_dir = plots_dir / "dapt2020" / "test_experiment"
+    experiment_dir = plots_dir / "toy_ids" / "test_experiment"
     assert all(path.parent == experiment_dir / "global" for path in paths.values())
     assert not list(experiment_dir.rglob("shap_waterfall_*.png"))
     assert not list(experiment_dir.rglob("lime_*.png"))
 
 
-def _write_dapt2020_style_fixture(tmp_path) -> tuple[Path, Path, Path]:
+def _write_toy_dataset_fixture(tmp_path) -> tuple[Path, Path, Path]:
     """Overlapping-classes construction like test_generate_explanations_writes_all_expected_plots
     (protocol_type is the dominant, near-deterministic predictor of Reconnaissance-vs-Benign),
     but with two differences that matter here: stage_train is dtype=object (np.where's dtype is
@@ -919,7 +923,7 @@ def _write_dapt2020_style_fixture(tmp_path) -> tuple[Path, Path, Path]:
     real (correct, misclassified) pair for the "Reconnaissance" target class."""
     dataset_config_dir = tmp_path / "datasets"
     dataset_config_dir.mkdir()
-    processed_dir = tmp_path / "processed" / "dapt2020"
+    processed_dir = tmp_path / "processed" / "toy_ids"
     processed_dir.mkdir(parents=True)
 
     rng = np.random.default_rng(0)
@@ -952,10 +956,10 @@ def _write_dapt2020_style_fixture(tmp_path) -> tuple[Path, Path, Path]:
     train_df.to_csv(processed_dir / "train.csv", index=False)
     test_df.to_csv(processed_dir / "test.csv", index=False)
 
-    (dataset_config_dir / "dapt2020.yaml").write_text(
+    (dataset_config_dir / "toy_ids.yaml").write_text(
         yaml.safe_dump(
             {
-                "name": "dapt2020",
+                "name": "toy_ids",
                 "raw_path": "unused",
                 "processed_path": processed_dir.as_posix(),
                 "label_column": "Stage",
@@ -969,8 +973,8 @@ def _write_dapt2020_style_fixture(tmp_path) -> tuple[Path, Path, Path]:
     experiment_path.write_text(
         yaml.safe_dump(
             {
-                "name": "dapt2020_test_experiment",
-                "dataset": "dapt2020",
+                "name": "toy_ids_test_experiment",
+                "dataset": "toy_ids",
                 "model": "random_forest",
                 "random_state": 42,
                 "model_params": {"n_estimators": 10},
@@ -986,14 +990,14 @@ def _write_dapt2020_style_fixture(tmp_path) -> tuple[Path, Path, Path]:
 def test_generate_interview_stimuli_writes_plots_for_configured_classes(tmp_path, monkeypatch) -> None:
     from xai_thesis import pipeline as pipeline_module
 
-    dataset_config_dir, experiment_path, models_dir = _write_dapt2020_style_fixture(tmp_path)
+    dataset_config_dir, experiment_path, models_dir = _write_toy_dataset_fixture(tmp_path)
     metrics_dir = tmp_path / "metrics"
     plots_dir = tmp_path / "plots"
 
     run_experiment(
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=metrics_dir
     )
-    monkeypatch.setattr(pipeline_module, "_INTERVIEW_STIMULUS_CLASSES", {"dapt2020": ["Reconnaissance"]})
+    monkeypatch.setattr(pipeline_module, "_INTERVIEW_STIMULUS_CLASSES", {"toy_ids": ["Reconnaissance"]})
 
     results = generate_interview_stimuli(
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, plots_dir=plots_dir
@@ -1006,13 +1010,13 @@ def test_generate_interview_stimuli_writes_plots_for_configured_classes(tmp_path
     )
     for path in paths.values():
         assert path.exists()
-    assert paths["lime_correct"].parent == plots_dir / "dapt2020" / "test_experiment" / "interview" / "Reconnaissance"
+    assert paths["lime_correct"].parent == plots_dir / "toy_ids" / "test_experiment" / "interview" / "Reconnaissance"
 
 
 def test_generate_interview_stimuli_skips_class_with_no_misclassifications(tmp_path, monkeypatch) -> None:
     from xai_thesis import pipeline as pipeline_module
 
-    dataset_config_dir, experiment_path, models_dir = _write_dapt2020_style_fixture(tmp_path)
+    dataset_config_dir, experiment_path, models_dir = _write_toy_dataset_fixture(tmp_path)
     metrics_dir = tmp_path / "metrics"
     plots_dir = tmp_path / "plots"
 
@@ -1021,7 +1025,7 @@ def test_generate_interview_stimuli_skips_class_with_no_misclassifications(tmp_p
     )
     # "Establish Foothold" never appears in the test set at all, so the model can never
     # misclassify it there - exercises the "no stimulus pair possible" path rather than erroring.
-    monkeypatch.setattr(pipeline_module, "_INTERVIEW_STIMULUS_CLASSES", {"dapt2020": ["Establish Foothold"]})
+    monkeypatch.setattr(pipeline_module, "_INTERVIEW_STIMULUS_CLASSES", {"toy_ids": ["Establish Foothold"]})
 
     results = generate_interview_stimuli(
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, plots_dir=plots_dir
@@ -1031,7 +1035,7 @@ def test_generate_interview_stimuli_skips_class_with_no_misclassifications(tmp_p
 
 
 def test_generate_interview_stimuli_raises_for_unconfigured_dataset(tmp_path) -> None:
-    dataset_config_dir, experiment_path, models_dir = _write_dapt2020_style_fixture(tmp_path)
+    dataset_config_dir, experiment_path, models_dir = _write_toy_dataset_fixture(tmp_path)
     metrics_dir = tmp_path / "metrics"
 
     run_experiment(
@@ -1167,7 +1171,7 @@ def test_partition_excluded_honours_an_explicit_model_filter() -> None:
 def test_generate_global_agreement_writes_heatmaps_and_csv(tmp_path) -> None:
     from xai_thesis.pipeline import generate_global_agreement
 
-    dataset_config_dir, experiment_path, models_dir = _write_dapt2020_style_fixture(tmp_path)
+    dataset_config_dir, experiment_path, models_dir = _write_toy_dataset_fixture(tmp_path)
     metrics_dir = tmp_path / "metrics"
     plots_dir = tmp_path / "plots"
     run_experiment(
@@ -1175,7 +1179,7 @@ def test_generate_global_agreement_writes_heatmaps_and_csv(tmp_path) -> None:
     )
 
     paths = generate_global_agreement(
-        "dapt2020",
+        "toy_ids",
         config_dir=tmp_path,
         dataset_config_dir=dataset_config_dir,
         models_dir=models_dir,
@@ -1211,7 +1215,7 @@ def test_generate_global_agreement_writes_heatmaps_and_csv(tmp_path) -> None:
 def test_compute_global_rankings_reuses_its_cache(tmp_path) -> None:
     from xai_thesis.pipeline import compute_global_rankings
 
-    dataset_config_dir, experiment_path, models_dir = _write_dapt2020_style_fixture(tmp_path)
+    dataset_config_dir, experiment_path, models_dir = _write_toy_dataset_fixture(tmp_path)
     metrics_dir = tmp_path / "metrics"
     run_experiment(
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=metrics_dir
@@ -1245,7 +1249,7 @@ def test_generate_explanations_caches_the_global_rankings_it_plots(tmp_path) -> 
     """
     from xai_thesis.pipeline import _global_cache_path, compute_global_rankings
 
-    dataset_config_dir, experiment_path, models_dir = _write_dapt2020_style_fixture(tmp_path)
+    dataset_config_dir, experiment_path, models_dir = _write_toy_dataset_fixture(tmp_path)
     metrics_dir = tmp_path / "metrics"
     plots_dir = tmp_path / "plots"
     run_experiment(
@@ -1261,7 +1265,7 @@ def test_generate_explanations_caches_the_global_rankings_it_plots(tmp_path) -> 
         sample_size=9,
     )
 
-    cache_path = _global_cache_path(metrics_dir, "dapt2020_test_experiment", "balanced", 9)
+    cache_path = _global_cache_path(metrics_dir, "toy_ids_test_experiment", "balanced", 9)
     assert cache_path.exists(), "plotting the global explanations should populate the cache"
     stamp = cache_path.stat().st_mtime_ns
 
@@ -1289,7 +1293,7 @@ def test_global_agreement_on_a_non_default_basis_writes_csv_but_no_heatmap(tmp_p
     """
     from xai_thesis.pipeline import generate_global_agreement
 
-    dataset_config_dir, experiment_path, models_dir = _write_dapt2020_style_fixture(tmp_path)
+    dataset_config_dir, experiment_path, models_dir = _write_toy_dataset_fixture(tmp_path)
     metrics_dir = tmp_path / "metrics"
     plots_dir = tmp_path / "plots"
     run_experiment(
@@ -1304,14 +1308,14 @@ def test_global_agreement_on_a_non_default_basis_writes_csv_but_no_heatmap(tmp_p
         "k_values": [1, 3],
     }
 
-    alternative = generate_global_agreement("dapt2020", basis="stratified", size=8, **shared)
+    alternative = generate_global_agreement("toy_ids", basis="stratified", size=8, **shared)
     assert set(alternative) == {"csv"}
     assert alternative["csv"].exists()
     assert not list(plots_dir.rglob("global_agreement*.png"))
 
     # ...but it can still be asked for explicitly.
     forced = generate_global_agreement(
-        "dapt2020", basis="stratified", size=8, write_plots=True, **shared
+        "toy_ids", basis="stratified", size=8, write_plots=True, **shared
     )
     assert set(forced) == {"feature", "rank", "csv"}
     assert all(path.exists() for path in forced.values())

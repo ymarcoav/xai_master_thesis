@@ -4,7 +4,7 @@ processed_path: data/processed/cic_ids2017
 label_column: Label
 
 # Empty, not unset: CICFlowMeter's output is purely numeric flow statistics, unlike
-# UNSW-NB15/NSL-KDD's native proto/service/state-style categorical fields.
+# UNSW-NB15's native proto/service/state categorical fields.
 categorical_columns: []
 # Verified zero-variance in the actual processed data (a single constant value - 0 - across
 # every row of both the train and test splits, not just an example from a third-party paper):

@@ -12,7 +12,7 @@ exclude_files:
 # Multiclass classification: attack_cat is UNSW-NB15's own native 10-category ground
 # truth (Normal + Generic/Exploits/Fuzzers/DoS/Reconnaissance/Analysis/Backdoor/
 # Shellcode/Worms), the standard scheme used throughout UNSW-NB15 literature (Moustafa
-# & Slay 2015) essentially as-is - unlike NSL-KDD/CIC-IDS2017, there's no common further
+# & Slay 2015) essentially as-is - unlike CIC-IDS2017, there's no common further
 # consolidation of this scheme in the literature. The native binary label (0/1) is
 # dropped in favor of this.
 categorical_columns:

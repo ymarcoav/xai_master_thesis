@@ -21,19 +21,15 @@ def inspect_dataset_config(
 ) -> dict[str, Any]:
     """Inspect raw CSV files for one dataset config.
 
-    `raw_file_pattern` (default "*.csv") and `exclude_files` let a dataset config point at
-    non-standard raw files (e.g. NSL-KDD's headerless `.txt` files) or skip files that aren't
-    actual data (e.g. UNSW-NB15's `NUSW-NB15_features.csv` column-schema file). `raw_columns`
-    supplies header names for files that ship without one.
+    `exclude_files` lets a dataset config skip raw CSVs that aren't actual data (e.g.
+    UNSW-NB15's `NUSW-NB15_features.csv` column-schema file). `raw_columns` supplies header
+    names for files that ship without one.
     """
     config_path = Path(config_path)
     config = load_yaml(config_path)
     raw_path = Path(config["raw_path"])
-    file_pattern = config.get("raw_file_pattern", "*.csv")
     exclude_files = set(config.get("exclude_files", []))
-    csv_files = sorted(
-        path for path in raw_path.glob(file_pattern) if path.name not in exclude_files
-    )
+    csv_files = sorted(path for path in raw_path.glob("*.csv") if path.name not in exclude_files)
     raw_columns = config.get("raw_columns")
 
     summary = {
