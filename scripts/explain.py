@@ -27,6 +27,19 @@ def main() -> None:
         default="configs/datasets",
         help="Directory containing dataset YAML configs.",
     )
+    parser.add_argument(
+        "--shap-chunk-size",
+        type=int,
+        default=None,
+        help="Compute the global SHAP sample in checkpointed chunks of this many rows, so an "
+        "interrupted run resumes. Default: one call. Used for cic_ids2017 svm only.",
+    )
+    parser.add_argument(
+        "--shap-n-jobs",
+        type=int,
+        default=1,
+        help="Chunks to run in parallel (with --shap-chunk-size).",
+    )
     args = parser.parse_args()
 
     if args.experiment:
@@ -35,7 +48,12 @@ def main() -> None:
         config_paths = sorted(Path(args.config_dir).glob("*.yaml"))
 
     for config_path in config_paths:
-        paths = generate_explanations(config_path, dataset_config_dir=args.dataset_config_dir)
+        paths = generate_explanations(
+            config_path,
+            dataset_config_dir=args.dataset_config_dir,
+            shap_chunk_size=args.shap_chunk_size,
+            shap_n_jobs=args.shap_n_jobs,
+        )
         for kind, path in paths.items():
             print(f"Wrote {kind}: {path}")
 

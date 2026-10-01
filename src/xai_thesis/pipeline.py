@@ -478,6 +478,93 @@ def _class_balanced_sample(
     return pd.concat(groups)
 
 
+def _shap_chunk(
+    pipeline: Pipeline,
+    model_name: str,
+    chunk_x: pd.DataFrame,
+    background_x: pd.DataFrame,
+    categorical_columns: Sequence[str],
+    seed: int,
+    chunk_path: Path,
+) -> Path:
+    """Compute one chunk's SHAP values and save them to chunk_path (a joblib worker's unit of work)."""
+    shap_values, base_values, _, feature_names = compute_shap_values(
+        pipeline, model_name, chunk_x, background_x, categorical_columns=categorical_columns, random_state=seed
+    )
+    # Written under a temporary name and renamed, so an interrupted write never looks like a
+    # finished chunk to the resume check.
+    partial_path = chunk_path.with_name(f"{chunk_path.stem}.partial.npz")
+    np.savez(
+        partial_path,
+        shap_values=shap_values,
+        base_values=base_values,
+        feature_names=np.array(feature_names),
+        instance_index=chunk_x.index.to_numpy(),
+    )
+    partial_path.replace(chunk_path)
+    return chunk_path
+
+
+def _compute_shap_in_chunks(
+    pipeline: Pipeline,
+    model_name: str,
+    sample_x: pd.DataFrame,
+    background_x: pd.DataFrame,
+    *,
+    categorical_columns: Sequence[str],
+    random_state: int,
+    chunk_size: int,
+    n_jobs: int,
+    chunk_dir: Path,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str]]:
+    """compute_shap_values over sample_x in fixed-size chunks, checkpointed and run in parallel.
+
+    Only worth it for the permutation path, whose cost is per instance (cic_ids2017/svm: ~440
+    s/instance, ~53 h for the 437-row global sample in one call). Each chunk is saved to
+    chunk_dir as soon as it finishes, and a rerun skips chunks already on disk, so an
+    interrupted run resumes instead of starting over; chunks run n_jobs at a time.
+
+    Chunk c is seeded random_state + c. shap's permutation explainer seeds NumPy's global
+    generator once per explainer (shap 0.52.0, _permutation.py), so an instance's permutations
+    depend on the instances explained before it in the same call: chunked values are therefore
+    not bit-identical to one unchunked call, though the estimator (permutation count,
+    background) is the same and the result is reproducible for a given chunk_size. The
+    per-chunk offset keeps chunks from reusing each other's permutation sequences.
+    """
+    chunk_dir = ensure_directory(chunk_dir)
+    starts = list(range(0, len(sample_x), chunk_size))
+    chunk_paths = [chunk_dir / f"chunk_{number:03d}.npz" for number in range(len(starts))]
+    pending = [(number, start) for number, start in enumerate(starts) if not chunk_paths[number].exists()]
+    # max_nbytes=None: joblib otherwise memory-maps any argument over 1 MB read-only into the
+    # workers, and libsvm (svm's predict_proba) rejects its read-only support-vector arrays
+    # ("buffer source array is read-only"). Each worker gets its own copy of the ~26 MB model.
+    joblib.Parallel(n_jobs=n_jobs, verbose=10, max_nbytes=None)(
+        joblib.delayed(_shap_chunk)(
+            pipeline,
+            model_name,
+            sample_x.iloc[start : start + chunk_size],
+            background_x,
+            categorical_columns,
+            random_state + number,
+            chunk_paths[number],
+        )
+        for number, start in pending
+    )
+
+    chunks = [np.load(path, allow_pickle=False) for path in chunk_paths]
+    instance_index = np.concatenate([chunk["instance_index"] for chunk in chunks])
+    if not np.array_equal(instance_index, sample_x.index.to_numpy()):
+        raise ValueError(f"chunks in {chunk_dir} do not cover this sample in order - clear it and rerun")
+    feature_names = [str(name) for name in chunks[0]["feature_names"]]
+    return (
+        np.concatenate([chunk["shap_values"] for chunk in chunks]),
+        np.concatenate([chunk["base_values"] for chunk in chunks]),
+        # The same display_data compute_shap_values returns: the original rows, raw columns.
+        sample_x[feature_names].to_numpy(dtype=object),
+        feature_names,
+    )
+
+
 def generate_explanations(
     experiment_config_path: str | Path,
     *,
@@ -486,6 +573,8 @@ def generate_explanations(
     metrics_dir: str | Path = "outputs/metrics",
     plots_dir: str | Path = "outputs/plots",
     sample_size: int = _GLOBAL_EXPLANATION_SAMPLE_SIZE,
+    shap_chunk_size: int | None = None,
+    shap_n_jobs: int = 1,
 ) -> dict[str, Path]:
     """Generate the global SHAP bar and permutation importance plots for an already-trained
     experiment, saving them under plots_dir/<dataset>/<model>_baseline/global/.
@@ -498,6 +587,11 @@ def generate_explanations(
     so the global rankings described a two-class problem. The trade-off is that the rankings no
     longer reflect deployment prevalence; they answer "what drives each class" with every class
     represented, and per-class prevalence is documented separately (label_distribution.png).
+
+    shap_chunk_size splits the global SHAP computation into checkpointed chunks run shap_n_jobs
+    at a time (see _compute_shap_in_chunks) - used only for cic_ids2017/svm, whose single-call
+    run would take ~53 h. None (the default) is one compute_shap_values call, as for every
+    other experiment.
 
     Partial dependence plots (PDP) were removed entirely on 2026-08-27 (had been out of the
     thesis's explainability scope since 2026-07-31, and out of this function specifically
@@ -527,14 +621,29 @@ def generate_explanations(
 
     paths: dict[str, Path] = {}
 
-    shap_values, base_values, x_transformed, feature_names = compute_shap_values(
-        pipeline,
-        model_name,
-        sample_x,
-        background_x,
-        categorical_columns=dataset_config.categorical_columns,
-        random_state=random_state,
-    )
+    if shap_chunk_size is None:
+        shap_values, base_values, x_transformed, feature_names = compute_shap_values(
+            pipeline,
+            model_name,
+            sample_x,
+            background_x,
+            categorical_columns=dataset_config.categorical_columns,
+            random_state=random_state,
+        )
+    else:
+        shap_values, base_values, x_transformed, feature_names = _compute_shap_in_chunks(
+            pipeline,
+            model_name,
+            sample_x,
+            background_x,
+            categorical_columns=dataset_config.categorical_columns,
+            random_state=random_state,
+            chunk_size=shap_chunk_size,
+            n_jobs=shap_n_jobs,
+            chunk_dir=_global_cache_path(metrics_dir, experiment_name, "balanced", sample_size).parent
+            / "chunks"
+            / f"{experiment_name}__balanced{sample_size}__chunk{shap_chunk_size}",
+        )
     paths["shap_bar"] = plot_shap_bar(
         shap_values, x_transformed, feature_names, class_names, output_dir / "shap_bar.png"
     )
@@ -772,16 +881,11 @@ _AGREEMENT_MODEL_ORDER = ("random_forest", "xgboost", "neural_network", "svm")
 # anything listed here is dropped from the heatmap rows *and* named in the panel's footnote.
 _AGREEMENT_EXCLUDED: dict[tuple[str, str], str] = {}
 
-# Same, for the *global* (SHAP vs permutation importance) panel. cic_ids2017/svm is the one
-# cell not computed: its permutation SHAP runs ~440 s/instance, ~53 h for the 437-row global
-# sample, and that run has not been done - there is no cached ranking for it. Left out of the
-# global panel only (its local cell exists), and named in the panel's footnote so the figure
-# shows three models on CIC-IDS2017 for a stated reason rather than for an unstated one.
-_GLOBAL_AGREEMENT_EXCLUDED: dict[tuple[str, str], str] = {
-    ("cic_ids2017", "svm"): (
-        "global run not computed - permutation SHAP ~440 s/instance, ~53 h for the 437-row sample"
-    ),
-}
+# Same, for the *global* (SHAP vs permutation importance) panel. Empty: cic_ids2017/svm, the
+# one cell long left out (~440 s/instance, ~53 h for its 437-row sample in one call), was
+# computed on 2026-10-01 as a chunked, checkpointed parallel run - see _compute_shap_in_chunks
+# and `scripts/explain.py --shap-chunk-size 5 --shap-n-jobs 8` (7.7 h wall time).
+_GLOBAL_AGREEMENT_EXCLUDED: dict[tuple[str, str], str] = {}
 
 
 def _partition_excluded(
@@ -1173,7 +1277,7 @@ def compute_global_rankings(
     )
 
 
-def top_features(ranking: np.ndarray, feature_names: Sequence[str], k: int = 5) -> list[str]:
+def top_features(ranking: np.ndarray, feature_names: Sequence[str], k: int = 10) -> list[str]:
     """The k highest-importance feature names, most important first."""
     return [feature_names[index] for index in np.argsort(-_as_importance_vector(ranking))[:k]]
 
@@ -1202,7 +1306,7 @@ def generate_global_agreement(
 
     Returns {"feature": path, "rank": path, "csv": path} on the default basis; an alternative
     basis returns {"csv": path} only (see write_plots). The CSV additionally records each
-    model's top-5 features under both methods, which is what shows whether the ranking itself
+    model's top-10 features under both methods, which is what shows whether the ranking itself
     (not just the agreement score) moved when the sample basis changed.
     """
     experiments, excluded_notes = _partition_excluded(
@@ -1250,8 +1354,8 @@ def generate_global_agreement(
                         "value": round(score, 4),
                         "n_features": len(feature_names),
                         "classes_present": len(cached["class_names"]),
-                        "shap_top5": "; ".join(top_features(shap_ranking, feature_names)),
-                        "permutation_top5": "; ".join(top_features(permutation_ranking, feature_names)),
+                        "shap_top10": "; ".join(top_features(shap_ranking, feature_names)),
+                        "permutation_top10": "; ".join(top_features(permutation_ranking, feature_names)),
                     }
                 )
 

@@ -1105,30 +1105,27 @@ def test_global_ranking_sample_rejects_unknown_basis() -> None:
         _global_ranking_sample(x, y, 2, basis="kmeans", random_state=42)
 
 
-def test_only_cic_svm_global_is_excluded_by_default() -> None:
-    """Every local cell is computed; the one global cell not computed is cic_ids2017/svm.
+def test_no_agreement_cell_is_excluded_by_default() -> None:
+    """Every local and global cell is computed, cic_ids2017/svm's global one included.
 
-    Pins both lists so a cell cannot be dropped, or the omission lose its stated reason, without
-    a test failing. The global exclusion must carry the measured cost, since it is printed in the
-    panel's footnote.
+    Pins both lists so a cell cannot be dropped from a heatmap without a test failing.
     """
     from xai_thesis.pipeline import _AGREEMENT_EXCLUDED, _GLOBAL_AGREEMENT_EXCLUDED
 
     assert _AGREEMENT_EXCLUDED == {}
-    assert list(_GLOBAL_AGREEMENT_EXCLUDED) == [("cic_ids2017", "svm")]
-    assert "53 h" in _GLOBAL_AGREEMENT_EXCLUDED[("cic_ids2017", "svm")]
+    assert _GLOBAL_AGREEMENT_EXCLUDED == {}
 
 
 def test_partition_excluded_uses_the_exclusion_list_it_is_given() -> None:
-    from xai_thesis.pipeline import _GLOBAL_AGREEMENT_EXCLUDED, _partition_excluded
+    from xai_thesis.pipeline import _partition_excluded
 
     experiments = [("random_forest", Path("rf.yaml")), ("svm", Path("svm.yaml"))]
 
     included, notes = _partition_excluded(
-        "cic_ids2017", experiments, excluded=_GLOBAL_AGREEMENT_EXCLUDED
+        "cic_ids2017", experiments, excluded={("cic_ids2017", "svm"): "global run not computed"}
     )
     assert [model for model, _ in included] == ["random_forest"]
-    assert notes and notes[0].startswith("svm omitted:")
+    assert notes == ["svm omitted: global run not computed"]
 
     # The local panel's default list is empty, so the same call without it keeps svm.
     included, notes = _partition_excluded("cic_ids2017", experiments)
@@ -1205,7 +1202,7 @@ def test_generate_global_agreement_writes_heatmaps_and_csv(tmp_path) -> None:
     for row in rows:
         assert 0.0 <= float(row["value"]) <= 1.0
         assert row["basis"] == "balanced"
-        assert row["shap_top5"] and row["permutation_top5"]
+        assert row["shap_top10"] and row["permutation_top10"]
         # Rank agreement is the stricter metric and can never exceed feature agreement.
     by_key = {(row["metric"], row["k"]): float(row["value"]) for row in rows}
     for k in ("1", "3"):
@@ -1319,3 +1316,65 @@ def test_global_agreement_on_a_non_default_basis_writes_csv_but_no_heatmap(tmp_p
     )
     assert set(forced) == {"feature", "rank", "csv"}
     assert all(path.exists() for path in forced.values())
+
+
+def _toy_svm_pipeline_and_sample(tmp_path):
+    """A trained toy svm (permutation SHAP path) plus a class-balanced sample and background."""
+    from xai_thesis.pipeline import _class_balanced_sample, _load_experiment_and_data
+
+    dataset_config_dir, experiment_path, models_dir = _write_toy_dataset_fixture(tmp_path)
+    experiment = yaml.safe_load(experiment_path.read_text(encoding="utf-8"))
+    experiment.update(model="svm", model_params={"C": 1.0})
+    experiment_path.write_text(yaml.safe_dump(experiment), encoding="utf-8")
+    run_experiment(
+        experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=tmp_path / "metrics"
+    )
+    _, dataset_config, x_train, y_train, x_test, y_test = _load_experiment_and_data(experiment_path, dataset_config_dir)
+    pipeline = joblib.load(models_dir / "toy_ids_test_experiment.joblib")
+    sample_x = _class_balanced_sample(x_test, y_test, 9, random_state=42)
+    background_x = _class_balanced_sample(x_train, y_train, 6, random_state=42)
+    return pipeline, sample_x, background_x, dataset_config.categorical_columns
+
+
+def test_chunked_shap_with_one_chunk_matches_a_single_call_exactly(tmp_path) -> None:
+    from xai_thesis.explainability import compute_shap_values
+    from xai_thesis.pipeline import _compute_shap_in_chunks
+
+    pipeline, sample_x, background_x, categorical = _toy_svm_pipeline_and_sample(tmp_path)
+    single = compute_shap_values(pipeline, "svm", sample_x, background_x, categorical_columns=categorical, random_state=42)
+    # Chunk 0 is seeded random_state + 0, so one chunk covering every row is the single call.
+    chunked = _compute_shap_in_chunks(
+        pipeline, "svm", sample_x, background_x, categorical_columns=categorical, random_state=42,
+        chunk_size=len(sample_x), n_jobs=1, chunk_dir=tmp_path / "chunks",
+    )
+
+    np.testing.assert_array_equal(chunked[0], single[0])
+    np.testing.assert_array_equal(chunked[1], single[1])
+    assert chunked[3] == single[3]
+    assert (chunked[2] == single[2]).all()
+
+
+def test_chunked_shap_covers_every_row_in_order_and_resumes_from_saved_chunks(tmp_path) -> None:
+    from xai_thesis.pipeline import _compute_shap_in_chunks
+
+    pipeline, sample_x, background_x, categorical = _toy_svm_pipeline_and_sample(tmp_path)
+    chunk_dir = tmp_path / "chunks"
+    kwargs = dict(
+        categorical_columns=categorical, random_state=42, chunk_size=3, n_jobs=2, chunk_dir=chunk_dir
+    )
+    n_chunks = -(-len(sample_x) // 3)
+    assert n_chunks >= 3, "fixture too small to exercise a middle chunk"
+
+    first = _compute_shap_in_chunks(pipeline, "svm", sample_x, background_x, **kwargs)
+    chunk_files = sorted(chunk_dir.glob("chunk_*.npz"))
+    assert [path.name for path in chunk_files] == [f"chunk_{number:03d}.npz" for number in range(n_chunks)]
+    assert first[0].shape[0] == len(sample_x)
+    stamps = [path.stat().st_mtime_ns for path in chunk_files]
+
+    # A rerun (e.g. after an interruption) reuses finished chunks instead of recomputing them,
+    # and recomputes only a missing one.
+    chunk_files[1].unlink()
+    second = _compute_shap_in_chunks(pipeline, "svm", sample_x, background_x, **kwargs)
+    assert chunk_files[0].stat().st_mtime_ns == stamps[0]
+    assert chunk_files[-1].stat().st_mtime_ns == stamps[-1]
+    np.testing.assert_array_equal(second[0], first[0])

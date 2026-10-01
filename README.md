@@ -580,7 +580,9 @@ python scripts/explain.py  # all experiments
   per instance instead of the ~4 that SHAP's `max_evals=500` default works out to at this project's
   52-59 post-one-hot feature count. At 4 permutations the estimate was visibly unstable (per-instance
   top-8 feature sets moved by ~10-25% and their ordering by more between independent runs); 50 settles
-  it. The multiplier is the knob to lower if the `svm` permutation path becomes intractable - cost
+  it. The multiplier is the knob to lower if the `svm` permutation path becomes intractable (though
+  for CIC-IDS2017's global sample a chunked parallel run was used instead, to keep it equal across
+  models - see Cross-method agreement) - cost
   scales ~linearly in it (CIC-IDS2017 `svm`: ~48 s/instance at 4 permutations, ~430 s at 50).
   `generate_explanations` produces a global bar plot (mean |SHAP value| per feature, stacked by
   class). Local waterfall plots are produced only as interview stimuli (see Interview stimuli below).
@@ -721,8 +723,9 @@ implementation (`AI4LIFE-GROUP/disagreement-problem`, `experiments/tabular/metri
 numerically identical to it across 144 randomised comparisons (both metrics x six `k` values x
 twelve matrices, including tie-heavy and near-identical cases) before the reference copy was
 removed. The only edit is the original's `DataFrame.applymap(str)` written as `.astype(str)`
-(`applymap` was removed in pandas 3.0). The paper's other two metrics - sign agreement and signed
-rank agreement - are deliberately not implemented; this project reports only the two above. No
+(`applymap` was removed in pandas 3.0). The heatmaps use only these two. Of the paper's other two
+metrics, sign agreement is reported per instance by the explanation report (below), not in the
+heatmaps; signed rank agreement is not implemented. No
 rank-correlation measure is reported either: the paper's own rank correlation is defined over a
 user-supplied set of features of interest, this project has no such set, and reporting one number
 per panel keeps local and global directly comparable.
@@ -808,16 +811,27 @@ The CIC-IDS2017 columns were recomputed on 2026-09-14, when discretization was e
 the LIME matrices changed: the cached SHAP matrices, instance sample, and explained classes are
 identical.
 
-**One model/dataset cell is missing: CIC-IDS2017 `svm` on the global panel.** Its permutation SHAP
-takes **~440 s/instance** over full runs: about 7 h for its 56-instance local cell (computed, and in
-the local panel) but about 53 h for its 437-row global cell, which has **not been run** - no cached
-ranking exists for it. `_GLOBAL_AGREEMENT_EXCLUDED` in `pipeline.py` lists exactly that pair, so the
-CIC-IDS2017 global heatmaps show three models and say so in their footnote (`svm omitted: global run
-not computed - ...`). Every other combination is computed: `_AGREEMENT_EXCLUDED` (the local panel's
-list) is empty, and a test pins both lists. Running the global cell would mean removing that entry
-and accepting the ~53 h.
+**Every model/dataset cell is computed, on both panels.** CIC-IDS2017 `svm`'s global cell was the
+last one, left out until 2026-10-01: its permutation SHAP takes **~440 s/instance** in a single
+process, about 7 h for its 56-instance local cell but about 53 h for the 437-row global sample in one
+call. It was computed as a **chunked, checkpointed, parallel run** instead - 88 chunks of 5 rows, 8 at
+a time, each saved as it finished so an interruption only loses the chunks in flight - in 7.7 h of
+wall time:
 
-The mechanism is kept for any pair that genuinely cannot be computed - anything listed is dropped
+```powershell
+python scripts/explain.py --experiment configs/experiments/cic_ids2017_svm_baseline.yaml --shap-chunk-size 5 --shap-n-jobs 8
+```
+
+The method is unchanged (50 permutations per instance, the same 50-row class-balanced background, the
+same 437 rows), but the values are not bit-identical to a single call: shap 0.52.0's permutation
+explainer seeds NumPy's global generator once per explainer, so an instance's random permutations
+depend on what was explained before it in the same call. Chunk `c` is seeded `random_state + c`, which
+makes the result reproducible for this chunk size (`_compute_shap_in_chunks` in `pipeline.py`; chunks
+are kept under `outputs/metrics/agreement/global/chunks/`, and rerunning the command resumes from
+them). Every other experiment's SHAP is still one call. `_AGREEMENT_EXCLUDED` and
+`_GLOBAL_AGREEMENT_EXCLUDED` are both empty, and a test pins them.
+
+The exclusion mechanism is kept for any pair that genuinely cannot be computed - anything listed is dropped
 from the heatmap rows **and** named in the footnote, so an omission is visible in the figure rather
 than only in prose. Lowering
 `_SHAP_PERMUTATION_MULTIPLIER` for `svm` alone was rejected throughout: an inconsistent permutation
@@ -848,7 +862,7 @@ Outputs:
 - `outputs/plots/<dataset>/agreement/global_agreement_feature.png`
 - `outputs/plots/<dataset>/agreement/global_agreement_rank.png`
 - `outputs/metrics/agreement/<dataset>_global_agreement.csv` - the same numbers plus each model's
-  top-5 features under both methods.
+  top-10 features under both methods.
 
 **One standardised figure set.** Across both panels and both datasets that is **eight heatmaps** -
 `local_agreement_{feature,rank}.png` and `global_agreement_{feature,rank}.png` per dataset - all on the
@@ -877,51 +891,101 @@ methodological comparison and are not worth 5 h and 1.5 h of its permutation SHA
 
 *UNSW-NB15*
 
-| model | basis | rows | classes | feature@5 | rank@5 | SHAP top-5 |
+| model | basis | rows | classes | feature@5 | rank@5 | SHAP top-10 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `random_forest` | A stratified, 200 | 200 | 6 | 0.80 | 0.40 | sttl, ct_state_ttl, sbytes, service, proto |
-|  | B balanced, 60 | 60 | 10 | 0.80 | 0.20 | proto, service, sbytes, sttl, smean |
-|  | C **balanced, 500** | 500 | 10 | 0.80 | 0.40 | proto, service, sbytes, sttl, dbytes |
-|  | C' balanced, 1000 | 951 | 10 | 0.80 | 0.40 | proto, service, sbytes, sttl, dbytes |
-| `xgboost` | A stratified, 200 | 200 | 6 | 0.60 | 0.20 | sttl, proto, dbytes, sbytes, dmean |
-|  | B balanced, 60 | 60 | 10 | 1.00 | 0.20 | proto, sbytes, sttl, service, smean |
-|  | C **balanced, 500** | 500 | 10 | 1.00 | 0.20 | proto, sttl, sbytes, service, smean |
-| `neural_network` | A stratified, 200 | 200 | 6 | 0.60 | 0.40 | sttl, dttl, state, service, proto |
-|  | B balanced, 60 | 60 | 10 | 1.00 | 0.40 | dttl, service, proto, sttl, state |
-|  | C **balanced, 500** | 500 | 10 | 1.00 | 0.40 | dttl, service, sttl, proto, state |
-| `svm` | C **balanced, 500** | 500 | 10 | 0.80 | 0.00 | dttl, proto, state, service, dmean |
+| `random_forest` | A stratified, 200 | 200 | 6 | 0.80 | 0.40 | sttl, ct_state_ttl, sbytes, service, proto, dbytes, dload, dmean, ct_srv_dst, smean |
+|  | B balanced, 60 | 60 | 10 | 0.80 | 0.20 | proto, service, sbytes, sttl, smean, ct_srv_dst, ct_dst_src_ltm, ct_state_ttl, dbytes, sload |
+|  | C **balanced, 500** | 500 | 10 | 0.80 | 0.40 | proto, service, sbytes, sttl, dbytes, smean, ct_srv_dst, ct_state_ttl, ct_dst_src_ltm, dmean |
+|  | C' balanced, 1000 | 951 | 10 | 0.80 | 0.40 | proto, service, sbytes, sttl, dbytes, ct_srv_dst, smean, ct_state_ttl, ct_dst_src_ltm, dmean |
+| `xgboost` | A stratified, 200 | 200 | 6 | 0.60 | 0.20 | sttl, proto, dbytes, sbytes, dmean, dttl, service, smean, sloss, ct_state_ttl |
+|  | B balanced, 60 | 60 | 10 | 1.00 | 0.20 | proto, sbytes, sttl, service, smean, ct_srv_dst, dbytes, dmean, dttl, ct_dst_src_ltm |
+|  | C **balanced, 500** | 500 | 10 | 1.00 | 0.20 | proto, sttl, sbytes, service, smean, dbytes, ct_srv_dst, dmean, dttl, ct_dst_src_ltm |
+| `neural_network` | A stratified, 200 | 200 | 6 | 0.60 | 0.40 | sttl, dttl, state, service, proto, dmean, ct_srv_dst, swin, smean, ct_state_ttl |
+|  | B balanced, 60 | 60 | 10 | 1.00 | 0.40 | dttl, service, proto, sttl, state, ct_srv_dst, smean, dmean, ct_dst_src_ltm, ct_srv_src |
+|  | C **balanced, 500** | 500 | 10 | 1.00 | 0.40 | dttl, service, sttl, proto, state, dmean, ct_srv_dst, smean, ct_dst_src_ltm, ct_srv_src |
+| `svm` | C **balanced, 500** | 500 | 10 | 0.80 | 0.00 | dttl, proto, state, service, dmean, swin, sttl, dwin, smean, ct_state_ttl |
 
 *CIC-IDS2017*
 
-| model | basis | rows | classes | feature@5 | rank@5 | SHAP top-5 |
+| model | basis | rows | classes | feature@5 | rank@5 | SHAP top-10 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `random_forest` | A stratified, 200 | 200 | 3 | 0.60 | 0.20 | Bwd Packet Length Std, Init_Win_bytes_backward, Init_Win_bytes_forward, Fwd IAT Std, Bwd Packet Length Mean |
-|  | B balanced, 60 | 56 | 7 | 0.80 | 0.40 | Fwd Packet Length Max, Fwd IAT Std, Total Backward Packets, Bwd Packet Length Std, Init_Win_bytes_backward |
-|  | C **balanced, 500** | 437 | 7 | 0.80 | 0.20 | Fwd IAT Std, Total Backward Packets, Bwd Header Length, Bwd Packet Length Std, Fwd Packet Length Max |
-|  | C' balanced, 1000 | 863 | 7 | 0.80 | 0.20 | Fwd IAT Std, Total Backward Packets, Bwd Header Length, Bwd Packet Length Std, Init_Win_bytes_backward |
-| `xgboost` | A stratified, 200 | 200 | 3 | 0.40 | 0.00 | Init_Win_bytes_forward, Init_Win_bytes_backward, Flow IAT Min, min_seg_size_forward, Bwd Packets/s |
-|  | B balanced, 60 | 56 | 7 | 0.40 | 0.00 | Init_Win_bytes_forward, Init_Win_bytes_backward, Bwd Packets/s, Flow IAT Min, min_seg_size_forward |
-|  | C **balanced, 500** | 437 | 7 | 0.60 | 0.40 | Init_Win_bytes_backward, Init_Win_bytes_forward, Bwd Packets/s, Flow IAT Min, Fwd Packets/s |
-| `neural_network` | A stratified, 200 | 200 | 3 | 0.40 | 0.40 | PSH Flag Count, Init_Win_bytes_forward, ACK Flag Count, min_seg_size_forward, Bwd IAT Total |
-|  | B balanced, 60 | 56 | 7 | 0.80 | 0.60 | PSH Flag Count, Init_Win_bytes_forward, ACK Flag Count, Init_Win_bytes_backward, min_seg_size_forward |
-|  | C **balanced, 500** | 437 | 7 | 0.80 | 0.20 | PSH Flag Count, Init_Win_bytes_forward, Init_Win_bytes_backward, ACK Flag Count, min_seg_size_forward |
+| `random_forest` | A stratified, 200 | 200 | 3 | 0.60 | 0.20 | Bwd Packet Length Std, Init_Win_bytes_backward, Init_Win_bytes_forward, Fwd IAT Std, Bwd Packet Length Mean, Average Packet Size, Fwd Packet Length Max, PSH Flag Count, Bwd Header Length, Packet Length Mean |
+|  | B balanced, 60 | 56 | 7 | 0.80 | 0.40 | Fwd Packet Length Max, Fwd IAT Std, Total Backward Packets, Bwd Packet Length Std, Init_Win_bytes_backward, Bwd Header Length, Fwd Packet Length Mean, Average Packet Size, Init_Win_bytes_forward, PSH Flag Count |
+|  | C **balanced, 500** | 437 | 7 | 0.80 | 0.20 | Fwd IAT Std, Total Backward Packets, Bwd Header Length, Bwd Packet Length Std, Fwd Packet Length Max, Init_Win_bytes_backward, Fwd Packet Length Mean, Average Packet Size, PSH Flag Count, Init_Win_bytes_forward |
+|  | C' balanced, 1000 | 863 | 7 | 0.80 | 0.20 | Fwd IAT Std, Total Backward Packets, Bwd Header Length, Bwd Packet Length Std, Init_Win_bytes_backward, Fwd Packet Length Max, Fwd Packet Length Mean, Average Packet Size, PSH Flag Count, Init_Win_bytes_forward |
+| `xgboost` | A stratified, 200 | 200 | 3 | 0.40 | 0.00 | Init_Win_bytes_forward, Init_Win_bytes_backward, Flow IAT Min, min_seg_size_forward, Bwd Packets/s, Flow Duration, Fwd Packets/s, Fwd IAT Min, Fwd IAT Mean, Bwd Packet Length Mean |
+|  | B balanced, 60 | 56 | 7 | 0.40 | 0.00 | Init_Win_bytes_forward, Init_Win_bytes_backward, Bwd Packets/s, Flow IAT Min, min_seg_size_forward, Fwd Packets/s, Flow Duration, Fwd IAT Min, Flow IAT Std, Max Packet Length |
+|  | C **balanced, 500** | 437 | 7 | 0.60 | 0.40 | Init_Win_bytes_backward, Init_Win_bytes_forward, Bwd Packets/s, Flow IAT Min, Fwd Packets/s, min_seg_size_forward, Fwd IAT Min, Flow Duration, Max Packet Length, Flow IAT Std |
+| `neural_network` | A stratified, 200 | 200 | 3 | 0.40 | 0.40 | PSH Flag Count, Init_Win_bytes_forward, ACK Flag Count, min_seg_size_forward, Bwd IAT Total, Bwd Packet Length Std, Init_Win_bytes_backward, Packet Length Std, Flow IAT Max, Flow Duration |
+|  | B balanced, 60 | 56 | 7 | 0.80 | 0.60 | PSH Flag Count, Init_Win_bytes_forward, ACK Flag Count, Init_Win_bytes_backward, min_seg_size_forward, Bwd IAT Total, Flow IAT Max, Flow Duration, Fwd IAT Total, Bwd Packet Length Std |
+|  | C **balanced, 500** | 437 | 7 | 0.80 | 0.20 | PSH Flag Count, Init_Win_bytes_forward, Init_Win_bytes_backward, ACK Flag Count, min_seg_size_forward, Bwd IAT Total, Flow Duration, Flow IAT Max, Bwd Packet Length Std, Fwd IAT Total |
 
 Reading the table:
 
 - **A -> C is a change of object, not just of score.** The stratified draw only ever sees 6 of
   UNSW-NB15's 10 classes and 3 of CIC-IDS2017's 7, so its "global" ranking describes a handful of
-  classes. Feature agreement rises in 5 of the 6 model/dataset pairs on the switch, and features
-  that lead under A - UNSW-NB15's `ct_state_ttl`, CIC-IDS2017's `Bwd Packet Length Std` - leave the
-  top 5 entirely under C.
+  classes. Feature agreement rises in 5 of the 6 model/dataset pairs on the switch. Features that
+  lead `random_forest`'s ranking under A fall well down it under C - UNSW-NB15's `ct_state_ttl`
+  from #2 to #8 (out of the top 5), CIC-IDS2017's `Bwd Packet Length Std` from #1 to #4 - though
+  both stay in the top 10. Every model has at least one top-10 feature under A that is absent from
+  its top 10 under C (UNSW-NB15: `dload`, `sloss`, `swin`, `ct_state_ttl` for `xgboost`/
+  `neural_network`; CIC-IDS2017: `Bwd Packet Length Mean`, `Packet Length Mean`, `Fwd IAT Mean`,
+  `Packet Length Std`).
 - **B -> C moves rankings, which is why C' exists.** Feature agreement is mostly stable, but three
   of six models swap a top-5 member between the 60-row and 500-row balanced draws
   (`smean`->`dbytes`, `Init_Win_bytes_backward`->`Bwd Header Length`,
-  `min_seg_size_forward`->`Fwd Packets/s`), and CIC-IDS2017's `random_forest` reorders heavily.
+  `min_seg_size_forward`->`Fwd Packets/s`), and CIC-IDS2017's `random_forest` reorders heavily. At
+  top 10 that movement is almost all reordering: only one model's top-10 *set* changes (UNSW-NB15
+  `random_forest`, `sload`->`dmean` at the tenth place).
 - **500 rows is converged.** Doubling to ~1000 (`random_forest`, both datasets) reproduces every
   feature- and rank-agreement value at every `k` on UNSW-NB15, and every value on CIC-IDS2017 except
-  rank agreement at `k = 10`; the only top-5 movement is CIC-IDS2017's fifth-ranked feature. The
+  rank agreement at `k = 10`. The top-10 set is identical on both datasets; the only movement is one
+  adjacent swap each (UNSW-NB15 #6/#7, CIC-IDS2017 #5/#6). The
   B -> C movement was therefore small-sample noise at n = 56-60, not a sign that 500 is still short.
 - **Global rank agreement is a single ranking pair, so it does not average.** At `k = 5` it can only
   take values in steps of 0.2, and one feature shifting one position moves it a whole step. Feature
   agreement is the more stable read at this scale; the local panel, averaged over ~60 instances, is
   where rank agreement carries a meaningful standard error.
+
+### Explanation report
+
+`scripts/explanation_report.py` (`src/xai_thesis/explanation_report.py`) exports the tables behind the
+thesis's global and local explanation results and the disagreement analysis, to
+`outputs/metrics/explanation_report/`. It only reads caches the pipeline already wrote - the global
+rankings above, the agreement instance set's SHAP/LIME attributions, and the stimulus error profile -
+so it runs in seconds and never recomputes SHAP or LIME.
+
+```powershell
+python scripts/explanation_report.py                 # both datasets
+python scripts/explanation_report.py --dataset unsw_nb15
+```
+
+| file | contents |
+| --- | --- |
+| `<dataset>_global_top10.csv` | top-10 features with values, per model and method (mean \|SHAP\|, permutation importance) |
+| `<dataset>_global_overlap.csv` | feature/rank agreement at `k = 5, 10, 20`: SHAP vs PFI per model (`comparison=methods`), and **every model pair** per method (`comparison=models`) - no reference model |
+| `<dataset>_global_disagreement.csv` | features in one method's top 10 but not the other's, with their rank under both |
+| `<dataset>_local_instances.csv` | the agreement instance set: true, predicted and explained class, plus per-instance feature/rank/sign agreement |
+| `<dataset>_local_top10.csv` | signed SHAP and LIME top 10 per instance, with direction (toward/against the explained class) |
+| `<dataset>_local_disagreement.csv` | per instance: top-10 membership disagreements and sign disagreements |
+| `<dataset>_local_summary.csv` | per model, over all / correct / misclassified instances |
+
+How to read the numbers:
+
+- **Feature space.** Every comparison is on the raw features (40 UNSW-NB15, 59 CIC-IDS2017): SHAP's
+  one-hot `proto`/`service`/`state` columns are summed back into one each, and LIME and permutation
+  importance already work on raw columns.
+- **Ranks** are 1-based positions in the same `|value|` ordering `agreement_fraction` uses, so every
+  top-k set here is the one the heatmaps score; the export reproduces the published global and local
+  agreement CSVs exactly. A feature the other method gives no importance at all (zero, or a global
+  importance at most zero) gets a blank rank there, since its position among tied zeros is arbitrary.
+- **Sign** is local only, since mean |SHAP| and permutation importance are unsigned. Both local methods
+  explain the `predict_proba` argmax class, so positive means "toward that class". LIME is discretized,
+  so its sign refers to the instance's quartile bin for that feature, while SHAP's is relative to the
+  background sample: comparable in direction, not identical in meaning. A sign disagreement is a
+  feature in both top-10s with opposite signs, and sign agreement is Krishna et al.'s definition (the
+  share of the top k that is in both sets *and* has the same sign).
+- **`correct`** compares the true class to `.predict()`. For `svm`, `.predict()` and the explained
+  argmax class differ on some instances (`predict_disagrees_with_proba`; see the `svm` caveat above).
+- **CIC-IDS2017 `svm`**'s global rows come from the chunked run described above; every model has
+  both global and local rows, so the overlap CSV's `missing_models` is empty.

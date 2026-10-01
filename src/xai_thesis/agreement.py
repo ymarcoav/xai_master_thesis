@@ -10,8 +10,9 @@ reference implementation (AI4LIFE-GROUP/disagreement-problem,
 experiments/tabular/metrics.py) - vectorised over [n_points, n_features], with the
 original's removed-in-pandas-3.0 `DataFrame.applymap(str)` written as
 `DataFrame.astype(str)` (identical element-wise). The paper defines two further
-metrics, sign agreement and signed rank agreement; this project only reports the
-two the thesis uses, so they are deliberately not implemented here.
+metrics, sign agreement and signed rank agreement, which are not implemented here: the
+heatmaps use only these two. Sign agreement is computed per instance by
+explanation_report.sign_agreement; signed rank agreement is not used.
 
 Definitions (per data point, in [0, 1], higher = more agreement):
 
