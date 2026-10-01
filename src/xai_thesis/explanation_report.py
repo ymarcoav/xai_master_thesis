@@ -1,60 +1,69 @@
-"""Tables behind the thesis's global/local explanation results and disagreement analysis.
+"""Tables behind the thesis's explanation results.
 
 Everything here is read from caches the pipeline already wrote - nothing is recomputed:
 
-  global  outputs/metrics/agreement/global/<experiment>__balanced500.npz - mean |SHAP| pooled
-          across classes and the permutation importance (macro-F1 drop) behind each model's
-          shap_bar.png / permutation_importance.png, on the 500-row class-balanced test sample.
+  global  outputs/metrics/global_importance/<experiment>__{shap,pfi}.npz - the global SHAP
+          importance (mean |SHAP| over instances and classes) and permutation feature importance
+          (macro-F1 drop, 10 repeats) behind each model's shap_bar.png / permutation_importance.png,
+          both on the same class-balanced test sample (total=500, random_state=42).
   local   outputs/metrics/agreement/attributions/<experiment>.npz - the signed per-instance SHAP
-          and LIME vectors of the agreement instance set (60 UNSW-NB15 / 56 CIC-IDS2017 rows,
-          identical for every model), plus outputs/metrics/stimuli/<dataset>_error_profile.csv
-          for each instance's true and predicted class.
+          and LIME vectors of the agreement instance set (class-balanced, total=60: 60 UNSW-NB15 /
+          56 CIC-IDS2017 rows, identical for every model), plus
+          outputs/metrics/stimuli/<dataset>_error_profile.csv for each instance's true and
+          predicted class.
 
-All comparisons run on the raw (pre-encoding) features: SHAP is computed on the one-hot encoded
+Global explanations are descriptive only: the global table lists each method's top 10 per model
+and compares nothing. The only agreement analysis is local, SHAP vs LIME (feature and rank
+agreement, src/xai_thesis/agreement.py).
+
+All tables are on the raw (pre-encoding) features: SHAP is computed on the one-hot encoded
 columns and summed back onto proto/service/state, while LIME and permutation importance already
 work on raw columns - 40 features for UNSW-NB15, 59 for CIC-IDS2017.
 
-Ranking follows src/xai_thesis/agreement.py exactly (np.argsort of -|value|), so every top-k set
-here is the one the agreement heatmaps score. Ranks are 1-based positions in that ordering. A
-feature whose value is zero (or, for a global importance, at most zero) has no meaningful position
-among the other zeros, so its "rank in the other method" is left blank rather than reported as an
-arbitrary number.
+Ordering. Local attributions are ranked by |value| with ties broken by feature name
+(agreement.ranked_feature_indices), so every top-k set here is the one the agreement metrics
+score. Global importances are ranked by value, descending, ties by feature name: mean |SHAP| is
+non-negative, and a negative permutation importance (shuffling the feature slightly improved
+macro-F1) means no measurable importance, so it ranks below zero rather than by its magnitude.
+Ranks are 1-based.
 
-The sign comparison is local only: mean |SHAP| and permutation importance are both unsigned.
-Locally, both methods explain the same class per instance (the predict_proba argmax), so a positive
-value pushes toward that class and a negative one against it. LIME runs with discretized features,
-so its sign says whether the instance's quartile bin for that feature pushes toward the class,
-while SHAP's is relative to the background sample - comparable in direction, not identical in
-meaning. Sign agreement is Krishna et al.'s definition: the fraction of the top-k features that
-are in both top-k sets *and* carry the same sign.
+Sign (local only) - both methods explain the same class per instance (the predict_proba argmax),
+so a positive value pushes toward that class and a negative one against it. LIME runs with
+discretized features, so its sign says whether the instance's quartile bin for that feature
+pushes toward the class, while SHAP's is relative to the background sample - comparable in
+direction, not identical in meaning. Sign agreement is Krishna et al.'s definition: the fraction
+of the top-k features that are in both top-k sets *and* carry the same sign. It is a supplementary
+per-instance column, not one of the thesis's two agreement metrics.
 """
 
 from __future__ import annotations
 
-import itertools
+import logging
 from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from xai_thesis.agreement import agreement_fraction
+from xai_thesis.agreement import agreement_fraction, ranked_feature_indices, summarize_agreement
 
-GLOBAL_METHODS = ("shap", "permutation")
+logger = logging.getLogger(__name__)
+
+GLOBAL_METHODS = {"shap": "SHAP", "pfi": "PFI"}
 LOCAL_METHODS = ("shap", "lime")
-REPORT_K_VALUES = (5, 10, 20)
+REPORT_K_VALUES = (1, 5, 10, 20)
 TOP_N = 10
 
 
-def rank_order(values: np.ndarray) -> np.ndarray:
-    """Feature indices from most to least important by |value| - agreement_fraction's own order."""
-    return np.argsort(-np.abs(np.asarray(values, dtype=float))[None, :], axis=1)[0]
+def rank_order(values: np.ndarray, feature_names: Sequence[str]) -> np.ndarray:
+    """Feature indices from most to least important by |value|, ties by feature name."""
+    return ranked_feature_indices(np.asarray(values, dtype=float), feature_names)
 
 
-def rank_positions(values: np.ndarray) -> np.ndarray:
+def rank_positions(values: np.ndarray, feature_names: Sequence[str]) -> np.ndarray:
     """1-based rank of every feature under rank_order, as a [n_features] array."""
     positions = np.empty(len(values), dtype=int)
-    positions[rank_order(values)] = np.arange(1, len(values) + 1)
+    positions[rank_order(values, feature_names)] = np.arange(1, len(values) + 1)
     return positions
 
 
@@ -62,54 +71,47 @@ def top_n_rows(values: np.ndarray, feature_names: Sequence[str], n: int = TOP_N)
     """The n highest-|value| features as {rank, feature, value} rows, most important first."""
     return [
         {"rank": rank, "feature": feature_names[index], "value": float(values[index])}
-        for rank, index in enumerate(rank_order(values)[:n], start=1)
+        for rank, index in enumerate(rank_order(values, feature_names)[:n], start=1)
     ]
 
 
-def overlap_scores(values_a: np.ndarray, values_b: np.ndarray, k: int) -> dict[str, float]:
-    """Feature and rank agreement at k between two single attribution/importance vectors."""
-    a, b = np.asarray(values_a, dtype=float)[None, :], np.asarray(values_b, dtype=float)[None, :]
-    return {
-        "feature_agreement": float(agreement_fraction(a, b, k, "feature")[0]),
-        "rank_agreement": float(agreement_fraction(a, b, k, "rank")[0]),
-    }
+def global_rank_order(importance: np.ndarray, feature_names: Sequence[str]) -> np.ndarray:
+    """Feature indices by global importance, descending (signed, not |value|), ties by name."""
+    importance = np.asarray(importance, dtype=float)
+    name_order = np.empty(len(feature_names), dtype=int)
+    name_order[np.argsort(np.asarray(feature_names, dtype=str), kind="stable")] = np.arange(len(feature_names))
+    return np.lexsort((name_order, -importance))
 
 
-def sign_agreement(values_a: np.ndarray, values_b: np.ndarray, k: int) -> float:
+def sign_agreement(values_a: np.ndarray, values_b: np.ndarray, k: int, feature_names: Sequence[str]) -> float:
     """Krishna et al.'s sign agreement: share of the top-k in both sets with the same sign."""
-    top_a, top_b = set(rank_order(values_a)[:k]), set(rank_order(values_b)[:k])
+    top_a = set(rank_order(values_a, feature_names)[:k])
+    top_b = set(rank_order(values_b, feature_names)[:k])
     same_sign = [i for i in top_a & top_b if np.sign(values_a[i]) == np.sign(values_b[i]) != 0]
     return len(same_sign) / k
 
 
 def top_n_disagreements(
-    values_a: np.ndarray,
-    values_b: np.ndarray,
+    shap_values: np.ndarray,
+    lime_values: np.ndarray,
     feature_names: Sequence[str],
-    method_a: str,
-    method_b: str,
     *,
     n: int = TOP_N,
-    signed: bool,
 ) -> list[dict]:
-    """Features in one method's top n but not the other's, plus (signed only) shared-top-n sign flips.
+    """One instance's SHAP-vs-LIME top-n membership disagreements and shared-top-n sign flips.
 
     Each row names the feature, the method whose top n it is in, its rank and value there, and its
     rank and value under the other method. That second rank is what separates a strong disagreement
     (rank 2 in one method, rank 30 in the other) from a borderline one (rank 9 vs rank 11). It is
-    blank when the other method gives the feature no importance at all (zero, or for an unsigned
-    global importance, at most zero), since a position among tied zeros is arbitrary.
+    blank when the other method gives the feature an attribution of exactly zero, since a position
+    among tied zeros is set only by the name tie-break.
     """
-    values = {method_a: np.asarray(values_a, dtype=float), method_b: np.asarray(values_b, dtype=float)}
-    positions = {method: rank_positions(vector) for method, vector in values.items()}
-    tops = {method: set(rank_order(vector)[:n]) for method, vector in values.items()}
-
-    def has_importance(method: str, index: int) -> bool:
-        value = values[method][index]
-        return value != 0 if signed else value > 0
+    values = {"shap": np.asarray(shap_values, dtype=float), "lime": np.asarray(lime_values, dtype=float)}
+    positions = {method: rank_positions(vector, feature_names) for method, vector in values.items()}
+    tops = {method: set(rank_order(vector, feature_names)[:n]) for method, vector in values.items()}
 
     rows: list[dict] = []
-    for method, other in ((method_a, method_b), (method_b, method_a)):
+    for method, other in (("shap", "lime"), ("lime", "shap")):
         for index in sorted(tops[method] - tops[other], key=lambda i: positions[method][i]):
             rows.append(
                 {
@@ -117,24 +119,22 @@ def top_n_disagreements(
                     "feature": feature_names[index],
                     f"{method}_rank": int(positions[method][index]),
                     f"{method}_value": float(values[method][index]),
-                    f"{other}_rank": int(positions[other][index]) if has_importance(other, index) else None,
+                    f"{other}_rank": int(positions[other][index]) if values[other][index] != 0 else None,
                     f"{other}_value": float(values[other][index]),
                 }
             )
-    if signed:
-        shared = sorted(tops[method_a] & tops[method_b], key=lambda i: positions[method_a][i])
-        for index in shared:
-            if np.sign(values[method_a][index]) * np.sign(values[method_b][index]) < 0:
-                rows.append(
-                    {
-                        "kind": "sign_disagreement",
-                        "feature": feature_names[index],
-                        f"{method_a}_rank": int(positions[method_a][index]),
-                        f"{method_a}_value": float(values[method_a][index]),
-                        f"{method_b}_rank": int(positions[method_b][index]),
-                        f"{method_b}_value": float(values[method_b][index]),
-                    }
-                )
+    for index in sorted(tops["shap"] & tops["lime"], key=lambda i: positions["shap"][i]):
+        if np.sign(values["shap"][index]) * np.sign(values["lime"][index]) < 0:
+            rows.append(
+                {
+                    "kind": "sign_disagreement",
+                    "feature": feature_names[index],
+                    "shap_rank": int(positions["shap"][index]),
+                    "shap_value": float(values["shap"][index]),
+                    "lime_rank": int(positions["lime"][index]),
+                    "lime_value": float(values["lime"][index]),
+                }
+            )
     return rows
 
 
@@ -144,106 +144,76 @@ def _write(frame: pd.DataFrame, path: Path) -> Path:
     return path
 
 
-def build_global_report(
-    dataset_name: str,
+def _attribution_cache(metrics_dir: str | Path, dataset_name: str, model: str) -> Path:
+    return Path(metrics_dir) / "agreement" / "attributions" / f"{dataset_name}_{model}_baseline.npz"
+
+
+def local_agreement_table(
+    datasets: Sequence[str],
     models: Sequence[str],
     *,
     metrics_dir: str | Path = "outputs/metrics",
-    output_dir: str | Path = "outputs/metrics/explanation_report",
-    sample_tag: str = "balanced500",
-    n: int = TOP_N,
     k_values: Sequence[int] = REPORT_K_VALUES,
-) -> dict[str, Path]:
-    """Global top-n tables, method and model-pair overlap, and top-n disagreements for one dataset.
+) -> pd.DataFrame:
+    """The thesis's local results: dataset, model, k, fa_mean, fa_se, ra_mean, ra_se, n.
 
-    Models without a cached global ranking are skipped and listed in the overlap CSV's
-    "missing_models" note (none at present: every model/dataset pair has one). Model pairs are
-    every pair of the remaining models (no reference model), per method.
+    Mean and standard error (sample SD with ddof=1 / sqrt(n)) of per-instance feature and rank
+    agreement between SHAP and LIME. Raises if two models of one dataset were scored on different
+    instances.
     """
-    cache_dir = Path(metrics_dir) / "agreement" / "global"
-    rankings: dict[str, dict[str, np.ndarray]] = {}
-    feature_names: list[str] | None = None
-    for model in models:
-        cache_path = cache_dir / f"{dataset_name}_{model}_baseline__{sample_tag}.npz"
-        if not cache_path.exists():
-            continue
-        cached = np.load(cache_path, allow_pickle=False)
-        names = [str(name) for name in cached["feature_names"]]
-        if feature_names is not None and names != feature_names:
-            raise ValueError(f"{cache_path.name}: feature order differs from the other models")
-        feature_names = names
-        rankings[model] = {method: cached[method].astype(float) for method in GLOBAL_METHODS}
-    if feature_names is None:
-        raise FileNotFoundError(f"no global ranking caches for {dataset_name} in {cache_dir}")
-    missing = [model for model in models if model not in rankings]
-
-    # Ranked on the importance clipped at zero, exactly as generate_global_agreement does; the
-    # reported value is the raw one, so a negative permutation importance stays visible.
-    clipped = {
-        model: {method: np.clip(vector, 0.0, None) for method, vector in by_method.items()}
-        for model, by_method in rankings.items()
-    }
-
-    top_rows = []
-    for model, by_method in rankings.items():
-        for method in GLOBAL_METHODS:
-            for row in top_n_rows(clipped[model][method], feature_names, n):
-                row["value"] = float(by_method[method][feature_names.index(row["feature"])])
-                top_rows.append({"dataset": dataset_name, "model": model, "method": method, **row})
-
-    overlap_rows = []
-    for model in rankings:
-        for k in k_values:
-            overlap_rows.append(
-                {
-                    "dataset": dataset_name,
-                    "comparison": "methods",
-                    "method": "shap_vs_permutation",
-                    "model_a": model,
-                    "model_b": model,
-                    "k": k,
-                    **overlap_scores(clipped[model]["shap"], clipped[model]["permutation"], k),
-                }
+    rows = []
+    for dataset_name in datasets:
+        reference = None
+        for model in models:
+            cached = np.load(_attribution_cache(metrics_dir, dataset_name, model), allow_pickle=False)
+            if reference is None:
+                reference = cached["instance_index"]
+            elif not np.array_equal(cached["instance_index"], reference):
+                raise ValueError(f"{dataset_name}/{model}: instance set differs from the other models'")
+            feature_names = [str(name) for name in cached["feature_names"]]
+            rows.extend(
+                {"dataset": dataset_name, "model": model, **summary}
+                for summary in summarize_agreement(cached["shap"], cached["lime"], k_values, feature_names)
             )
-    for method in GLOBAL_METHODS:
-        for model_a, model_b in itertools.combinations(rankings, 2):
-            for k in k_values:
-                overlap_rows.append(
-                    {
-                        "dataset": dataset_name,
-                        "comparison": "models",
-                        "method": method,
-                        "model_a": model_a,
-                        "model_b": model_b,
-                        "k": k,
-                        **overlap_scores(clipped[model_a][method], clipped[model_b][method], k),
-                    }
-                )
-    overlap = pd.DataFrame(overlap_rows)
-    overlap["missing_models"] = "; ".join(missing)
+    return pd.DataFrame(rows, columns=["dataset", "model", "k", "fa_mean", "fa_se", "ra_mean", "ra_se", "n"])
 
-    disagreement_rows = []
-    for model, by_method in clipped.items():
-        for row in top_n_disagreements(
-            by_method["shap"], by_method["permutation"], feature_names, "shap", "permutation", n=n, signed=False
-        ):
-            # Report raw (unclipped) values next to the ranks computed on the clipped ones.
-            index = feature_names.index(row["feature"])
-            row["shap_value"] = float(rankings[model]["shap"][index])
-            row["permutation_value"] = float(rankings[model]["permutation"][index])
-            disagreement_rows.append({"dataset": dataset_name, "model": model, **row})
 
-    output_dir = Path(output_dir)
-    columns = ["dataset", "model", "kind", "feature", "shap_rank", "shap_value", "permutation_rank",
-               "permutation_value"]
-    return {
-        "global_top": _write(pd.DataFrame(top_rows), output_dir / f"{dataset_name}_global_top{n}.csv"),
-        "global_overlap": _write(overlap, output_dir / f"{dataset_name}_global_overlap.csv"),
-        "global_disagreement": _write(
-            pd.DataFrame(disagreement_rows, columns=columns),
-            output_dir / f"{dataset_name}_global_disagreement.csv",
-        ),
-    }
+def global_top_table(
+    datasets: Sequence[str],
+    models: Sequence[str],
+    *,
+    metrics_dir: str | Path = "outputs/metrics",
+    n: int = TOP_N,
+) -> pd.DataFrame:
+    """The thesis's global results: dataset, model, method, rank, feature, importance, n_instances.
+
+    One block of n rows per (dataset, model, method). A missing cache - global SHAP that was
+    skipped and never computed - is logged and left out rather than raising.
+    """
+    rows = []
+    for dataset_name in datasets:
+        for model in models:
+            for method, label in GLOBAL_METHODS.items():
+                cache_path = Path(metrics_dir) / "global_importance" / f"{dataset_name}_{model}_baseline__{method}.npz"
+                if not cache_path.exists():
+                    logger.warning("%s/%s: no global %s cache (%s) - left out", dataset_name, model, label, cache_path)
+                    continue
+                cached = np.load(cache_path, allow_pickle=False)
+                feature_names = [str(name) for name in cached["feature_names"]]
+                importance = cached["importance"].astype(float)
+                for rank, index in enumerate(global_rank_order(importance, feature_names)[:n], start=1):
+                    rows.append(
+                        {
+                            "dataset": dataset_name,
+                            "model": model,
+                            "method": label,
+                            "rank": rank,
+                            "feature": feature_names[index],
+                            "importance": float(importance[index]),
+                            "n_instances": int(cached["class_counts"].sum()),
+                        }
+                    )
+    return pd.DataFrame(rows)
 
 
 def build_local_report(
@@ -257,16 +227,17 @@ def build_local_report(
 ) -> dict[str, Path]:
     """Per-instance SHAP-vs-LIME tables over the agreement instance set for one dataset.
 
-    Writes the instance manifest with per-instance overlap, the signed top-n features of both
-    methods per instance, the per-instance disagreements (top-n membership and sign), and a
-    per-model summary split by all / correct / misclassified instances.
+    Writes the instance manifest with per-instance feature/rank (and supplementary sign)
+    agreement, the signed top-n features of both methods per instance, the per-instance
+    disagreements (top-n membership and sign), and a per-model summary over all instances and,
+    as a breakdown, over correctly classified and misclassified ones.
     """
     metrics_dir = Path(metrics_dir)
     profile = pd.read_csv(metrics_dir / "stimuli" / f"{dataset_name}_error_profile.csv")
 
     instance_rows, top_rows, disagreement_rows = [], [], []
     for model in models:
-        cached = np.load(metrics_dir / "agreement" / "attributions" / f"{dataset_name}_{model}_baseline.npz")
+        cached = np.load(_attribution_cache(metrics_dir, dataset_name, model), allow_pickle=False)
         shap_matrix, lime_matrix = cached["shap"].astype(float), cached["lime"].astype(float)
         feature_names = [str(name) for name in cached["feature_names"]]
         model_profile = profile[profile["model"] == model].set_index("instance_index")
@@ -282,11 +253,8 @@ def build_local_report(
                     f"but its predict_proba argmax is {info['proba_argmax_class']} - caches out of sync"
                 )
             shap_values, lime_values = shap_matrix[row], lime_matrix[row]
-            disagreements = top_n_disagreements(
-                shap_values, lime_values, feature_names, "shap", "lime", n=n, signed=True
-            )
+            disagreements = top_n_disagreements(shap_values, lime_values, feature_names, n=n)
             n_sign_flips = sum(item["kind"] == "sign_disagreement" for item in disagreements)
-            shared_top = len(set(rank_order(shap_values)[:n]) & set(rank_order(lime_values)[:n]))
 
             record = {
                 "dataset": dataset_name,
@@ -298,14 +266,13 @@ def build_local_report(
                 "correct": info["true_class"] == info["predicted_class"],
                 "error_type": info["error_type"],
                 "predict_disagrees_with_proba": bool(info["predict_disagrees_with_proba"]),
-                "top1_match": rank_order(shap_values)[0] == rank_order(lime_values)[0],
             }
             for k in k_values:
-                scores = overlap_scores(shap_values, lime_values, k)
-                record[f"feature_agreement@{k}"] = scores["feature_agreement"]
-                record[f"rank_agreement@{k}"] = scores["rank_agreement"]
-                record[f"sign_agreement@{k}"] = sign_agreement(shap_values, lime_values, k)
-            record[f"shared_top{n}"] = shared_top
+                for metric in ("feature", "rank"):
+                    record[f"{metric}_agreement@{k}"] = float(
+                        agreement_fraction(shap_values, lime_values, k, metric, feature_names)[0]
+                    )
+                record[f"sign_agreement@{k}"] = sign_agreement(shap_values, lime_values, k, feature_names)
             record[f"sign_disagreements_top{n}"] = n_sign_flips
             instance_rows.append(record)
 
@@ -339,12 +306,11 @@ def build_local_report(
             if rows.empty:
                 continue
             summary = {"dataset": dataset_name, "model": model, "subset": subset, "n_instances": len(rows)}
-            summary["top1_match_rate"] = rows["top1_match"].mean()
             for k in k_values:
                 for metric in ("feature", "rank", "sign"):
                     column = f"{metric}_agreement@{k}"
                     summary[f"{column}_mean"] = rows[column].mean()
-                    summary[f"{column}_sem"] = rows[column].sem() if len(rows) > 1 else float("nan")
+                    summary[f"{column}_se"] = rows[column].sem(ddof=1) if len(rows) > 1 else float("nan")
             summary[f"instances_with_sign_disagreement_top{n}"] = int((rows[f"sign_disagreements_top{n}"] > 0).sum())
             summary[f"mean_sign_disagreements_top{n}"] = rows[f"sign_disagreements_top{n}"].mean()
             summary_rows.append(summary)
@@ -360,4 +326,26 @@ def build_local_report(
             output_dir / f"{dataset_name}_local_disagreement.csv",
         ),
         "local_summary": _write(pd.DataFrame(summary_rows), output_dir / f"{dataset_name}_local_summary.csv"),
+    }
+
+
+def write_thesis_tables(
+    datasets: Sequence[str],
+    models: Sequence[str],
+    sample_sizes: pd.DataFrame,
+    *,
+    metrics_dir: str | Path = "outputs/metrics",
+    output_dir: str | Path = "outputs/metrics/explanation_report",
+) -> dict[str, Path]:
+    """The three thesis CSVs, each covering every dataset: local_agreement.csv,
+    global_top10.csv and sample_sizes.csv (per-class counts of the local and global samples)."""
+    output_dir = Path(output_dir)
+    return {
+        "local_agreement": _write(
+            local_agreement_table(datasets, models, metrics_dir=metrics_dir), output_dir / "local_agreement.csv"
+        ),
+        "global_top": _write(
+            global_top_table(datasets, models, metrics_dir=metrics_dir), output_dir / f"global_top{TOP_N}.csv"
+        ),
+        "sample_sizes": _write(sample_sizes, output_dir / "sample_sizes.csv"),
     }

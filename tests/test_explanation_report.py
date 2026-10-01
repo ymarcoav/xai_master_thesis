@@ -3,8 +3,9 @@ import pandas as pd
 import pytest
 
 from xai_thesis.explanation_report import (
-    build_global_report,
     build_local_report,
+    global_top_table,
+    local_agreement_table,
     rank_positions,
     sign_agreement,
     top_n_disagreements,
@@ -24,8 +25,10 @@ def test_top_n_rows_ranks_by_magnitude_and_keeps_the_sign() -> None:
     ]
 
 
-def test_rank_positions_are_one_based_positions_in_the_magnitude_order() -> None:
-    assert rank_positions(np.array([0.1, -0.9, 0.5, 0.0, 0.2])).tolist() == [4, 1, 2, 5, 3]
+def test_rank_positions_are_one_based_and_break_ties_by_feature_name() -> None:
+    assert rank_positions(np.array([0.1, -0.9, 0.5, 0.0, 0.2]), NAMES).tolist() == [4, 1, 2, 5, 3]
+    # |values| tie between "e" and "b": "b" sorts first, whatever the column order.
+    assert rank_positions(np.array([0.9, 0.0, 0.1, 0.0, -0.5]), ["z", "e", "y", "b", "x"]).tolist() == [1, 5, 3, 4, 2]
 
 
 def test_sign_agreement_counts_only_shared_top_k_features_with_the_same_sign() -> None:
@@ -33,14 +36,14 @@ def test_sign_agreement_counts_only_shared_top_k_features_with_the_same_sign() -
     lime = np.array([0.9, -0.8, -0.7, 0.0, 0.0])
 
     # Top-3 sets are identical; b flips sign, so 2 of 3 agree.
-    assert sign_agreement(shap, lime, 3) == pytest.approx(2 / 3)
+    assert sign_agreement(shap, lime, 3, NAMES) == pytest.approx(2 / 3)
 
 
 def test_top_n_disagreements_reports_rank_in_the_other_method_and_sign_flips() -> None:
     shap = np.array([0.9, 0.8, -0.7, 0.05, 0.0])
     lime = np.array([0.9, -0.8, 0.01, 0.6, 0.0])
 
-    rows = top_n_disagreements(shap, lime, NAMES, "shap", "lime", n=3, signed=True)
+    rows = top_n_disagreements(shap, lime, NAMES, n=3)
     by_kind = {(row["kind"], row["feature"]): row for row in rows}
 
     # c is SHAP's #3 but only LIME's #4; d is LIME's #3 but SHAP's #4.
@@ -54,49 +57,69 @@ def test_top_n_disagreements_reports_rank_in_the_other_method_and_sign_flips() -
 
 def test_top_n_disagreements_blanks_the_rank_of_a_feature_the_other_method_ignores() -> None:
     shap = np.array([0.9, 0.8, 0.7, 0.0, 0.0])
-    permutation = np.array([0.9, 0.8, 0.0, 0.5, 0.0])
+    lime = np.array([0.9, 0.8, 0.0, 0.5, 0.0])
 
-    rows = top_n_disagreements(shap, permutation, NAMES, "shap", "permutation", n=3, signed=False)
+    rows = top_n_disagreements(shap, lime, NAMES, n=3)
     only_shap = next(row for row in rows if row["kind"] == "only_in_shap_top3")
 
-    # c has zero permutation importance: its position among the tied zeros means nothing.
+    # c has zero LIME attribution: its position among the tied zeros means nothing.
     assert only_shap["feature"] == "c"
-    assert only_shap["permutation_rank"] is None
+    assert only_shap["lime_rank"] is None
 
 
-def _write_global_cache(path, shap, permutation) -> None:
+def _write_global_cache(path, importance) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
         path,
-        shap=np.array(shap),
-        permutation=np.array(permutation),
+        importance=np.array(importance, dtype=float),
         feature_names=np.array(NAMES),
+        instance_index=np.arange(10),
         class_names=np.array(["Benign", "Attack"]),
         class_counts=np.array([5, 5]),
     )
 
 
-def test_build_global_report_compares_methods_and_every_model_pair_and_notes_missing_models(tmp_path) -> None:
-    cache_dir = tmp_path / "metrics" / "agreement" / "global"
-    _write_global_cache(cache_dir / "toy_m1_baseline__balanced500.npz", [5, 4, 3, 2, 1], [5, 4, 3, 2, -1])
-    _write_global_cache(cache_dir / "toy_m2_baseline__balanced500.npz", [1, 2, 3, 4, 5], [5, 4, 3, 2, 1])
-    _write_global_cache(cache_dir / "toy_m3_baseline__balanced500.npz", [5, 4, 3, 2, 1], [1, 2, 3, 4, 5])
+def test_global_top_table_lists_each_method_descriptively_and_skips_missing_caches(tmp_path) -> None:
+    cache_dir = tmp_path / "metrics" / "global_importance"
+    _write_global_cache(cache_dir / "toy_m1_baseline__shap.npz", [5, 4, 3, 2, 1])
+    # A negative PFI ranks below zero (no measurable importance), not by its magnitude.
+    _write_global_cache(cache_dir / "toy_m1_baseline__pfi.npz", [-9, 4, 3, 0, 1])
+    # m2's global SHAP was skipped: only its PFI is cached.
+    _write_global_cache(cache_dir / "toy_m2_baseline__pfi.npz", [1, 1, 3, 0, 0])
 
-    paths = build_global_report(
-        "toy", ["m1", "m2", "m3", "m4"], metrics_dir=tmp_path / "metrics", output_dir=tmp_path / "out", n=3,
-        k_values=(3,),
-    )
-    overlap = pd.read_csv(paths["global_overlap"])
-    top = pd.read_csv(paths["global_top"])
+    top = global_top_table(["toy"], ["m1", "m2"], metrics_dir=tmp_path / "metrics", n=3)
 
-    methods = overlap[overlap["comparison"] == "methods"].set_index("model_a")
-    assert methods.loc["m1", "feature_agreement"] == 1.0
-    assert methods.loc["m2", "feature_agreement"] == pytest.approx(1 / 3)
-    models = overlap[overlap["comparison"] == "models"]
-    assert len(models) == 2 * 3  # two methods x all three pairs of the cached models
-    assert set(overlap["missing_models"]) == {"m4"}
-    # The raw (negative) permutation value is reported, even though ranking uses the clipped one.
-    assert top[(top["model"] == "m1") & (top["method"] == "permutation")]["feature"].tolist() == ["a", "b", "c"]
+    assert list(top.columns) == ["dataset", "model", "method", "rank", "feature", "importance", "n_instances"]
+    m1_pfi = top[(top["model"] == "m1") & (top["method"] == "PFI")]
+    assert m1_pfi["feature"].tolist() == ["b", "c", "e"]
+    assert m1_pfi["rank"].tolist() == [1, 2, 3]
+    # Tie between a and b broken by name.
+    assert top[top["model"] == "m2"]["feature"].tolist() == ["c", "a", "b"]
+    assert set(top[top["model"] == "m2"]["method"]) == {"PFI"}
+    assert set(top["n_instances"]) == {10}
+
+
+def test_local_agreement_table_has_the_thesis_columns_and_requires_one_instance_set(tmp_path) -> None:
+    attributions = tmp_path / "metrics" / "agreement" / "attributions"
+    attributions.mkdir(parents=True)
+    rng = np.random.default_rng(0)
+    for model, index in (("m1", [1, 2, 3]), ("m2", [1, 2, 3]), ("m3", [1, 2, 4])):
+        np.savez(
+            attributions / f"toy_{model}_baseline.npz",
+            shap=rng.normal(size=(3, 5)),
+            lime=rng.normal(size=(3, 5)),
+            feature_names=np.array(NAMES),
+            instance_index=np.array(index),
+        )
+
+    table = local_agreement_table(["toy"], ["m1", "m2"], metrics_dir=tmp_path / "metrics", k_values=(1, 3))
+
+    assert list(table.columns) == ["dataset", "model", "k", "fa_mean", "fa_se", "ra_mean", "ra_se", "n"]
+    assert table["k"].tolist() == [1, 3, 1, 3]
+    assert (table["n"] == 3).all()
+    assert (table["ra_mean"] <= table["fa_mean"]).all()
+    with pytest.raises(ValueError, match="instance set differs"):
+        local_agreement_table(["toy"], ["m1", "m3"], metrics_dir=tmp_path / "metrics")
 
 
 def test_build_local_report_writes_per_instance_overlap_and_checks_cache_consistency(tmp_path) -> None:

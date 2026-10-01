@@ -1,33 +1,32 @@
-"""Feature agreement and rank agreement between two explanation methods.
+"""Feature agreement and rank agreement between SHAP and LIME (local explanations only).
 
 Implements the two top-k disagreement metrics of:
 
     Krishna et al., "The Disagreement Problem in Explainable Machine Learning:
     A Practitioner's Perspective", TMLR 2024 (arXiv:2202.01602).
 
-`agreement_fraction` is a direct port of `agreement_fraction()` from the authors'
-reference implementation (AI4LIFE-GROUP/disagreement-problem,
-experiments/tabular/metrics.py) - vectorised over [n_points, n_features], with the
-original's removed-in-pandas-3.0 `DataFrame.applymap(str)` written as
-`DataFrame.astype(str)` (identical element-wise). The paper defines two further
-metrics, sign agreement and signed rank agreement, which are not implemented here: the
-heatmaps use only these two. Sign agreement is computed per instance by
-explanation_report.sign_agreement; signed rank agreement is not used.
+Definitions (per instance, in [0, 1], higher = more agreement), with T_k(A) the set of the k
+features with the largest |attribution| under method A:
 
-Definitions (per data point, in [0, 1], higher = more agreement):
+  feature agreement  FA_k = |T_k(A) n T_k(B)| / k
 
-  feature agreement - fraction of the top-k features (ranked by |attribution|)
-      the two explanations have in common: |topk(A) n topk(B)| / k. This is the
-      metric 84% of the paper's interviewed practitioners named as the single most
-      important thing they read off an explanation.
+  rank agreement     RA_k = |{f in T_k(A) n T_k(B) : rank_A(f) == rank_B(f)}| / k
 
-  rank agreement - fraction of the top-k features that are both shared *and* given
-      the same rank by both explanations. Ranks are computed over all features with
-      scipy's 'dense' method so ties are handled. Stricter than feature agreement,
-      and <= it by construction.
+rank_A(f) is f's 1-based position when every feature is ordered by |attribution| descending.
+Ties in |attribution| are broken deterministically by feature name (ascending), or by column
+index when no names are given (see ranked_feature_indices), so every ordering, and therefore
+every T_k and every rank, is unique and reproducible. A shared feature counts toward RA_k only if
+it sits at the same position in both orderings, so RA_k <= FA_k always, and agreement_fraction
+asserts it.
 
-Both take two signed attribution matrices of shape [n_points, n_features] for the
-*same* points, and return one value per point; average for a scalar.
+This differs from the authors' reference implementation (AI4LIFE-GROUP/disagreement-problem,
+experiments/tabular/metrics.py), which this module previously ported: that code leaves ties to
+np.argsort's unstable default and gives tied features a shared dense rank. On this project's
+cached attribution matrices no two features tie anywhere in a top 21, so both produce identical
+numbers here (checked when the change was made, 2026-10-01).
+
+Both functions take two signed attribution matrices of shape [n_points, n_features] for the
+*same* points, in the same feature order, and return one value per point.
 """
 
 from __future__ import annotations
@@ -41,80 +40,127 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
 import seaborn as sns  # noqa: E402
-from scipy.stats import rankdata  # noqa: E402
-from scipy.stats import sem as standard_error  # noqa: E402
 
 AGREEMENT_METRIC_TITLES = {"feature": "Feature agreement", "rank": "Rank agreement"}
 AGREEMENT_METRICS = tuple(AGREEMENT_METRIC_TITLES)
 
 
-def agreement_fraction(attr_a: np.ndarray, attr_b: np.ndarray, k: int, metric: str) -> np.ndarray:
+def ranked_feature_indices(attributions: np.ndarray, feature_names: Sequence[str] | None = None) -> np.ndarray:
+    """Feature indices per row, from largest to smallest |attribution|.
+
+    Ties in |attribution| go to the feature whose name sorts first (plain string order), or to
+    the lower column index when feature_names is None. Accepts [n_features] or
+    [n_points, n_features] and returns the same shape.
+    """
+    magnitudes = np.abs(np.asarray(attributions, dtype=float))
+    n_features = magnitudes.shape[-1]
+    if feature_names is None:
+        tiebreak = np.arange(n_features)
+    else:
+        if len(feature_names) != n_features:
+            raise ValueError(f"{len(feature_names)} feature names for {n_features} features")
+        tiebreak = np.empty(n_features, dtype=int)
+        tiebreak[np.argsort(np.asarray(feature_names, dtype=str), kind="stable")] = np.arange(n_features)
+    # np.lexsort sorts by the last key first: primary -|attribution|, secondary the name order.
+    return np.lexsort((np.broadcast_to(tiebreak, magnitudes.shape), -magnitudes), axis=-1)
+
+
+def agreement_fraction(
+    attr_a: np.ndarray,
+    attr_b: np.ndarray,
+    k: int,
+    metric: str,
+    feature_names: Sequence[str] | None = None,
+) -> np.ndarray:
     """Per-point top-k agreement between two [n_points, n_features] attribution matrices.
 
-    metric is "feature" or "rank" (see module docstring). Returns shape [n_points].
+    metric is "feature" or "rank" (see module docstring). feature_names sets the tie-break.
+    Returns shape [n_points].
     """
     if metric not in AGREEMENT_METRIC_TITLES:
         raise ValueError(f"unknown metric {metric!r}; expected one of {sorted(AGREEMENT_METRIC_TITLES)}")
-    attr_a = np.asarray(attr_a, dtype=float)
-    attr_b = np.asarray(attr_b, dtype=float)
+    attr_a = np.atleast_2d(np.asarray(attr_a, dtype=float))
+    attr_b = np.atleast_2d(np.asarray(attr_b, dtype=float))
     if attr_a.shape != attr_b.shape:
         raise ValueError(f"shape mismatch: {attr_a.shape} vs {attr_b.shape}")
     k = min(k, attr_a.shape[1])
 
-    # Top-k feature ids, most important (largest |attribution|) first.
-    topk_id_a = np.argsort(-np.abs(attr_a), axis=1)[:, :k]
-    topk_id_b = np.argsort(-np.abs(attr_b), axis=1)[:, :k]
+    topk_a = ranked_feature_indices(attr_a, feature_names)[:, :k]
+    topk_b = ranked_feature_indices(attr_b, feature_names)[:, :k]
 
-    if metric == "feature":
-        return np.array(
-            [len(set(row_a) & set(row_b)) / k for row_a, row_b in zip(topk_id_a, topk_id_b)]
-        )
-
-    # "rank": a feature counts only if it sits at the same position in both top-k lists
-    # AND carries the same dense rank over all features (rankdata ranks ascending, so
-    # rank -|attr| to give rank 1 to the largest magnitude and let ties share a rank).
-    ranks_a = np.take_along_axis(rankdata(-np.abs(attr_a), method="dense", axis=1), topk_id_a, axis=1)
-    ranks_b = np.take_along_axis(rankdata(-np.abs(attr_b), method="dense", axis=1), topk_id_b, axis=1)
-    id_rank_a = ("feat" + pd.DataFrame(topk_id_a).astype(str)) + ("rank" + pd.DataFrame(ranks_a).astype(str))
-    id_rank_b = ("feat" + pd.DataFrame(topk_id_b).astype(str)) + ("rank" + pd.DataFrame(ranks_b).astype(str))
-    return (id_rank_a == id_rank_b).sum(axis=1).to_numpy() / k
+    feature = np.array([len(set(row_a) & set(row_b)) / k for row_a, row_b in zip(topk_a, topk_b)])
+    # Same feature at the same position in both orderings: shared, and with equal rank.
+    rank = (topk_a == topk_b).sum(axis=1) / k
+    assert (rank <= feature).all(), "rank agreement exceeded feature agreement"
+    return feature if metric == "feature" else rank
 
 
-def feature_agreement(attr_a: np.ndarray, attr_b: np.ndarray, k: int) -> np.ndarray:
+def feature_agreement(
+    attr_a: np.ndarray, attr_b: np.ndarray, k: int, feature_names: Sequence[str] | None = None
+) -> np.ndarray:
     """Per-point feature agreement, shape [n_points]."""
-    return agreement_fraction(attr_a, attr_b, k, metric="feature")
+    return agreement_fraction(attr_a, attr_b, k, "feature", feature_names)
 
 
-def rank_agreement(attr_a: np.ndarray, attr_b: np.ndarray, k: int) -> np.ndarray:
+def rank_agreement(
+    attr_a: np.ndarray, attr_b: np.ndarray, k: int, feature_names: Sequence[str] | None = None
+) -> np.ndarray:
     """Per-point rank agreement, shape [n_points]."""
-    return agreement_fraction(attr_a, attr_b, k, metric="rank")
+    return agreement_fraction(attr_a, attr_b, k, "rank", feature_names)
+
+
+def mean_and_standard_error(values: np.ndarray) -> tuple[float, float]:
+    """Mean and standard error, SE = sample standard deviation (ddof=1) / sqrt(n)."""
+    values = np.asarray(values, dtype=float)
+    if values.size < 2:
+        return float(values.mean()), float("nan")
+    return float(values.mean()), float(values.std(ddof=1) / np.sqrt(values.size))
 
 
 def agreement_over_k(
-    attr_a: np.ndarray, attr_b: np.ndarray, k_values: Sequence[int], metric: str
+    attr_a: np.ndarray,
+    attr_b: np.ndarray,
+    k_values: Sequence[int],
+    metric: str,
+    feature_names: Sequence[str] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Mean and standard error of the metric across points, one entry per k in k_values."""
-    distributions = [agreement_fraction(attr_a, attr_b, k, metric) for k in k_values]
-    means = np.array([distribution.mean() for distribution in distributions])
-    sems = np.array([standard_error(distribution) for distribution in distributions])
-    return means, sems
+    stats = [
+        mean_and_standard_error(agreement_fraction(attr_a, attr_b, k, metric, feature_names)) for k in k_values
+    ]
+    return np.array([mean for mean, _ in stats]), np.array([sem for _, sem in stats])
+
+
+def summarize_agreement(
+    attr_a: np.ndarray,
+    attr_b: np.ndarray,
+    k_values: Sequence[int],
+    feature_names: Sequence[str] | None = None,
+) -> list[dict[str, float]]:
+    """One row per k: FA and RA mean and standard error across points, plus n."""
+    rows = []
+    for k in k_values:
+        fa_mean, fa_se = mean_and_standard_error(agreement_fraction(attr_a, attr_b, k, "feature", feature_names))
+        ra_mean, ra_se = mean_and_standard_error(agreement_fraction(attr_a, attr_b, k, "rank", feature_names))
+        rows.append(
+            {"k": k, "fa_mean": fa_mean, "fa_se": fa_se, "ra_mean": ra_mean, "ra_se": ra_se, "n": len(attr_a)}
+        )
+    return rows
 
 
 def plot_agreement_heatmap(
     values: np.ndarray,
-    sems: np.ndarray | None,
+    sems: np.ndarray,
     row_labels: Sequence[str],
     k_values: Sequence[int],
     output_path: str | Path,
     *,
     metric: str,
     title: str,
-    pair_label: str = "SHAP vs LIME",
     footnote: str = "",
 ) -> Path:
-    """Annotated heatmap of agreement values, rows = models, columns = k.
+    """Annotated heatmap of SHAP-vs-LIME agreement, rows = models, columns = k.
 
     Follows the reference implementation's `heatmap_metric_avg`: seaborn heatmap on a
     fixed [0, 1] colour scale (so panels are comparable), value annotated in each cell,
@@ -129,10 +175,8 @@ def plot_agreement_heatmap(
     taste: agreement runs 0 to 1 with no meaningful midpoint, so the white band a diverging
     palette puts at 0.5 would imply a neutral point that does not exist.
 
-    sems is None for the global (SHAP vs permutation importance) panels: those compare two
-    single dataset-level rankings, so there is one value per cell and no across-instance
-    spread to report. footnote adds a further line under the plot - used to record which
-    model/dataset cells were left out and why.
+    footnote adds a further line under the plot - used to record which models were left out
+    and why.
     """
     fig, ax = plt.subplots(figsize=(1.5 * len(k_values) + 3.5, 0.75 * len(row_labels) + 2.5))
     sns.heatmap(
@@ -152,13 +196,10 @@ def plot_agreement_heatmap(
     ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
     ax.set_title(title)
 
-    if sems is None:
-        caption = f"{pair_label}, one ranking pair per model (no across-instance spread)."
-    else:
-        caption = (
-            f"{pair_label}, mean over instances. "
-            f"Standard errors: min={sems.min():.3f}, max={sems.max():.3f}"
-        )
+    caption = (
+        f"SHAP vs LIME, mean over instances. "
+        f"Standard errors: min={np.nanmin(sems):.3f}, max={np.nanmax(sems):.3f}"
+    )
     if footnote:
         caption = f"{caption}\n{footnote}"
     fig.text(0.5, 0.01, caption, ha="center", fontsize="small")

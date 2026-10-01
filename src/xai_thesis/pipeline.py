@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -9,17 +10,16 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.inspection import permutation_importance
-from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold, train_test_split
+from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold
 from sklearn.pipeline import Pipeline
 from sklearn.utils.class_weight import compute_sample_weight
 
 from xai_thesis.agreement import (
     AGREEMENT_METRIC_TITLES,
     AGREEMENT_METRICS,
-    agreement_fraction,
     agreement_over_k,
     plot_agreement_heatmap,
+    summarize_agreement,
 )
 from xai_thesis.datasets import DATASET_REGISTRY
 from xai_thesis.datasets.base import DatasetConfig, load_dataset_config
@@ -49,6 +49,8 @@ from xai_thesis.preprocessing import (
     stratified_subsample,
 )
 from xai_thesis.utils import dump_yaml, ensure_directory, load_yaml
+
+logger = logging.getLogger(__name__)
 
 # xgboost's XGBClassifier has no class_weight constructor param at all (see models.py) - it
 # only supports per-sample weights at fit() time. compute_sample_weight("balanced", y) computes
@@ -289,7 +291,7 @@ def tune_hyperparameters(
 
 # Layout of outputs/plots/, grouped by purpose so no plot sits loose in a dataset or model folder:
 #   <dataset>/data/                                label distribution, missing values, split, correlation
-#   <dataset>/agreement/                           local_/global_agreement_{feature,rank}.png
+#   <dataset>/agreement/                           local_agreement_{feature,rank}.png (SHAP vs LIME)
 #   <dataset>/<model>_baseline/performance/        confusion_matrix.png, roc_curves.png
 #   <dataset>/<model>_baseline/global/             shap_bar, permutation_importance
 #   <dataset>/<model>_baseline/interview/<class>/  shap_waterfall_*, lime_* (interview stimuli)
@@ -456,6 +458,57 @@ def generate_feature_correlation(
 _SHAP_BACKGROUND_SIZE = 50
 _GLOBAL_EXPLANATION_SAMPLE_SIZE = 500
 
+# (dataset, model) pairs whose global SHAP generate_explanations skips unless the experiment
+# config sets `skip_global_shap: false`; their permutation importance is still computed. Any
+# other experiment computes global SHAP unless its config sets `skip_global_shap: true`.
+# cic_ids2017/svm: permutation SHAP runs ~440 s/instance, ~53 h for the 437-row global sample in
+# one call. (It was computed once, 2026-10-01, in 7.7 h via the chunked path - see
+# _compute_shap_in_chunks - and that cached result is kept; skipping only stops a rerun.)
+_GLOBAL_SHAP_SKIPPED_BY_DEFAULT: dict[tuple[str, str], str] = {
+    ("cic_ids2017", "svm"): "permutation SHAP ~440 s/instance, ~53 h for the 437-row global sample",
+}
+
+
+def _skip_global_shap(experiment: dict[str, Any], dataset_name: str) -> bool:
+    """The experiment config's skip_global_shap flag, defaulting per _GLOBAL_SHAP_SKIPPED_BY_DEFAULT."""
+    default = (dataset_name, experiment["model"]) in _GLOBAL_SHAP_SKIPPED_BY_DEFAULT
+    return bool(experiment.get("skip_global_shap", default))
+
+
+def _global_importance_path(metrics_dir: str | Path, experiment_name: str, method: str) -> Path:
+    """Cache of one experiment's global importance vector; method is "shap" or "pfi".
+
+    The two methods are separate files so that skipping global SHAP on a rerun leaves an
+    existing SHAP cache untouched while the PFI cache is refreshed.
+    """
+    return ensure_directory(Path(metrics_dir) / "global_importance") / f"{experiment_name}__{method}.npz"
+
+
+def _save_global_importance(
+    cache_path: Path,
+    importance: np.ndarray,
+    feature_names: Sequence[str],
+    sample_y: pd.Series,
+) -> Path:
+    """Write a global importance vector (raw feature order) with the exact sample it came from."""
+    class_counts = sample_y.value_counts()
+    np.savez(
+        cache_path,
+        importance=np.asarray(importance, dtype=float),
+        feature_names=np.array(list(feature_names)),
+        instance_index=sample_y.index.to_numpy(),
+        class_names=np.array([str(label) for label in class_counts.index]),
+        class_counts=class_counts.to_numpy(),
+    )
+    return cache_path
+
+
+def _log_sample(label: str, sample_y: pd.Series) -> None:
+    counts = sample_y.value_counts().sort_index()
+    logger.info(
+        "%s: n=%d, per class: %s", label, len(sample_y), ", ".join(f"{name}={n}" for name, n in counts.items())
+    )
+
 
 def _class_balanced_sample(
     features: pd.DataFrame, target: pd.Series, total: int, *, random_state: int
@@ -620,33 +673,51 @@ def generate_explanations(
     )
 
     paths: dict[str, Path] = {}
+    _log_sample(f"{experiment_name} global sample (SHAP and PFI)", sample_y)
 
-    if shap_chunk_size is None:
-        shap_values, base_values, x_transformed, feature_names = compute_shap_values(
-            pipeline,
-            model_name,
-            sample_x,
-            background_x,
-            categorical_columns=dataset_config.categorical_columns,
-            random_state=random_state,
+    if _skip_global_shap(experiment, dataset_config.name):
+        logger.warning(
+            "%s: global SHAP skipped (skip_global_shap; default reason: %s); computing PFI only",
+            experiment_name,
+            _GLOBAL_SHAP_SKIPPED_BY_DEFAULT.get((dataset_config.name, model_name), "set in the experiment config"),
         )
     else:
-        shap_values, base_values, x_transformed, feature_names = _compute_shap_in_chunks(
-            pipeline,
-            model_name,
-            sample_x,
-            background_x,
-            categorical_columns=dataset_config.categorical_columns,
-            random_state=random_state,
-            chunk_size=shap_chunk_size,
-            n_jobs=shap_n_jobs,
-            chunk_dir=_global_cache_path(metrics_dir, experiment_name, "balanced", sample_size).parent
-            / "chunks"
-            / f"{experiment_name}__balanced{sample_size}__chunk{shap_chunk_size}",
+        if shap_chunk_size is None:
+            shap_values, base_values, x_transformed, feature_names = compute_shap_values(
+                pipeline,
+                model_name,
+                sample_x,
+                background_x,
+                categorical_columns=dataset_config.categorical_columns,
+                random_state=random_state,
+            )
+        else:
+            shap_values, base_values, x_transformed, feature_names = _compute_shap_in_chunks(
+                pipeline,
+                model_name,
+                sample_x,
+                background_x,
+                categorical_columns=dataset_config.categorical_columns,
+                random_state=random_state,
+                chunk_size=shap_chunk_size,
+                n_jobs=shap_n_jobs,
+                chunk_dir=Path(metrics_dir)
+                / "global_importance"
+                / "chunks"
+                / f"{experiment_name}__balanced{sample_size}__chunk{shap_chunk_size}",
+            )
+        paths["shap_bar"] = plot_shap_bar(
+            shap_values, x_transformed, feature_names, class_names, output_dir / "shap_bar.png"
         )
-    paths["shap_bar"] = plot_shap_bar(
-        shap_values, x_transformed, feature_names, class_names, output_dir / "shap_bar.png"
-    )
+        # Global SHAP importance: mean |SHAP| over instances and classes, stored in raw column
+        # order. (plot_shap_bar stacks per-class means, so its bar length is n_classes x this.)
+        shap_order = [feature_names.index(name) for name in sample_x.columns]
+        paths["shap_cache"] = _save_global_importance(
+            _global_importance_path(metrics_dir, experiment_name, "shap"),
+            np.abs(shap_values).mean(axis=(0, 2))[shap_order],
+            list(sample_x.columns),
+            sample_y,
+        )
 
     # sample_x/sample_y are class-balanced (see above), so this PFI measures each feature's
     # macro-F1 drop under a *rebalanced* class distribution, not the natural 85-96%-Benign one.
@@ -656,17 +727,11 @@ def generate_explanations(
         pipeline, sample_x, sample_y, output_dir / "permutation_importance.png", random_state=random_state
     )
     paths["permutation_importance"] = pfi_path
-
-    # The two rankings just plotted are exactly what the global agreement panel compares, so
-    # cache them here rather than making generate_global_agreement recompute them (for svm that
-    # is hours) - and so the two figures are guaranteed to describe the same numbers.
-    column_order = [list(sample_x.columns).index(name) for name in feature_names]
-    _save_global_rankings(
-        _global_cache_path(metrics_dir, experiment_name, "balanced", sample_size),
-        shap_ranking=np.abs(shap_values).sum(axis=2).mean(axis=0),
-        permutation_mean=pfi_result.importances_mean[column_order],
-        feature_names=feature_names,
-        class_counts=sample_y.value_counts(),
+    paths["pfi_cache"] = _save_global_importance(
+        _global_importance_path(metrics_dir, experiment_name, "pfi"),
+        pfi_result.importances_mean,
+        list(sample_x.columns),
+        sample_y,
     )
 
     return paths
@@ -845,10 +910,14 @@ def generate_interview_stimuli(
     return results
 
 
-# --- Cross-method agreement: SHAP vs LIME (Krishna et al. 2022) -----------------
+# --- Local disagreement analysis: SHAP vs LIME (Krishna et al. 2022) ------------
+# The only agreement analysis in the project. Global explanations (SHAP bar, PFI) are
+# descriptive only: no global or cross-model agreement metric is computed.
 
-# Instances the agreement metrics are averaged over. Class-balanced rather than
-# stratified, so agreement is measured across attack types instead of on the
+# Instances the agreement metrics are averaged over: _class_balanced_sample(total=60,
+# random_state=42) of the test split - 6/class x 10 = 60 on UNSW-NB15, 8/class x 7 = 56 on
+# CIC-IDS2017 - regardless of whether the model classifies them correctly. Class-balanced
+# rather than stratified, so agreement is measured across attack types instead of on the
 # 85-96%-Benign traffic mix a prevalence-proportional draw would give. The draw depends
 # only on the test split and the seed, never on the model, so all four models are
 # compared on the *identical* instances - which is what makes the result a statement
@@ -864,13 +933,11 @@ _AGREEMENT_SAMPLE_SIZE = 60
 # into the top quarter of the ranking. It stops short of the feature count because feature
 # agreement is 1.0 there by definition.
 #
-# k=1 is kept for the local panel only. There it is the mean of ~60 per-instance outcomes with
-# a real standard error - "how often do the two methods even name the same single most
-# important feature?", which is what an analyst reading the top driver of an alert cares about.
-# On the global panel it would be a single ranking pair, so it could only ever read 0.0 or 1.0;
-# that is a coin flip, not a measurement, so the global sweep starts at 5.
+# k=1 is the mean of ~60 per-instance outcomes with a real standard error - "how often do the
+# two methods even name the same single most important feature?", which is what an analyst
+# reading the top driver of an alert cares about. k=10 is the headline value.
 _AGREEMENT_K_VALUES = (1, 5, 10, 20)
-_GLOBAL_AGREEMENT_K_VALUES = (5, 10, 20)
+_AGREEMENT_HEADLINE_K = 10
 
 # Fixed row order for the heatmaps, so panels line up across datasets and metrics.
 _AGREEMENT_MODEL_ORDER = ("random_forest", "xgboost", "neural_network", "svm")
@@ -881,35 +948,22 @@ _AGREEMENT_MODEL_ORDER = ("random_forest", "xgboost", "neural_network", "svm")
 # anything listed here is dropped from the heatmap rows *and* named in the panel's footnote.
 _AGREEMENT_EXCLUDED: dict[tuple[str, str], str] = {}
 
-# Same, for the *global* (SHAP vs permutation importance) panel. Empty: cic_ids2017/svm, the
-# one cell long left out (~440 s/instance, ~53 h for its 437-row sample in one call), was
-# computed on 2026-10-01 as a chunked, checkpointed parallel run - see _compute_shap_in_chunks
-# and `scripts/explain.py --shap-chunk-size 5 --shap-n-jobs 8` (7.7 h wall time).
-_GLOBAL_AGREEMENT_EXCLUDED: dict[tuple[str, str], str] = {}
-
 
 def _partition_excluded(
     dataset_name: str,
     experiments: Sequence[tuple[str, Path]],
     models: Sequence[str] | None = None,
-    excluded: dict[tuple[str, str], str] | None = None,
 ) -> tuple[list[tuple[str, Path]], list[str]]:
     """Split (model, config) pairs into those to compute and a note per model left out.
 
-    Two reasons a model is left out: a permanent exclusion list (too expensive to compute, with
-    the measured cost as its reason) - `excluded`, defaulting to the local panel's
-    _AGREEMENT_EXCLUDED; the global panel passes _GLOBAL_AGREEMENT_EXCLUDED - and an explicit
-    `models` filter,
-    which the alternative-basis runs use to keep a methodological comparison off the models
-    whose permutation SHAP costs hours.
+    Two reasons a model is left out: the permanent exclusion list _AGREEMENT_EXCLUDED (too
+    expensive to compute, with the measured cost as its reason), and an explicit `models` filter.
     """
-    if excluded is None:
-        excluded = _AGREEMENT_EXCLUDED
     included: list[tuple[str, Path]] = []
     notes: list[str] = []
     for model, path in experiments:
-        if (dataset_name, model) in excluded:
-            notes.append(f"{model} omitted: {excluded[(dataset_name, model)]}")
+        if (dataset_name, model) in _AGREEMENT_EXCLUDED:
+            notes.append(f"{model} omitted: {_AGREEMENT_EXCLUDED[(dataset_name, model)]}")
         elif models is not None and model not in models:
             notes.append(f"{model} not requested")
         else:
@@ -976,6 +1030,7 @@ def compute_explanation_attributions(
     pipeline = joblib.load(Path(models_dir) / f"{experiment_name}.joblib")
     class_names = list(pipeline.named_steps["model"].classes_)
     sample_x = _class_balanced_sample(x_test, y_test, n_instances, random_state=random_state)
+    _log_sample(f"{experiment_name} local sample (SHAP vs LIME)", y_test.loc[sample_x.index])
     background_x = _class_balanced_sample(x_train, y_train, _SHAP_BACKGROUND_SIZE, random_state=random_state)
 
     shap_values, _, _, shap_feature_names = compute_shap_values(
@@ -1066,8 +1121,12 @@ def generate_agreement_heatmaps(
     has no per-prediction explanation to compare), so the method pair is fixed and the
     panel varies model and k instead.
 
-    Returns {"feature": path, "rank": path, "csv": path}; the CSV holds the same numbers
-    plus their standard errors.
+    Each cell is the mean over instances; the CSV adds the standard error (sample SD with
+    ddof=1 / sqrt(n)) and n. Ties in |attribution| are broken by feature name (see
+    agreement.ranked_feature_indices). Raises if any two models' cached instance sets differ.
+
+    Returns {"feature": path, "rank": path, "csv": path}; the CSV has one row per (model, k):
+    dataset, model, k, fa_mean, fa_se, ra_mean, ra_se, n.
     """
     experiments, excluded_notes = _partition_excluded(
         dataset_name, _dataset_experiment_paths(dataset_name, config_dir), models
@@ -1089,6 +1148,7 @@ def generate_agreement_heatmaps(
     means = {metric: np.zeros((len(experiments), len(k_values))) for metric in AGREEMENT_METRICS}
     sems = {metric: np.zeros((len(experiments), len(k_values))) for metric in AGREEMENT_METRICS}
     rows: list[dict[str, Any]] = []
+    reference_instances: np.ndarray | None = None
 
     for row, (model_name, config_path) in enumerate(experiments):
         cache_path = compute_explanation_attributions(
@@ -1101,23 +1161,19 @@ def generate_agreement_heatmaps(
         )
         cached = np.load(cache_path, allow_pickle=False)
         shap_matrix, lime_matrix = cached["shap"], cached["lime"]
+        feature_names = [str(name) for name in cached["feature_names"]]
+        if reference_instances is None:
+            reference_instances = cached["instance_index"]
+        elif not np.array_equal(cached["instance_index"], reference_instances):
+            raise ValueError(f"{dataset_name}/{model_name}: instance set differs from the other models'")
         for metric in AGREEMENT_METRICS:
-            metric_means, metric_sems = agreement_over_k(shap_matrix, lime_matrix, k_values, metric)
+            metric_means, metric_sems = agreement_over_k(shap_matrix, lime_matrix, k_values, metric, feature_names)
             means[metric][row, :] = metric_means
             sems[metric][row, :] = metric_sems
-            rows.extend(
-                {
-                    "dataset": dataset_name,
-                    "model": model_name,
-                    "metric": metric,
-                    "k": k,
-                    "mean": round(float(mean), 4),
-                    "sem": round(float(sem), 4),
-                    "n_instances": int(shap_matrix.shape[0]),
-                    "n_features": int(shap_matrix.shape[1]),
-                }
-                for k, mean, sem in zip(k_values, metric_means, metric_sems)
-            )
+        rows.extend(
+            {"dataset": dataset_name, "model": model_name, **summary}
+            for summary in summarize_agreement(shap_matrix, lime_matrix, k_values, feature_names)
+        )
 
     output_dir = ensure_directory(_dataset_plot_dir(plots_dir, dataset_name, "agreement"))
     paths = {
@@ -1143,255 +1199,57 @@ def generate_agreement_heatmaps(
     return paths
 
 
-# --- Cross-method agreement: SHAP vs permutation importance (global) -------------
-
-# Sample bases the global ranking can be built on. "balanced" is what generate_explanations()
-# uses for shap_bar.png / permutation_importance.png, so the default global agreement figure
-# describes exactly the plots the thesis shows. "stratified" (prevalence-proportional) is kept
-# because it was this project's basis until 2026-09-09, and the thesis needs to be able to
-# reproduce the comparison that justified switching away from it - on unsw_nb15 a stratified
-# 200-row draw is 191/200 Benign and leaves 7 of 10 classes with no rows at all.
-_GLOBAL_AGREEMENT_BASES = ("balanced", "stratified")
+# --- Sample composition ------------------------------------------------------------
 
 
-def _global_ranking_sample(
-    x_test: pd.DataFrame, y_test: pd.Series, size: int, *, basis: str, random_state: int
-) -> tuple[pd.DataFrame, pd.Series]:
-    """Draw the test rows the global SHAP and permutation-importance rankings are built on."""
-    if basis == "balanced":
-        sample_x = _class_balanced_sample(x_test, y_test, size, random_state=random_state)
-        return sample_x, y_test.loc[sample_x.index]
-    if basis == "stratified":
-        sample_x, _, sample_y, _ = train_test_split(
-            x_test, y_test, train_size=size, stratify=y_test, random_state=random_state
-        )
-        return sample_x, sample_y
-    raise ValueError(f"unknown basis {basis!r}; expected one of {list(_GLOBAL_AGREEMENT_BASES)}")
-
-
-def _as_importance_vector(values: np.ndarray) -> np.ndarray:
-    """Clip a global importance vector at zero before it is ranked.
-
-    The agreement metrics rank features by |value|, which is what a *local* attribution needs
-    (sign is direction, magnitude is strength). A global importance is already a magnitude:
-    mean |SHAP| is non-negative by construction, and permutation importance goes slightly
-    negative only when permuting a feature happened to improve the score, which means "no
-    measurable importance", not "strongly important the other way". Without this clip a feature
-    scoring -0.004 would outrank one scoring +0.001.
-    """
-    return np.clip(np.asarray(values, dtype=float), 0.0, None)
-
-
-def _global_cache_path(metrics_dir: str | Path, experiment_name: str, basis: str, size: int) -> Path:
-    """Where one experiment's global rankings live, keyed by the sample basis they came from."""
-    cache_dir = ensure_directory(Path(metrics_dir) / "agreement" / "global")
-    return cache_dir / f"{experiment_name}__{basis}{size}.npz"
-
-
-def _save_global_rankings(
-    cache_path: Path,
-    *,
-    shap_ranking: np.ndarray,
-    permutation_mean: np.ndarray,
-    feature_names: Sequence[str],
-    class_counts: pd.Series,
-) -> Path:
-    """Write the two global importance vectors, on a shared feature order, plus the sample mix.
-
-    Written from two places on purpose: compute_global_rankings() when the agreement figure is
-    built on its own, and generate_explanations() as a by-product of drawing shap_bar.png and
-    permutation_importance.png - which compute exactly these two rankings, over exactly these
-    rows. Sharing the cache means the agreement figure describes the ranking the thesis actually
-    plots rather than an independent re-run of it, and saves recomputing hours of svm SHAP.
-    """
-    np.savez(
-        cache_path,
-        shap=np.asarray(shap_ranking, dtype=float),
-        permutation=np.asarray(permutation_mean, dtype=float),
-        feature_names=np.array(list(feature_names)),
-        class_names=np.array([str(label) for label in class_counts.index]),
-        class_counts=class_counts.to_numpy(),
-    )
-    return cache_path
-
-
-def compute_global_rankings(
-    experiment_config_path: str | Path,
-    *,
-    dataset_config_dir: str | Path = "configs/datasets",
-    models_dir: str | Path = "outputs/models",
-    metrics_dir: str | Path = "outputs/metrics",
-    size: int = _GLOBAL_EXPLANATION_SAMPLE_SIZE,
-    basis: str = "balanced",
-    overwrite: bool = False,
-) -> Path:
-    """Compute and cache one experiment's two global feature-importance rankings.
-
-    Writes metrics_dir/agreement/global/<experiment>__<basis><size>.npz holding the mean |SHAP|
-    pooled across classes and permutation_importance(...).importances_mean, both as
-    [n_features] vectors on the same feature order, plus that sample's per-class row counts.
-
-    Both are computed on the same rows, drawn per basis/size - at the defaults, exactly the
-    sample generate_explanations() builds shap_bar.png and permutation_importance.png from.
-    Cached because svm's permutation SHAP costs ~90 s/instance on unsw_nb15.
-    """
-    experiment, dataset_config, x_train, y_train, x_test, y_test = _load_experiment_and_data(
-        experiment_config_path, dataset_config_dir
-    )
-    experiment_name = experiment["name"]
-    cache_path = _global_cache_path(metrics_dir, experiment_name, basis, size)
-    if cache_path.exists() and not overwrite:
-        return cache_path
-
-    random_state = experiment.get("random_state", 42)
-    model_name = experiment["model"]
-    pipeline = joblib.load(Path(models_dir) / f"{experiment_name}.joblib")
-
-    sample_x, sample_y = _global_ranking_sample(
-        x_test, y_test, size, basis=basis, random_state=random_state
-    )
-    background_x = _class_balanced_sample(x_train, y_train, _SHAP_BACKGROUND_SIZE, random_state=random_state)
-
-    shap_values, _, _, feature_names = compute_shap_values(
-        pipeline,
-        model_name,
-        sample_x,
-        background_x,
-        categorical_columns=dataset_config.categorical_columns,
-        random_state=random_state,
-    )
-    # The same aggregation plot_shap_bar stacks: |SHAP| summed over classes, averaged over rows.
-    shap_ranking = np.abs(shap_values).sum(axis=2).mean(axis=0)
-
-    permutation = permutation_importance(
-        pipeline, sample_x, sample_y, scoring="f1_macro", n_repeats=10, random_state=random_state, n_jobs=1
-    )
-    column_order = [list(sample_x.columns).index(name) for name in feature_names]
-
-    return _save_global_rankings(
-        cache_path,
-        shap_ranking=shap_ranking,
-        permutation_mean=permutation.importances_mean[column_order],
-        feature_names=feature_names,
-        class_counts=sample_y.value_counts(),
-    )
-
-
-def top_features(ranking: np.ndarray, feature_names: Sequence[str], k: int = 10) -> list[str]:
-    """The k highest-importance feature names, most important first."""
-    return [feature_names[index] for index in np.argsort(-_as_importance_vector(ranking))[:k]]
-
-
-def generate_global_agreement(
+def sample_composition(
     dataset_name: str,
     *,
     config_dir: str | Path = "configs/experiments",
     dataset_config_dir: str | Path = "configs/datasets",
-    models_dir: str | Path = "outputs/models",
-    metrics_dir: str | Path = "outputs/metrics",
-    plots_dir: str | Path = "outputs/plots",
-    k_values: Sequence[int] = _GLOBAL_AGREEMENT_K_VALUES,
-    size: int = _GLOBAL_EXPLANATION_SAMPLE_SIZE,
-    basis: str = "balanced",
-    models: Sequence[str] | None = None,
-    write_plots: bool | None = None,
-    overwrite: bool = False,
-) -> dict[str, Path]:
-    """Feature- and rank-agreement heatmaps between the two *global* rankings for one dataset.
+    metrics_dir: str | Path | None = "outputs/metrics",
+    local_size: int = _AGREEMENT_SAMPLE_SIZE,
+    global_size: int = _GLOBAL_EXPLANATION_SAMPLE_SIZE,
+) -> pd.DataFrame:
+    """Per-class row counts of the local (SHAP vs LIME) and global (SHAP/PFI) samples.
 
-    The same two Krishna et al. metrics the local (SHAP vs LIME) panels use, so the two are read
-    on one scale; here the pair is mean |SHAP| pooled across classes versus permutation
-    importance. Each cell is a single number rather than a mean over instances, because a global
-    ranking is one vector per model - so there is no standard error to report here.
-
-    Returns {"feature": path, "rank": path, "csv": path} on the default basis; an alternative
-    basis returns {"csv": path} only (see write_plots). The CSV additionally records each
-    model's top-10 features under both methods, which is what shows whether the ranking itself
-    (not just the agreement score) moved when the sample basis changed.
+    Redraws both samples exactly as the pipeline does (_class_balanced_sample on the test split,
+    with the experiments' shared random_state) and, when metrics_dir is given, checks every
+    cached result against the draw: each model's local attribution cache and global SHAP/PFI
+    cache must hold exactly these instances. Logs the counts and returns rows of
+    dataset, sample, class, n.
     """
-    experiments, excluded_notes = _partition_excluded(
-        dataset_name,
-        _dataset_experiment_paths(dataset_name, config_dir),
-        models,
-        excluded=_GLOBAL_AGREEMENT_EXCLUDED,
-    )
-    k_values = list(k_values)
+    experiments = _dataset_experiment_paths(dataset_name, config_dir)
+    seeds = {model: load_yaml(path).get("random_state", 42) for model, path in experiments}
+    if len(set(seeds.values())) > 1:
+        raise ValueError(f"{dataset_name} experiments do not share one random_state: {seeds}")
+    _, _, _, _, x_test, y_test = _load_experiment_and_data(experiments[0][1], dataset_config_dir)
+    random_state = seeds[experiments[0][0]]
 
-    values = {metric: np.zeros((len(experiments), len(k_values))) for metric in AGREEMENT_METRICS}
     rows: list[dict[str, Any]] = []
-
-    for row, (model_name, config_path) in enumerate(experiments):
-        cache_path = compute_global_rankings(
-            config_path,
-            dataset_config_dir=dataset_config_dir,
-            models_dir=models_dir,
-            metrics_dir=metrics_dir,
-            size=size,
-            basis=basis,
-            overwrite=overwrite,
+    for sample, size in (("local", local_size), ("global", global_size)):
+        sample_x = _class_balanced_sample(x_test, y_test, size, random_state=random_state)
+        sample_y = y_test.loc[sample_x.index]
+        _log_sample(f"{dataset_name} {sample} sample (total={size}, random_state={random_state})", sample_y)
+        rows.extend(
+            {"dataset": dataset_name, "sample": sample, "class": str(label), "n": int(count)}
+            for label, count in sample_y.value_counts().sort_index().items()
         )
-        cached = np.load(cache_path, allow_pickle=False)
-        feature_names = [str(name) for name in cached["feature_names"]]
-        shap_ranking = _as_importance_vector(cached["shap"])
-        permutation_ranking = _as_importance_vector(cached["permutation"])
+        rows.append({"dataset": dataset_name, "sample": sample, "class": "ALL", "n": len(sample_y)})
 
-        for metric in AGREEMENT_METRICS:
-            for column, k in enumerate(k_values):
-                # agreement_fraction is per-point over [n_points, n_features]; a global ranking
-                # is a single "point", so this is one row in and one value out.
-                score = float(
-                    agreement_fraction(shap_ranking[None, :], permutation_ranking[None, :], k, metric)[0]
-                )
-                values[metric][row, column] = score
-                rows.append(
-                    {
-                        "dataset": dataset_name,
-                        "model": model_name,
-                        "basis": basis,
-                        "size": int(cached["class_counts"].sum()),
-                        "metric": metric,
-                        "k": k,
-                        "value": round(score, 4),
-                        "n_features": len(feature_names),
-                        "classes_present": len(cached["class_names"]),
-                        "shap_top10": "; ".join(top_features(shap_ranking, feature_names)),
-                        "permutation_top10": "; ".join(top_features(permutation_ranking, feature_names)),
-                    }
-                )
-
-    # Exactly one standardised heatmap pair per dataset: the default basis only. The other
-    # bases exist to justify that choice (see _GLOBAL_AGREEMENT_BASES) and are reported as
-    # numbers - emitting a heatmap for each would bury the figure the thesis actually uses
-    # under near-identical variants. Pass write_plots=True to override.
-    default_basis = basis == "balanced" and size == _GLOBAL_EXPLANATION_SAMPLE_SIZE
-    suffix = "" if default_basis else f"_{basis}{size}"
-    if write_plots is None:
-        write_plots = default_basis
-
-    output_dir = ensure_directory(_dataset_plot_dir(plots_dir, dataset_name, "agreement"))
-    paths = {
-        metric: plot_agreement_heatmap(
-            values[metric],
-            None,
-            [model for model, _ in experiments],
-            k_values,
-            output_dir / f"global_agreement_{metric}{suffix}.png",
-            metric=metric,
-            title=(
-                f"{AGREEMENT_METRIC_TITLES[metric]} - SHAP vs permutation importance, "
-                f"{dataset_name} ({basis}-{size})"
-            ),
-            pair_label="SHAP vs permutation importance",
-            footnote="; ".join(excluded_notes),
-        )
-        for metric in AGREEMENT_METRICS
-    } if write_plots else {}
-
-    csv_name = f"{dataset_name}_global_agreement{suffix}.csv"
-    csv_path = ensure_directory(Path(metrics_dir) / "agreement") / csv_name
-    with csv_path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
-    paths["csv"] = csv_path
-    return paths
+        if metrics_dir is None:
+            continue
+        for model, config_path in experiments:
+            experiment_name = load_yaml(config_path)["name"]
+            if sample == "local":
+                caches = [Path(metrics_dir) / "agreement" / "attributions" / f"{experiment_name}.npz"]
+            else:
+                caches = [_global_importance_path(metrics_dir, experiment_name, method) for method in ("shap", "pfi")]
+            for cache in caches:
+                if not cache.exists():
+                    logger.warning("%s: no cache at %s", experiment_name, cache)
+                    continue
+                cached_index = np.load(cache, allow_pickle=False)["instance_index"]
+                if not np.array_equal(np.sort(cached_index), np.sort(sample_x.index.to_numpy())):
+                    raise ValueError(f"{cache} was not computed on the {sample} sample drawn here")
+    return pd.DataFrame(rows)

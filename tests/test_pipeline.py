@@ -901,12 +901,12 @@ def test_generate_explanations_writes_all_expected_plots(tmp_path) -> None:
         metrics_dir=metrics_dir,
     )
 
-    assert set(paths) == {"shap_bar", "permutation_importance"}
+    assert set(paths) == {"shap_bar", "permutation_importance", "shap_cache", "pfi_cache"}
     for path in paths.values():
         assert path.exists()
     # Local SHAP/LIME plots are interview stimuli only - generate_explanations writes none.
     experiment_dir = plots_dir / "toy_ids" / "test_experiment"
-    assert all(path.parent == experiment_dir / "global" for path in paths.values())
+    assert all(paths[kind].parent == experiment_dir / "global" for kind in ("shap_bar", "permutation_importance"))
     assert not list(experiment_dir.rglob("shap_waterfall_*.png"))
     assert not list(experiment_dir.rglob("lime_*.png"))
 
@@ -1046,91 +1046,26 @@ def test_generate_interview_stimuli_raises_for_unconfigured_dataset(tmp_path) ->
         generate_interview_stimuli(experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir)
 
 
-def test_as_importance_vector_clips_negative_permutation_importances() -> None:
-    from xai_thesis.pipeline import _as_importance_vector
-
-    # A feature whose permutation improved the score scores slightly negative; that means "no
-    # measurable importance", so it must not outrank a small positive one on |value|.
-    clipped = _as_importance_vector(np.array([-0.004, 0.001, 0.02]))
-
-    assert clipped.tolist() == [0.0, 0.001, 0.02]
-
-
-def test_top_features_orders_by_importance_and_ignores_negatives() -> None:
-    from xai_thesis.pipeline import top_features
-
-    ranking = np.array([0.1, -0.9, 0.5, 0.3])
-    names = ["a", "b", "c", "d"]
-
-    assert top_features(ranking, names, k=3) == ["c", "d", "a"]
-
-
-def test_global_ranking_sample_balanced_is_even_across_classes(tmp_path) -> None:
-    from xai_thesis.pipeline import _global_ranking_sample
-
-    y = pd.Series(["benign"] * 40 + ["attack"] * 10 + ["rare"] * 3)
-    x = pd.DataFrame({"f": np.arange(len(y), dtype=float)})
-
-    sample_x, sample_y = _global_ranking_sample(x, y, 12, basis="balanced", random_state=42)
-
-    counts = sample_y.value_counts()
-    # 12 // 3 classes = 4 each, except "rare", which contributes all 3 rows it has.
-    assert counts["benign"] == 4
-    assert counts["attack"] == 4
-    assert counts["rare"] == 3
-    assert list(sample_x.index) == list(sample_y.index)
-
-
-def test_global_ranking_sample_stratified_follows_prevalence() -> None:
-    from xai_thesis.pipeline import _global_ranking_sample
-
-    y = pd.Series(["benign"] * 90 + ["attack"] * 10)
-    x = pd.DataFrame({"f": np.arange(len(y), dtype=float)})
-
-    _, sample_y = _global_ranking_sample(x, y, 50, basis="stratified", random_state=42)
-
-    # Prevalence-proportional: ~45 benign / ~5 attack, i.e. the imbalance the balanced basis
-    # exists to avoid.
-    assert sample_y.value_counts()["benign"] == 45
-    assert sample_y.value_counts()["attack"] == 5
-
-
-def test_global_ranking_sample_rejects_unknown_basis() -> None:
-    from xai_thesis.pipeline import _global_ranking_sample
-
-    y = pd.Series(["a", "b"])
-    x = pd.DataFrame({"f": [0.0, 1.0]})
-
-    with pytest.raises(ValueError, match="unknown basis"):
-        _global_ranking_sample(x, y, 2, basis="kmeans", random_state=42)
-
-
-def test_no_agreement_cell_is_excluded_by_default() -> None:
-    """Every local and global cell is computed, cic_ids2017/svm's global one included.
-
-    Pins both lists so a cell cannot be dropped from a heatmap without a test failing.
-    """
-    from xai_thesis.pipeline import _AGREEMENT_EXCLUDED, _GLOBAL_AGREEMENT_EXCLUDED
+def test_no_local_agreement_cell_is_excluded_by_default() -> None:
+    """Every local (SHAP vs LIME) cell is computed; pins the list so none drops silently."""
+    from xai_thesis.pipeline import _AGREEMENT_EXCLUDED
 
     assert _AGREEMENT_EXCLUDED == {}
-    assert _GLOBAL_AGREEMENT_EXCLUDED == {}
 
 
-def test_partition_excluded_uses_the_exclusion_list_it_is_given() -> None:
-    from xai_thesis.pipeline import _partition_excluded
+def test_global_shap_is_skipped_by_default_only_for_cic_svm_and_the_config_overrides_it() -> None:
+    from xai_thesis.pipeline import _GLOBAL_SHAP_SKIPPED_BY_DEFAULT, _skip_global_shap
 
-    experiments = [("random_forest", Path("rf.yaml")), ("svm", Path("svm.yaml"))]
+    assert list(_GLOBAL_SHAP_SKIPPED_BY_DEFAULT) == [("cic_ids2017", "svm")]
+    assert _skip_global_shap({"model": "svm"}, "cic_ids2017")
+    assert not _skip_global_shap({"model": "svm", "skip_global_shap": False}, "cic_ids2017")
+    assert not _skip_global_shap({"model": "svm"}, "unsw_nb15")
+    assert _skip_global_shap({"model": "random_forest", "skip_global_shap": True}, "unsw_nb15")
 
-    included, notes = _partition_excluded(
-        "cic_ids2017", experiments, excluded={("cic_ids2017", "svm"): "global run not computed"}
-    )
-    assert [model for model, _ in included] == ["random_forest"]
-    assert notes == ["svm omitted: global run not computed"]
 
-    # The local panel's default list is empty, so the same call without it keeps svm.
-    included, notes = _partition_excluded("cic_ids2017", experiments)
-    assert [model for model, _ in included] == ["random_forest", "svm"]
-    assert notes == []
+def test_cic_svm_config_sets_the_global_shap_skip_flag() -> None:
+    config = yaml.safe_load(Path("configs/experiments/cic_ids2017_svm_baseline.yaml").read_text(encoding="utf-8"))
+    assert config["skip_global_shap"] is True
 
 
 def test_partition_excluded_drops_configured_pairs_and_reports_why(monkeypatch) -> None:
@@ -1165,86 +1100,38 @@ def test_partition_excluded_honours_an_explicit_model_filter() -> None:
     assert notes == ["svm not requested"]
 
 
-def test_generate_global_agreement_writes_heatmaps_and_csv(tmp_path) -> None:
-    from xai_thesis.pipeline import generate_global_agreement
+def test_generate_explanations_caches_shap_and_pfi_on_the_same_sample(tmp_path) -> None:
+    from xai_thesis.pipeline import _global_importance_path
 
     dataset_config_dir, experiment_path, models_dir = _write_toy_dataset_fixture(tmp_path)
     metrics_dir = tmp_path / "metrics"
-    plots_dir = tmp_path / "plots"
     run_experiment(
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=metrics_dir
     )
 
-    paths = generate_global_agreement(
-        "toy_ids",
-        config_dir=tmp_path,
+    paths = generate_explanations(
+        experiment_path,
         dataset_config_dir=dataset_config_dir,
         models_dir=models_dir,
         metrics_dir=metrics_dir,
-        plots_dir=plots_dir,
-        k_values=[1, 3],
-        size=9,
-        # The fixture's test split is far smaller than _GLOBAL_EXPLANATION_SAMPLE_SIZE, so this
-        # run is technically a non-default basis and would be CSV-only; ask for the heatmaps
-        # explicitly, since drawing them is what this test is about.
-        write_plots=True,
+        plots_dir=tmp_path / "plots",
+        sample_size=9,
     )
 
-    assert set(paths) == {"feature", "rank", "csv"}
-    for path in paths.values():
-        assert path.exists()
-
-    rows = list(csv.DictReader(paths["csv"].open(encoding="utf-8")))
-    # One row per (metric, k) for the single model this fixture defines.
-    assert len(rows) == 4
-    assert {row["metric"] for row in rows} == {"feature", "rank"}
-    assert {row["k"] for row in rows} == {"1", "3"}
-    for row in rows:
-        assert 0.0 <= float(row["value"]) <= 1.0
-        assert row["basis"] == "balanced"
-        assert row["shap_top10"] and row["permutation_top10"]
-        # Rank agreement is the stricter metric and can never exceed feature agreement.
-    by_key = {(row["metric"], row["k"]): float(row["value"]) for row in rows}
-    for k in ("1", "3"):
-        assert by_key[("rank", k)] <= by_key[("feature", k)]
+    shap_cache = np.load(_global_importance_path(metrics_dir, "toy_ids_test_experiment", "shap"))
+    pfi_cache = np.load(_global_importance_path(metrics_dir, "toy_ids_test_experiment", "pfi"))
+    assert paths["shap_cache"].exists() and paths["pfi_cache"].exists()
+    # Identical sample, identical raw-column feature order.
+    np.testing.assert_array_equal(shap_cache["instance_index"], pfi_cache["instance_index"])
+    assert list(shap_cache["feature_names"]) == list(pfi_cache["feature_names"]) == [
+        "feature_a", "feature_b", "protocol_type"
+    ]
+    assert shap_cache["class_counts"].sum() == len(shap_cache["instance_index"])
+    assert (shap_cache["importance"] >= 0).all(), "mean |SHAP| is a magnitude"
 
 
-def test_compute_global_rankings_reuses_its_cache(tmp_path) -> None:
-    from xai_thesis.pipeline import compute_global_rankings
-
-    dataset_config_dir, experiment_path, models_dir = _write_toy_dataset_fixture(tmp_path)
-    metrics_dir = tmp_path / "metrics"
-    run_experiment(
-        experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=metrics_dir
-    )
-
-    kwargs = {
-        "dataset_config_dir": dataset_config_dir,
-        "models_dir": models_dir,
-        "metrics_dir": metrics_dir,
-        "size": 9,
-    }
-    first = compute_global_rankings(experiment_path, **kwargs)
-    stamp = first.stat().st_mtime_ns
-    second = compute_global_rankings(experiment_path, **kwargs)
-
-    assert first == second
-    assert second.stat().st_mtime_ns == stamp, "cached ranking should not be recomputed"
-
-    # The two bases write to separate cache files, so one never silently serves the other.
-    stratified = compute_global_rankings(experiment_path, basis="stratified", **kwargs)
-    assert stratified != first
-    assert "stratified9" in stratified.name
-
-
-def test_generate_explanations_caches_the_global_rankings_it_plots(tmp_path) -> None:
-    """generate_explanations() and generate_global_agreement() must describe one ranking.
-
-    The plot path drops its two rankings into the global cache, so the agreement panel reads
-    back exactly the numbers behind shap_bar.png / permutation_importance.png instead of
-    recomputing them - which for svm would be ~12 h and could in principle drift.
-    """
-    from xai_thesis.pipeline import _global_cache_path, compute_global_rankings
+def test_generate_explanations_skips_global_shap_when_flagged_but_still_computes_pfi(tmp_path) -> None:
+    from xai_thesis.pipeline import _global_importance_path
 
     dataset_config_dir, experiment_path, models_dir = _write_toy_dataset_fixture(tmp_path)
     metrics_dir = tmp_path / "metrics"
@@ -1252,8 +1139,11 @@ def test_generate_explanations_caches_the_global_rankings_it_plots(tmp_path) -> 
     run_experiment(
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=metrics_dir
     )
+    experiment = yaml.safe_load(experiment_path.read_text(encoding="utf-8"))
+    experiment["skip_global_shap"] = True
+    experiment_path.write_text(yaml.safe_dump(experiment), encoding="utf-8")
 
-    generate_explanations(
+    paths = generate_explanations(
         experiment_path,
         dataset_config_dir=dataset_config_dir,
         models_dir=models_dir,
@@ -1262,60 +1152,38 @@ def test_generate_explanations_caches_the_global_rankings_it_plots(tmp_path) -> 
         sample_size=9,
     )
 
-    cache_path = _global_cache_path(metrics_dir, "toy_ids_test_experiment", "balanced", 9)
-    assert cache_path.exists(), "plotting the global explanations should populate the cache"
-    stamp = cache_path.stat().st_mtime_ns
-
-    reused = compute_global_rankings(
-        experiment_path,
-        dataset_config_dir=dataset_config_dir,
-        models_dir=models_dir,
-        metrics_dir=metrics_dir,
-        size=9,
-    )
-
-    assert reused == cache_path
-    assert reused.stat().st_mtime_ns == stamp, "agreement must reuse the plotted ranking"
-
-    cached = np.load(cache_path, allow_pickle=False)
-    assert cached["shap"].shape == cached["permutation"].shape == cached["feature_names"].shape
-    assert (cached["shap"] >= 0).all(), "mean |SHAP| is a magnitude"
+    assert set(paths) == {"permutation_importance", "pfi_cache"}
+    assert not list(plots_dir.rglob("shap_bar.png"))
+    assert not _global_importance_path(metrics_dir, "toy_ids_test_experiment", "shap").exists()
 
 
-def test_global_agreement_on_a_non_default_basis_writes_csv_but_no_heatmap(tmp_path) -> None:
-    """Only the default basis gets a heatmap.
-
-    The alternative bases exist to justify the default, and are reported as numbers; emitting a
-    near-identical heatmap for each would bury the one figure the thesis uses.
-    """
-    from xai_thesis.pipeline import generate_global_agreement
+def test_generate_agreement_heatmaps_writes_spec_csv_on_one_shared_instance_set(tmp_path) -> None:
+    from xai_thesis.pipeline import generate_agreement_heatmaps
 
     dataset_config_dir, experiment_path, models_dir = _write_toy_dataset_fixture(tmp_path)
     metrics_dir = tmp_path / "metrics"
-    plots_dir = tmp_path / "plots"
     run_experiment(
         experiment_path, dataset_config_dir=dataset_config_dir, models_dir=models_dir, metrics_dir=metrics_dir
     )
-    shared = {
-        "config_dir": tmp_path,
-        "dataset_config_dir": dataset_config_dir,
-        "models_dir": models_dir,
-        "metrics_dir": metrics_dir,
-        "plots_dir": plots_dir,
-        "k_values": [1, 3],
-    }
 
-    alternative = generate_global_agreement("toy_ids", basis="stratified", size=8, **shared)
-    assert set(alternative) == {"csv"}
-    assert alternative["csv"].exists()
-    assert not list(plots_dir.rglob("global_agreement*.png"))
-
-    # ...but it can still be asked for explicitly.
-    forced = generate_global_agreement(
-        "toy_ids", basis="stratified", size=8, write_plots=True, **shared
+    paths = generate_agreement_heatmaps(
+        "toy_ids",
+        config_dir=tmp_path,
+        dataset_config_dir=dataset_config_dir,
+        models_dir=models_dir,
+        metrics_dir=metrics_dir,
+        plots_dir=tmp_path / "plots",
+        k_values=[1, 2],
+        n_instances=6,
     )
-    assert set(forced) == {"feature", "rank", "csv"}
-    assert all(path.exists() for path in forced.values())
+
+    assert set(paths) == {"feature", "rank", "csv"}
+    rows = list(csv.DictReader(paths["csv"].open(encoding="utf-8")))
+    assert list(rows[0]) == ["dataset", "model", "k", "fa_mean", "fa_se", "ra_mean", "ra_se", "n"]
+    assert [row["k"] for row in rows] == ["1", "2"]
+    for row in rows:
+        assert row["n"] == "6"
+        assert float(row["ra_mean"]) <= float(row["fa_mean"])
 
 
 def _toy_svm_pipeline_and_sample(tmp_path):
