@@ -41,7 +41,7 @@ def main() -> None:
         type=int,
         nargs="+",
         default=None,
-        help="Top-k values for the heatmap columns (default: 1 5 10 20).",
+        help="Top-k values for the heatmap columns (default: 1 5 10).",
     )
     parser.add_argument(
         "--n-instances",

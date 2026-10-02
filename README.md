@@ -777,7 +777,7 @@ python scripts/agreement.py --overwrite                   # recompute the attrib
 - **Feature space**: original features. SHAP's one-hot `proto`/`service`/`state` columns are summed
   back into their parent feature (`compute_shap_values`), which is the space LIME already works in (40
   features for UNSW-NB15, 59 for CIC-IDS2017).
-- **k** in `{1, 5, 10, 20}`. **`k = 10` is the headline value.**
+- **k** in `{1, 5, 10}`. **`k = 10` is the headline value.**
 - **Aggregation**: per model and dataset, mean +/- standard error across instances, where SE is the
   sample standard deviation (`ddof=1`) divided by `sqrt(n)`. `n` is reported alongside.
 
@@ -818,7 +818,7 @@ python scripts/explanation_report.py
 
 | file | contents |
 | --- | --- |
-| `local_agreement.csv` | **thesis table**: `dataset, model, k, fa_mean, fa_se, ra_mean, ra_se, n` for k = 1, 5, 10, 20 |
+| `local_agreement.csv` | **thesis table**: `dataset, model, k, fa_mean, fa_se, ra_mean, ra_se, n` for k = 1, 5, 10 |
 | `global_top10.csv` | **thesis table**: top-10 features per dataset, model and method (`SHAP`, `PFI`), with `rank` and `importance` |
 | `sample_sizes.csv` | per-class row counts of the local and the global sample, per dataset (also logged) |
 | `<dataset>_local_instances.csv` | per instance: true, predicted and explained class, FA/RA (and supplementary sign agreement) per k |

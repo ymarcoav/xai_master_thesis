@@ -3,7 +3,7 @@
 Reads only existing caches (see src/xai_thesis/explanation_report.py) and writes CSVs to
 outputs/metrics/explanation_report/:
 
-  local_agreement.csv                 SHAP vs LIME, per dataset/model/k (1, 5, 10, 20): feature and
+  local_agreement.csv                 SHAP vs LIME, per dataset/model/k (1, 5, 10): feature and
                                       rank agreement mean and standard error, and n
   global_top10.csv                    top-10 features per dataset, model and method (SHAP, PFI),
                                       with rank and importance - descriptive, no comparison

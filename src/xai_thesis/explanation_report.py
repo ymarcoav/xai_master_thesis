@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 GLOBAL_METHODS = {"shap": "SHAP", "pfi": "PFI"}
 LOCAL_METHODS = ("shap", "lime")
-REPORT_K_VALUES = (1, 5, 10, 20)
+REPORT_K_VALUES = (1, 5, 10)
 TOP_N = 10
 
 

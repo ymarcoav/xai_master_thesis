@@ -925,18 +925,11 @@ def generate_interview_stimuli(
 _AGREEMENT_SAMPLE_SIZE = 60
 
 # Top-k values the heatmaps sweep. Krishna et al. vary k the same way (their Figure 2, where
-# agreement falls as k grows), but their k is a far larger share of the feature space than a
-# naive copy of their numbers would give here: their headline k=5 is 5 of COMPAS's 7 features
-# (71%), and they sweep to 100%, framing it as 25/50/75/100%. Five of this project's 40
-# (UNSW-NB15) / 59 (CIC-IDS2017) columns is 8-12%. So the sweep runs to 20 (50% of UNSW-NB15,
-# 34% of CIC-IDS2017) rather than stopping at 10, which would have squashed the whole figure
-# into the top quarter of the ranking. It stops short of the feature count because feature
-# agreement is 1.0 there by definition.
-#
-# k=1 is the mean of ~60 per-instance outcomes with a real standard error - "how often do the
-# two methods even name the same single most important feature?", which is what an analyst
-# reading the top driver of an alert cares about. k=10 is the headline value.
-_AGREEMENT_K_VALUES = (1, 5, 10, 20)
+# agreement falls as k grows). k=1 is the mean of ~60 per-instance outcomes with a real
+# standard error - "how often do the two methods even name the same single most important
+# feature?", which is what an analyst reading the top driver of an alert cares about. k=10 is
+# the headline value. k=20 was dropped on 2026-10-02: the thesis reports only k = 1, 5, 10.
+_AGREEMENT_K_VALUES = (1, 5, 10)
 _AGREEMENT_HEADLINE_K = 10
 
 # Fixed row order for the heatmaps, so panels line up across datasets and metrics.
