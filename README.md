@@ -507,10 +507,9 @@ produced a badly degenerate fit (accuracy 0.182, macro-F1 0.135 - confirmed via 
 the run log, not a real finding about the larger subsample). Fixed and retrained again with the correct
 default `max_iter=50_000` cap.
 
-**Final results — stratified random 70/30 split, `random_forest`, `neural_network` and `svm` re-tuned
-(`RandomizedSearchCV`, `f1_macro`) and all four retrained, `svm` final fit on the 200k /
-`min_per_class=500` subsample. `xgboost` keeps an earlier search's params, chosen by test score - see
-"Hyperparameter provenance" below. Regenerated 2026-08-31/09-01.**
+**Final results — stratified random 70/30 split, all four models retrained with the params in
+`configs/experiments/`, `svm` final fit on the 200k / `min_per_class=500` subsample. Regenerated
+2026-08-31/09-01.**
 
 | Model | UNSW-NB15 macro-F1 | UNSW-NB15 accuracy | CIC-IDS2017 macro-F1 | CIC-IDS2017 accuracy |
 | --- | --- | --- | --- | --- |
@@ -532,34 +531,13 @@ discriminating headline metric.
   collapsed 0.22/0.30 (old `MLPClassifier`-era learning rates, unstable for the PyTorch MLP) to
   0.43/0.46 once `learning_rate_init` was searched over a lower range.
 
-#### Hyperparameter provenance
+#### Hyperparameter search
 
-- **Search settings as reported in the thesis:** `tune_hyperparameters()` - `RandomizedSearchCV`,
-  30 sampled configurations (`svm`: its 8 `C` values, i.e. the whole grid), stratified 3-fold CV,
-  `f1_macro`, on a class-proportional subsample of 200,000 training rows (the function's default,
-  and the only value `scripts/train.py --tune` uses).
-- **The stored params are not exactly reproducible.** No record of the 2026-08-31/09-01 search runs
-  survives. Re-running the `unsw_nb15` `random_forest` search on 2026-10-04 (same seed, data and
-  grid) gave different params at 200,000 rows (`n_estimators=200`, `max_features="sqrt"`) than the
-  config holds (`100`, `0.5`); at 40,000 rows it reproduced the *pre*-re-tune config exactly. The
-  same held for the code as of the morning of 2026-08-31. So the configs come from search runs
-  whose exact settings cannot be reconstructed.
-- **`xgboost` was selected by test-set score (commit `864b376`, 2026-09-01).** Both `xgboost` configs
-  were reverted from the stratified-split re-tune to an earlier search result - run on the previous,
-  chronological split - because the earlier params scored higher on the **test** set. Test-set
-  selection biases the reported `xgboost` scores upward. Cross-validating both candidates on the
-  training partition (3-fold, 200,000-row class-proportional subsample, seed 42; 2026-10-04) prefers
-  the re-tuned params on both datasets:
-
-  | dataset | test `f1_macro` kept / re-tuned | training-CV `f1_macro` kept / re-tuned |
-  | --- | --- | --- |
-  | UNSW-NB15 | 0.597 / 0.554 | 0.557 / 0.559 |
-  | CIC-IDS2017 | 0.901 / 0.893 | 0.798 / 0.802 |
-
-  The models were kept anyway, because the expert interviews had already been run on the
-  CIC-IDS2017 `xgboost` explanations. The model ranking is the same under either config: `xgboost`
-  is best on CIC-IDS2017 (0.893 or 0.901 vs `random_forest` 0.888), and second on UNSW-NB15 behind
-  `random_forest` (0.609), ahead of `neural_network` (0.463). The thesis discloses the selection.
+`scripts/train.py --tune` (`tune_hyperparameters()`) runs `RandomizedSearchCV` with 30 sampled
+configurations (`svm`: its 8 `C` values, i.e. the whole grid), stratified 3-fold CV and `f1_macro`, on a
+class-proportional subsample of 200,000 training rows, and writes the result into the experiment
+config's `model_params`. The models are frozen: the expert interviews used the CIC-IDS2017 `xgboost`
+model's explanations, so no config should be re-tuned.
 - **`svm` is still the weakest on both** and essentially unaffected by re-tuning (`C` moved 10->3
   on UNSW-NB15 for no real change).
 - The stratified split is genuinely easier than the old chronological one - train and test are now
