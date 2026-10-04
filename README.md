@@ -54,6 +54,44 @@ has a dataset adapter in `src/xai_thesis/datasets/` implementing dataset-specifi
 deduplication, fixing known data-quality issues, dropping identifier/leakage columns) behind a shared
 interface.
 
+### Cleaning steps at a glance
+
+The complete list of what each adapter's `clean()` does, in order, with counts on the current raw
+capture. The thesis's methodology chapter summarizes these and refers here for the detail.
+
+**UNSW-NB15** (`src/xai_thesis/datasets/unsw_nb15.py`; 2,540,044 raw rows, 49 columns):
+
+1. Column names attached from `NUSW-NB15_features.csv` (the four part files have no header).
+2. Numeric columns coerced to numbers; unparseable entries would become NaN for the median imputer.
+   None occur: the only non-numeric entries are the blanks of step 4.
+3. Rows whose native `label` is not `0`/`1` are dropped (guards against truncated exports; drops 0
+   rows on the current files).
+4. `is_ftp_login` and `ct_flw_http_mthd` blanks (56.3% / 53.1% of rows, concentrated in non-FTP /
+   non-HTTP flows, i.e. "not applicable") are set to 0, not imputed.
+5. `is_ftp_login` values above 1 (156 rows of `4`, 30 of `2`) are clipped to 1, its documented binary
+   range.
+6. `service`'s `-` placeholder (1,246,395 rows) becomes the category `unknown`. (The code also maps an
+   empty string, which does not occur in the current files.)
+7. `attack_cat` is whitespace-stripped, blanks become `Benign`, and `Backdoors` becomes `Backdoor`.
+8. The 8 `drop_columns` are removed (identifiers, timestamps, `ct_ftp_cmd`, native `label`); the
+   feature screen removes nothing (`screen_drop_columns` is empty). 40 features remain.
+9. Exact duplicate rows are removed (ignoring the source-file tag): 2,026,609 rows remain.
+
+**CIC-IDS2017** (`src/xai_thesis/datasets/cic_ids2017.py`; 2,830,743 raw rows, 79 columns):
+
+1. Leading/trailing spaces stripped from column names; `Fwd Header Length.1`, a byte-for-byte copy of
+   `Fwd Header Length`, is dropped.
+2. `inf` values (`Flow Bytes/s`, `Flow Packets/s` on zero-duration flows) become NaN for the median
+   imputer.
+3. Rows with physically impossible negative values are dropped: 2,891 with a negative `Flow Duration` or
+   `*IAT*` value (a known CICFlowMeter timestamp bug), and 35 more with a negative `Fwd/Bwd Header
+   Length` or `min_seg_size_forward` (an integer underflow) - 2,926 rows in total.
+4. Native labels are consolidated into 7 classes (`_ATTACK_CATEGORY`; the three `Web Attack` variants,
+   whose separator is a corrupted non-ASCII byte, are matched by prefix).
+5. `Destination Port` (`drop_columns`) and the 17 `screen_drop_columns` (8 constant, 9 near-duplicates;
+   see `scripts/feature_screen.py`) are removed. 59 features remain.
+6. Exact duplicate rows are removed (ignoring the source-file tag): 2,231,126 rows remain.
+
 > **DAPT2020 and NSL-KDD were removed from the project on 2026-10-01** (out of thesis scope since
 > 2026-07-31 / 2026-08-13, archived 2026-08-17): their adapters, tests, configs and the NSL-KDD-only
 > official-split code path are gone, and their archived data and outputs were deleted the same day.
@@ -98,7 +136,7 @@ silently dropped ~129k real rows' worth of training/test data.
 `ct_ftp_cmd`.** Both were dropped outright on 2026-08-13. `service` followed Tai et al. 2024 ("A Robust
 and Trustworthy Intrusion Detection System Using Adversarial Machine Learning and XAI", ATC), whose
 UNSW-NB15 preprocessing drops it among 7 features with no stated rationale - checked directly against
-this project's own data first: it's `"unknown"` (the raw `-`/blank placeholder) for 57.33% of rows
+this project's own data first: it's `"unknown"` (the raw `-` placeholder) for 57.33% of rows
 across both splits, a plausible unstated reason for their manual "not valuable" call (they explicitly
 did not run automated feature selection for UNSW-NB15, unlike their CIC-IDS2017 pipeline, so this was a
 human judgment call, not an algorithm's output). `ct_ftp_cmd` was a follow-up finding of this project's
