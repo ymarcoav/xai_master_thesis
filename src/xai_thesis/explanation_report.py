@@ -12,9 +12,10 @@ Everything here is read from caches the pipeline already wrote - nothing is reco
           outputs/metrics/stimuli/<dataset>_error_profile.csv for each instance's true and
           predicted class.
 
-Global explanations are descriptive only: the global table lists each method's top 10 per model
-and compares nothing. The only agreement analysis is local, SHAP vs LIME (feature and rank
-agreement, src/xai_thesis/agreement.py).
+The global table lists each method's top 10 per model; the only global comparison is the number
+of features the SHAP and PFI top 10s share (feature agreement at k = 10, global_overlap_table).
+The systematic agreement analysis is local, SHAP vs LIME (feature and rank agreement,
+src/xai_thesis/agreement.py).
 
 All tables are on the raw (pre-encoding) features: SHAP is computed on the one-hot encoded
 columns and summed back onto proto/service/state, while LIME and permutation importance already
@@ -216,6 +217,53 @@ def global_top_table(
     return pd.DataFrame(rows)
 
 
+def global_overlap_table(
+    datasets: Sequence[str],
+    models: Sequence[str],
+    *,
+    metrics_dir: str | Path = "outputs/metrics",
+    k: int = TOP_N,
+) -> pd.DataFrame:
+    """Global SHAP vs PFI top-k overlap: dataset, model, k, n_shared, feature_agreement, shared.
+
+    n_shared is the number of features in both top-k rankings (ordered as in global_top_table),
+    and feature_agreement = n_shared / k, the FA_k of the local analysis applied to the two global
+    rankings. A model missing either cache is logged and left out. Raises if the two caches were
+    computed on different instances.
+    """
+    rows = []
+    for dataset_name in datasets:
+        for model in models:
+            paths = {
+                method: Path(metrics_dir) / "global_importance" / f"{dataset_name}_{model}_baseline__{method}.npz"
+                for method in GLOBAL_METHODS
+            }
+            missing = [GLOBAL_METHODS[method] for method, path in paths.items() if not path.exists()]
+            if missing:
+                logger.warning("%s/%s: no global %s cache - overlap left out", dataset_name, model, "/".join(missing))
+                continue
+            cached = {method: np.load(path, allow_pickle=False) for method, path in paths.items()}
+            if not np.array_equal(cached["shap"]["instance_index"], cached["pfi"]["instance_index"]):
+                raise ValueError(f"{dataset_name}/{model}: global SHAP and PFI were computed on different instances")
+            tops = {}
+            for method, data in cached.items():
+                feature_names = [str(name) for name in data["feature_names"]]
+                order = global_rank_order(data["importance"].astype(float), feature_names)[:k]
+                tops[method] = [feature_names[index] for index in order]
+            shared = [name for name in tops["shap"] if name in tops["pfi"]]
+            rows.append(
+                {
+                    "dataset": dataset_name,
+                    "model": model,
+                    "k": k,
+                    "n_shared": len(shared),
+                    "feature_agreement": len(shared) / k,
+                    "shared": "; ".join(shared),
+                }
+            )
+    return pd.DataFrame(rows, columns=["dataset", "model", "k", "n_shared", "feature_agreement", "shared"])
+
+
 def build_local_report(
     dataset_name: str,
     models: Sequence[str],
@@ -337,8 +385,9 @@ def write_thesis_tables(
     metrics_dir: str | Path = "outputs/metrics",
     output_dir: str | Path = "outputs/metrics/explanation_report",
 ) -> dict[str, Path]:
-    """The three thesis CSVs, each covering every dataset: local_agreement.csv,
-    global_top10.csv and sample_sizes.csv (per-class counts of the local and global samples)."""
+    """The four thesis CSVs, each covering every dataset: local_agreement.csv, global_top10.csv,
+    global_overlap.csv (SHAP vs PFI top-10 overlap) and sample_sizes.csv (per-class counts of the
+    local and global samples)."""
     output_dir = Path(output_dir)
     return {
         "local_agreement": _write(
@@ -346,6 +395,9 @@ def write_thesis_tables(
         ),
         "global_top": _write(
             global_top_table(datasets, models, metrics_dir=metrics_dir), output_dir / f"global_top{TOP_N}.csv"
+        ),
+        "global_overlap": _write(
+            global_overlap_table(datasets, models, metrics_dir=metrics_dir), output_dir / "global_overlap.csv"
         ),
         "sample_sizes": _write(sample_sizes, output_dir / "sample_sizes.csv"),
     }

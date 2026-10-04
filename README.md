@@ -264,10 +264,13 @@ models handle this by reweighting the training objective with the same per-class
 `w_c = n / (k * count_c)` (scikit-learn's `class_weight="balanced"` formula), computed on the training
 split only. None of them resample rows.**
 
-The weight *values* are identical across models -
+The weight *formula* is identical across models -
 `sklearn.utils.class_weight.compute_sample_weight("balanced", y)` is literally the per-sample
 broadcast of `class_weight="balanced"`, and both equal `n / (k * count_c)` (verified numerically; the
-weights average to 1). What differs is only how each objective consumes them: weighted impurity/leaf
+weights average to 1). The *values* are identical for `random_forest`, `xgboost` and `neural_network`,
+which all fit the full training split. `svm`'s are computed on its 200k final-fit subsample, whose
+500-row class floor makes the rare classes less rare, so its weights for them are smaller (UNSW-NB15:
+`Worms` 168 instead of 1,182, `Shellcode`/`Backdoor`/`Analysis` 40 instead of 100-139). What differs is only how each objective consumes them: weighted impurity/leaf
 counts at each split (`random_forest`), per-class scaling of the penalty `C` (`svm`), per-sample
 gradient/Hessian scaling (`xgboost`), per-sample cross-entropy scaling (`neural_network`). So they are
 equivalent in principle and in the weights, not bit-identical in optimisation behaviour.
@@ -345,8 +348,9 @@ required two real fixes, not just patience:
   knobs): `n_iter=8` instead of the usual default 30 (the standard 30-iteration/3-fold budget, 90 fits,
   was projected to take many hours even on UNSW-NB15 alone), and for CIC-IDS2017 specifically, an
   explicit `subsample_size=40_000` passed to `tune_hyperparameters()` (well below the shared
-  `200_000` default) so the search phase stays tractable - the final fit still trains on the complete,
-  un-subsampled training set regardless, same as every other model.
+  `200_000` default) so the search phase stays tractable. (The final fit is subsampled too, but separately - see
+  `_FINAL_FIT_SUBSAMPLE` below.) With 8 candidate `C` values and `n_iter=8`, the search covers the
+  whole grid.
 - **`probability=False` during the search phase only.** `RandomizedSearchCV`'s `f1_macro` scoring calls
   `.predict()`, never `.predict_proba()`, so Platt-scaling calibration is pure overhead during search -
   `tune_hyperparameters()` in `pipeline.py` now builds the search-time pipeline with `probability=False`
@@ -625,8 +629,8 @@ Plots are written to `outputs/plots/<dataset_name>/<model>_baseline/global/`.
 ### Limitation: SHAP base-value footing across models
 
 Class balancing is no longer a source of cross-model inconsistency - all four models reweight the
-objective with the same `n / (k * count_c)` weights and train on the same rows (`svm` on its 200k
-final-fit subsample, the others on the full training set). Two explainer-mechanics points remain, worth
+objective with the same `n / (k * count_c)` formula, computed on the rows each is fitted on (`svm` on
+its 200k final-fit subsample, the others on the full training set). Two explainer-mechanics points remain, worth
 stating when writing this up:
 
 - **SHAP base values are not all on one footing.** `TreeExplainer` runs
@@ -705,10 +709,12 @@ each model's rows are replaced independently, so a slow model can be rerun on it
 `generate_explanations()` writes, per model and dataset, `shap_bar.png` and
 `permutation_importance.png`, both on the **same** class-balanced test sample
 (`_class_balanced_sample`, `total=500`, `random_state=42`: 500 rows on UNSW-NB15, 50/class; 437 on
-CIC-IDS2017, 71/class with `Infiltration` contributing all 11 of its test rows). The two global
-rankings are **descriptive only**: no agreement metric is computed between SHAP and permutation
-importance, and none between models. (A SHAP-vs-PFI agreement panel and a cross-model overlap table
-existed until 2026-10-01; both were removed with their outputs.)
+CIC-IDS2017, 71/class with `Infiltration` contributing all 11 of its test rows). The only comparison
+between the two global rankings is the number of features their top 10s share (feature agreement at
+`k = 10`, `global_overlap_table` in `explanation_report.py`, written to
+`outputs/metrics/explanation_report/global_overlap.csv`); nothing is compared across models. (A
+SHAP-vs-PFI agreement panel over several k and a cross-model overlap table existed until 2026-10-01;
+both were removed with their outputs.)
 
 - **Global SHAP importance** = mean `|SHAP|` over instances *and* classes. `shap_bar.png` stacks the
   per-class means, so a bar's total length is `n_classes` times this value; the ranking is the same.
@@ -820,6 +826,7 @@ python scripts/explanation_report.py
 | --- | --- |
 | `local_agreement.csv` | **thesis table**: `dataset, model, k, fa_mean, fa_se, ra_mean, ra_se, n` for k = 1, 5, 10 |
 | `global_top10.csv` | **thesis table**: top-10 features per dataset, model and method (`SHAP`, `PFI`), with `rank` and `importance` |
+| `global_overlap.csv` | **thesis table**: `dataset, model, k, n_shared, feature_agreement, shared` - SHAP vs PFI top-10 overlap |
 | `sample_sizes.csv` | per-class row counts of the local and the global sample, per dataset (also logged) |
 | `<dataset>_local_instances.csv` | per instance: true, predicted and explained class, FA/RA (and supplementary sign agreement) per k |
 | `<dataset>_local_top10.csv` | signed SHAP and LIME top 10 per instance, with direction (toward/against the explained class) |

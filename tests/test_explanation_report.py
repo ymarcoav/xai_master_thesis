@@ -4,6 +4,7 @@ import pytest
 
 from xai_thesis.explanation_report import (
     build_local_report,
+    global_overlap_table,
     global_top_table,
     local_agreement_table,
     rank_positions,
@@ -97,6 +98,23 @@ def test_global_top_table_lists_each_method_descriptively_and_skips_missing_cach
     assert top[top["model"] == "m2"]["feature"].tolist() == ["c", "a", "b"]
     assert set(top[top["model"] == "m2"]["method"]) == {"PFI"}
     assert set(top["n_instances"]) == {10}
+
+
+def test_global_overlap_table_counts_shared_top_k_features_and_skips_missing_caches(tmp_path) -> None:
+    cache_dir = tmp_path / "metrics" / "global_importance"
+    _write_global_cache(cache_dir / "toy_m1_baseline__shap.npz", [5, 4, 3, 2, 1])
+    # a's negative PFI keeps it out of the PFI top 3 despite its magnitude.
+    _write_global_cache(cache_dir / "toy_m1_baseline__pfi.npz", [-9, 4, 3, 0, 1])
+    _write_global_cache(cache_dir / "toy_m2_baseline__pfi.npz", [1, 1, 3, 0, 0])
+
+    overlap = global_overlap_table(["toy"], ["m1", "m2"], metrics_dir=tmp_path / "metrics", k=3)
+
+    assert list(overlap.columns) == ["dataset", "model", "k", "n_shared", "feature_agreement", "shared"]
+    # SHAP top 3 = a, b, c; PFI top 3 = b, c, e.
+    assert overlap.to_dict("records") == [
+        {"dataset": "toy", "model": "m1", "k": 3, "n_shared": 2, "feature_agreement": pytest.approx(2 / 3),
+         "shared": "b; c"}
+    ]
 
 
 def test_local_agreement_table_has_the_thesis_columns_and_requires_one_instance_set(tmp_path) -> None:

@@ -911,8 +911,8 @@ def generate_interview_stimuli(
 
 
 # --- Local disagreement analysis: SHAP vs LIME (Krishna et al. 2022) ------------
-# The only agreement analysis in the project. Global explanations (SHAP bar, PFI) are
-# descriptive only: no global or cross-model agreement metric is computed.
+# The systematic agreement analysis. Globally, only the number of features shared by the SHAP
+# and PFI top 10s is reported (explanation_report.global_overlap_table); no cross-model metric.
 
 # Instances the agreement metrics are averaged over: _class_balanced_sample(total=60,
 # random_state=42) of the test split - 6/class x 10 = 60 on UNSW-NB15, 8/class x 7 = 56 on

@@ -6,7 +6,9 @@ outputs/metrics/explanation_report/:
   local_agreement.csv                 SHAP vs LIME, per dataset/model/k (1, 5, 10): feature and
                                       rank agreement mean and standard error, and n
   global_top10.csv                    top-10 features per dataset, model and method (SHAP, PFI),
-                                      with rank and importance - descriptive, no comparison
+                                      with rank and importance
+  global_overlap.csv                  per dataset and model: number of features the SHAP and PFI
+                                      top 10s share (feature agreement at k = 10)
   sample_sizes.csv                    per-class row counts of the local and global samples, after
                                       checking every cache was computed on exactly those rows
   <dataset>_local_instances.csv       the agreement instance set: true/predicted/explained class and

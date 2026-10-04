@@ -2,7 +2,8 @@
 
 Feature agreement and rank agreement (Krishna et al. 2022 - see src/xai_thesis/agreement.py),
 per instance, averaged over a shared class-balanced test sample (total=60, random_state=42).
-This is the project's only agreement analysis; global explanations are descriptive only.
+This is the project's systematic agreement analysis; globally, only the SHAP vs PFI top-10
+overlap is reported (scripts/explanation_report.py).
 
 Separate from scripts/explain.py because the per-instance attribution matrices are slow for
 svm (permutation SHAP is ~90 s/instance on UNSW-NB15). They are cached under
