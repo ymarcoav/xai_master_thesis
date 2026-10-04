@@ -64,6 +64,16 @@ def _label_sort_key(label: object) -> tuple[int, str]:
     return (1, str(label))
 
 
+def confusion_matrix_frame(y_true, y_pred) -> pd.DataFrame:
+    """Confusion-matrix counts as a labelled frame: rows are true classes, columns predicted
+    ones, both in plot_confusion_matrix's order (Benign first, then alphabetical)."""
+    labels = sorted(set(y_true) | set(y_pred), key=_label_sort_key)
+    frame = pd.DataFrame(confusion_matrix(y_true, y_pred, labels=labels), index=labels, columns=labels)
+    frame.index.name = "true_class"
+    frame.columns.name = "predicted_class"
+    return frame
+
+
 def plot_confusion_matrix(
     y_true,
     y_pred,
@@ -120,8 +130,8 @@ def plot_confusion_matrix(
     Pass normalize=True to color by row-normalized share of each true class (per-class
     recall) instead, while still annotating the absolute count in each cell either way.
     """
-    labels = sorted(set(y_true) | set(y_pred), key=_label_sort_key)
-    matrix = confusion_matrix(y_true, y_pred, labels=labels)
+    frame = confusion_matrix_frame(y_true, y_pred)
+    labels, matrix = list(frame.index), frame.to_numpy()
 
     if normalize:
         row_sums = matrix.sum(axis=1, keepdims=True)

@@ -11,6 +11,11 @@ metrics:
 - f1_macro
 - roc_auc_macro
 - pr_auc_macro
+# model_params come from an earlier RandomizedSearchCV run on the previous, chronological split.
+# They were kept over the 2026-09-01 stratified-split re-tune because they scored higher on the
+# TEST set (commit 864b376) - a test-set selection the thesis discloses. Training-partition CV
+# prefers the re-tuned params; see README "Hyperparameter provenance". Do not re-tune: the
+# expert interviews used this model's explanations.
 model_params:
   subsample: 1.0
   reg_lambda: 5.0

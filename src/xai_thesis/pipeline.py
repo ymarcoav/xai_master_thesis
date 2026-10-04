@@ -25,6 +25,7 @@ from xai_thesis.agreement import (
 from xai_thesis.datasets import DATASET_REGISTRY
 from xai_thesis.datasets.base import DatasetConfig, load_dataset_config
 from xai_thesis.evaluation import (
+    confusion_matrix_frame,
     evaluate_classifier,
     plot_confusion_matrix,
     plot_feature_correlation,
@@ -323,7 +324,9 @@ def generate_confusion_matrix(
     plots_dir: str | Path = "outputs/plots",
     normalize: bool = False,
 ) -> Path:
-    """Plot a confusion matrix for an already-trained experiment's test predictions."""
+    """Plot a confusion matrix for an already-trained experiment's test predictions, and write
+    its counts next to the PNG as confusion_matrix.csv (rows true class, columns predicted), so
+    the counts quoted in the thesis can be read back without recomputing predictions."""
     experiment, dataset_config, _, _, x_test, y_test = _load_experiment_and_data(
         experiment_config_path, dataset_config_dir
     )
@@ -334,7 +337,8 @@ def generate_confusion_matrix(
 
     # Same experiment folder generate_explanations() writes into (its performance/ section), so
     # every plot for one trained experiment lives under one folder.
-    output_dir = _experiment_plot_dir(plots_dir, dataset_config.name, experiment_name, "performance")
+    output_dir = ensure_directory(_experiment_plot_dir(plots_dir, dataset_config.name, experiment_name, "performance"))
+    confusion_matrix_frame(y_test, predictions).to_csv(output_dir / "confusion_matrix.csv")
     return plot_confusion_matrix(y_test, predictions, output_dir / "confusion_matrix.png", normalize=normalize)
 
 

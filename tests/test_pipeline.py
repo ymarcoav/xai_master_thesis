@@ -637,6 +637,9 @@ def test_generate_confusion_matrix_and_roc_curves_write_pngs_for_trained_experim
 
     assert cm_path == plots_dir / "toy" / "experiment" / "performance" / "confusion_matrix.png"
     assert cm_path.exists()
+    counts = pd.read_csv(cm_path.with_suffix(".csv"), index_col="true_class")
+    assert list(counts.index) == list(counts.columns)
+    assert counts.to_numpy().sum() == len(pd.read_csv(processed_dir / "test.csv"))
     assert roc_path == plots_dir / "toy" / "experiment" / "performance" / "roc_curves.png"
     assert roc_path.exists()
 

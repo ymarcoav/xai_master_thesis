@@ -1,4 +1,5 @@
-"""Plot a confusion matrix for one or all trained experiments."""
+"""Plot a confusion matrix for one or all trained experiments, writing its counts next to the
+PNG as confusion_matrix.csv (rows true class, columns predicted)."""
 
 from __future__ import annotations
 
