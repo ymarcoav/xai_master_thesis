@@ -48,4 +48,5 @@ def test_load_dataset_config_defaults_optional_fields(tmp_path) -> None:
     config = load_dataset_config(config_path)
 
     assert config.drop_columns == ()
+    assert config.screen_drop_columns == ()
     assert config.categorical_columns == ()

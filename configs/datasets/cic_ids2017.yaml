@@ -6,37 +6,6 @@ label_column: Label
 # Empty, not unset: CICFlowMeter's output is purely numeric flow statistics, unlike
 # UNSW-NB15's native proto/service/state categorical fields.
 categorical_columns: []
-# Verified zero-variance in the actual processed data (a single constant value - 0 - across
-# every row of both the train and test splits, not just an example from a third-party paper):
-# the two backward-direction PSH/URG flag counts, and all six *_Bulk/Bulk_Rate columns
-# (Fwd/Bwd Avg Bytes per Bulk, Avg Packets per Bulk, Avg Bulk Rate). Left in place, these
-# constant columns are functionally dead weight - MinMaxScaler passes a constant column
-# through as inert zeros rather than erroring, so nothing breaks, but they add noise to
-# SHAP/permutation-importance rankings and PDP plots. NOT included here: the four near-constant
-# (but not literally zero-variance) flag columns Fwd URG Flags/RST/CWE/ECE Flag Count
-# (99.97-99.996% one value) - those still carry rare-but-real signal, unlike a truly constant
-# column, and this project's severely imbalanced datasets already lean on exactly this kind of
-# rare-but-informative signal elsewhere.
-# Near-duplicate columns, verified 2026-08-13 via direct pairwise correlation AND row-for-row
-# comparison on the full dataset (~2.83M rows, not just a plotted sample - a sample-based
-# check initially flagged Fwd/Bwd Header Length as a "duplicate" pair, a sampling artifact
-# from the ~35 corrupted rows dominating whichever random sample was drawn; everything below
-# was re-checked on all rows). Of the nine pairs: four are identical in every row (Subflow
-# Fwd Packets, Subflow Bwd Packets, Fwd PSH Flags, CWE Flag Count); four more reach
-# r >= 0.99999, differing in only 1-54 rows out of 2.83M; RST/ECE Flag Count is the loosest
-# at r ~= 0.998. One column of each pair is dropped as redundant, keeping whichever name is
-# the more standard/interpretable of the two for feature-importance write-ups:
-#   Total Fwd/Backward Packets kept over Subflow Fwd/Bwd Packets (same value, subflow==total
-#     whenever a flow has a single subflow, the common case)
-#   Fwd/Bwd Packet Length Mean kept over Avg Fwd/Bwd Segment Size (literal alias)
-#   Total Length of Fwd/Bwd Packets kept over Subflow Fwd/Bwd Bytes (same reasoning as above)
-#   SYN Flag Count kept over Fwd PSH Flags (exact 1.000 correlation in this data - plausibly
-#     another CICFlowMeter internal-counter quirk rather than a meaningful relationship, but
-#     redundant either way; SYN is the more security-interpretable of the two)
-#   RST Flag Count kept over ECE Flag Count (RST is far more relevant to scan/attack
-#     detection than the rarely-used ECN-Echo flag)
-#   Fwd URG Flags kept over CWE Flag Count (same reasoning - URG is the more interpretable
-#     name; Bwd URG Flags is already dropped below as zero-variance)
 # Destination Port dropped 2026-08-17, after it turned out to dominate every explainability
 # plot (34% of random_forest's total feature importance alone, >2.5x the next feature, #1 SHAP
 # feature for every class). Verified directly against the processed data before trusting that
@@ -56,6 +25,46 @@ categorical_columns: []
 # deliberately left in place rather than cut under a moving bar.
 drop_columns:
   - Destination Port
+
+# Constant and near-duplicate columns, removed by the feature screen. scripts/feature_screen.py
+# reruns the screen with these columns present and checks its result against this list
+# (outputs/metrics/dataset_inspection/cic_ids2017/feature_screen.csv).
+# Verified zero-variance in the actual processed data (a single constant value - 0 - across
+# every row of both the train and test splits, not just an example from a third-party paper):
+# the two backward-direction PSH/URG flag counts, and all six *_Bulk/Bulk_Rate columns
+# (Fwd/Bwd Avg Bytes per Bulk, Avg Packets per Bulk, Avg Bulk Rate). Left in place, these
+# constant columns are functionally dead weight - MinMaxScaler passes a constant column
+# through as inert zeros rather than erroring, so nothing breaks, but they add noise to
+# SHAP/permutation-importance rankings and PDP plots. NOT included here: the four near-constant
+# (but not literally zero-variance) flag columns Fwd URG Flags/RST/CWE/ECE Flag Count
+# (99.97-99.996% one value) - those still carry rare-but-real signal, unlike a truly constant
+# column, and this project's severely imbalanced datasets already lean on exactly this kind of
+# rare-but-informative signal elsewhere.
+# Near-duplicate columns, verified 2026-08-13 via direct pairwise correlation AND row-for-row
+# comparison on the full dataset (~2.83M rows, not just a plotted sample - a sample-based
+# check initially flagged Fwd/Bwd Header Length as a "duplicate" pair, a sampling artifact
+# from the ~35 corrupted rows dominating whichever random sample was drawn; everything below
+# was re-checked on all rows). The criterion is value identity, not a correlation threshold:
+# each dropped column repeats a retained column's value in all but a handful of rows.
+# Re-verified 2026-10-04 on the cleaned, deduplicated data (2,231,126 rows): six pairs are
+# identical in every row, Subflow Fwd Bytes differs in 1 row, Subflow Bwd Bytes in 20, ECE vs
+# RST Flag Count in 3 (r = 0.9978). Pairs that merely correlate are kept, even above r = 0.998:
+# Flow Duration / Fwd IAT Total (r = 0.9985), Packet Length Mean / Average Packet Size
+# (0.9983) and Flow IAT Max / Fwd IAT Max (0.9980) differ in 66-91% of rows - distinct
+# quantities, not aliases. One column of each pair is dropped as redundant, keeping whichever
+# name is the more standard/interpretable of the two for feature-importance write-ups:
+#   Total Fwd/Backward Packets kept over Subflow Fwd/Bwd Packets (same value, subflow==total
+#     whenever a flow has a single subflow, the common case)
+#   Fwd/Bwd Packet Length Mean kept over Avg Fwd/Bwd Segment Size (literal alias)
+#   Total Length of Fwd/Bwd Packets kept over Subflow Fwd/Bwd Bytes (same reasoning as above)
+#   SYN Flag Count kept over Fwd PSH Flags (exact 1.000 correlation in this data - plausibly
+#     another CICFlowMeter internal-counter quirk rather than a meaningful relationship, but
+#     redundant either way; SYN is the more security-interpretable of the two)
+#   RST Flag Count kept over ECE Flag Count (RST is far more relevant to scan/attack
+#     detection than the rarely-used ECN-Echo flag)
+#   Fwd URG Flags kept over CWE Flag Count (same reasoning - URG is the more interpretable
+#     name; Bwd URG Flags is already dropped below as zero-variance)
+screen_drop_columns:
   - Bwd PSH Flags
   - Bwd URG Flags
   - Fwd Avg Bytes/Bulk

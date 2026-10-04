@@ -119,6 +119,14 @@ def test_unsw_clean_maps_blank_attack_cat_to_benign_and_normalizes_backdoors_spe
     assert cleaned["attack_cat"].tolist() == ["Benign", "Backdoor", "Backdoor"]
 
 
+def test_unsw_raw_labels_normalize_every_raw_row_without_removing_any() -> None:
+    dataset = _make_dataset()
+    # Two identical rows: clean() would deduplicate them, raw_labels() must keep both.
+    data = pd.DataFrame([_row(attack_cat=" Backdoors "), _row(attack_cat=" Backdoors "), _row(attack_cat="")])
+
+    assert dataset.raw_labels(data).tolist() == ["Backdoor", "Backdoor", "Benign"]
+
+
 def test_unsw_clean_normalizes_service_sentinels() -> None:
     dataset = _make_dataset()
     data = pd.DataFrame([_row(service="-"), _row(service="", dur="0.2")])

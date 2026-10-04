@@ -102,13 +102,17 @@ class CICIDS2017Dataset(BaseDataset):
         label_column = self.config.label_column
         data[label_column] = data[label_column].map(_map_to_category)
 
-        # (5) Drop leakage / identifier / redundant feature columns (config.drop_columns):
-        # Destination Port (leaked the testbed's fixed per-attack target ports), a verbatim
-        # duplicate flag column, verified zero-variance columns, and near-duplicate/aliased
-        # columns - see configs/datasets/cic_ids2017.yaml for the full list and rationale.
-        data = data.drop(columns=list(self.config.drop_columns), errors="ignore")
+        # (5) Drop leakage / redundant feature columns: Destination Port (drop_columns - leaked
+        # the testbed's fixed per-attack target ports), and the constant and near-duplicate
+        # columns the feature screen found (screen_drop_columns) - see
+        # configs/datasets/cic_ids2017.yaml for the full list and rationale.
+        data = self.drop_configured_columns(data)
 
         # (6) Deduplicate on canonical flow content, ignoring the source-file tag, so a flow
         # duplicated across two source files is still caught.
         content_columns = [column for column in data.columns if column != _SOURCE_COLUMN]
         return data.loc[~data.duplicated(subset=content_columns)].reset_index(drop=True)
+
+    def raw_labels(self, data: pd.DataFrame) -> pd.Series:
+        # The raw label header is " Label" (leading space, see clean()).
+        return data.rename(columns=lambda column: column.strip())[self.config.label_column].map(_map_to_category)

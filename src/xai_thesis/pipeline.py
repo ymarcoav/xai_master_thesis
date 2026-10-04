@@ -4,6 +4,7 @@ import csv
 import json
 import logging
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +49,7 @@ from xai_thesis.preprocessing import (
     stratified_random_split,
     stratified_subsample,
 )
+from xai_thesis.screening import check_screen, screen_features
 from xai_thesis.utils import dump_yaml, ensure_directory, load_yaml
 
 logger = logging.getLogger(__name__)
@@ -374,6 +376,64 @@ def generate_label_distribution(
     # experiment names) - this plot isn't tied to any one trained model.
     output_path = _dataset_plot_dir(plots_dir, dataset_config.name, "data") / "label_distribution.png"
     return plot_label_distribution(labels, output_path)
+
+
+def generate_raw_label_distribution(
+    dataset_config_path: str | Path,
+    *,
+    plots_dir: str | Path = "outputs/plots",
+    metrics_dir: str | Path = "outputs/metrics",
+) -> dict[str, Path]:
+    """Plot the class distribution over every raw record, after label normalization (and, for
+    CIC-IDS2017, consolidation), before any row is removed - the datasets chapter's figure.
+
+    Unlike generate_label_distribution (processed train+test, so after corrupted-row removal and
+    deduplication), this reads the raw files. Also writes the counts as
+    metrics_dir/dataset_inspection/<dataset>/label_distribution_raw.csv (class, count, share).
+    """
+    config = load_dataset_config(dataset_config_path)
+    dataset = DATASET_REGISTRY[config.name](config)
+    labels = dataset.raw_labels(dataset.load_raw())
+
+    counts = labels.value_counts()
+    csv_path = ensure_directory(Path(metrics_dir) / "dataset_inspection" / config.name) / "label_distribution_raw.csv"
+    pd.DataFrame({"class": counts.index, "count": counts.to_numpy(), "share": counts.to_numpy() / len(labels)}).to_csv(
+        csv_path, index=False
+    )
+    plot_path = plot_label_distribution(
+        labels, _dataset_plot_dir(plots_dir, config.name, "data") / "label_distribution_raw.png"
+    )
+    return {"plot": plot_path, "csv": csv_path}
+
+
+def generate_feature_screen(
+    dataset_config_path: str | Path,
+    *,
+    metrics_dir: str | Path = "outputs/metrics",
+) -> tuple[Path, list[str]]:
+    """Rerun the constant / near-duplicate screen and check it against screen_drop_columns.
+
+    The dataset is cleaned exactly as for training except that screen_drop_columns is kept, so
+    the screen sees the columns it is meant to remove. Every numeric feature is screened
+    (categorical columns and the label are left out). Writes
+    metrics_dir/dataset_inspection/<dataset>/feature_screen.csv and returns its path with the
+    list of inconsistencies (see screening.check_screen) - empty when the config matches.
+    """
+    config = load_dataset_config(dataset_config_path)
+    data = DATASET_REGISTRY[config.name](replace(config, screen_drop_columns=())).build()
+    features = data.drop(columns=[config.label_column, "source_file", *config.categorical_columns], errors="ignore")
+
+    screen = screen_features(features)
+    screen.insert(0, "dataset", config.name)
+    screen.insert(1, "n_rows", len(features))
+    screen["in_screen_drop_columns"] = [
+        [name for name in (row.column, row.other_column) if name in config.screen_drop_columns]
+        for row in screen.itertuples(index=False)
+    ]
+    screen["in_screen_drop_columns"] = screen["in_screen_drop_columns"].map("; ".join)
+    csv_path = ensure_directory(Path(metrics_dir) / "dataset_inspection" / config.name) / "feature_screen.csv"
+    screen.to_csv(csv_path, index=False, float_format="%.6g")
+    return csv_path, check_screen(screen, config.screen_drop_columns)
 
 
 def generate_missing_value_summary(

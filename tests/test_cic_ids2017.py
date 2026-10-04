@@ -132,6 +132,34 @@ def test_cic_ids2017_clean_maps_corrupted_web_attack_separator_byte() -> None:
     assert labels == ["Web Attack", "Web Attack", "Web Attack", "Benign"]
 
 
+def test_cic_ids2017_raw_labels_consolidate_every_raw_row_without_removing_any() -> None:
+    dataset = _make_dataset()
+    data = _base_frame()
+    # Row 1 has a negative duration (clean() drops it) and rows 0 and 3 are duplicates; raw_labels
+    # keeps all four.
+    data["Flow Duration"] = [100, -1, 300, 100]
+    data[" Label"] = ["DoS Hulk", "Web Attack � XSS", "BENIGN", "DoS Hulk"]
+
+    assert dataset.raw_labels(data).tolist() == ["DoS/DDoS", "Web Attack", "Benign", "DoS/DDoS"]
+
+
+def test_cic_ids2017_clean_drops_screen_drop_columns_like_drop_columns() -> None:
+    config = DatasetConfig(
+        name="cic_ids2017",
+        raw_path="unused",
+        processed_path="unused",
+        label_column="Label",
+        drop_columns=("Destination Port",),
+        screen_drop_columns=("Fwd Header Length",),
+    )
+
+    cleaned = CICIDS2017Dataset(config).clean(_base_frame())
+
+    assert "Destination Port" not in cleaned.columns
+    assert "Fwd Header Length" not in cleaned.columns
+    assert "Bwd Header Length" in cleaned.columns
+
+
 def test_cic_ids2017_clean_raises_on_unrecognized_label() -> None:
     dataset = _make_dataset()
     data = _base_frame()

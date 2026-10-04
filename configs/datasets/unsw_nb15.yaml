@@ -53,3 +53,6 @@ drop_columns:
   - label
   - ct_ftp_cmd
   - stime
+# The constant / near-duplicate screen (scripts/feature_screen.py) removes nothing: no column is
+# constant, and the closest pair, swin/dwin (r = 0.997), still differs in 2,540 rows.
+screen_drop_columns: []

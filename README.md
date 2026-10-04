@@ -144,9 +144,12 @@ than an exact string, so it's robust to however pandas happens to decode that by
 correlation and row-for-row comparison on the full dataset (~2.83M rows, not a plotted sample, which can
 be misleading - see below): 8 columns (`Bwd PSH/URG Flags`, all 6 `*_Bulk`/`Bulk_Rate` columns) are
 literally zero for every row in the raw dataset, and 9 more are near-duplicates of another kept column -
-4 identical in every row (e.g. `Total Fwd Packets`/`Subflow Fwd Packets` differ in 0 of 2.83M rows), 4
-more at r >= 0.99999 (differing in 1-54 rows), and `RST`/`ECE Flag Count` at r ~= 0.998 - see
-`configs/datasets/cic_ids2017.yaml`'s `drop_columns` comment for the exact pairs. Also found in the same
+each repeats a kept column's value in all but at most 20 of the 2.23M cleaned rows (six identical in
+every row; `RST`/`ECE Flag Count` differ in 3 rows, r = 0.9978). The criterion is value identity, not a
+correlation threshold: pairs that merely correlate are kept even above r = 0.998 (e.g. `Flow Duration`/
+`Fwd IAT Total`, r = 0.9985, differ in 77% of rows). These 17 columns are listed under
+`screen_drop_columns` in `configs/datasets/cic_ids2017.yaml`, and `scripts/feature_screen.py` reproduces
+the screen (see Dataset inspection below). Also found in the same
 pass: `Fwd Header Length`/`Bwd Header Length`/`min_seg_size_forward` carry physically impossible negative
 values (as low as -3.22e10) in ~35 rows, almost certainly a CICFlowMeter integer-underflow bug - those
 rows (not the columns, which are fine and meaningfully correlated once cleaned) are now dropped in
@@ -196,6 +199,22 @@ python scripts/inspect_datasets.py --max-rows 1000
 ```
 
 Reports are written to `outputs/metrics/dataset_inspection/`.
+
+Constant-column and near-duplicate screen (the datasets chapter's feature screen), checked against each
+config's `screen_drop_columns`:
+
+```powershell
+python scripts/feature_screen.py
+```
+
+Each dataset is cleaned as for training but with its `screen_drop_columns` kept, and every numeric
+feature is screened (`src/xai_thesis/screening.py`): a column is removed if it is constant, or if it
+repeats a retained column's value in all but at most 0.01% of rows. Pearson correlation (|r| >= 0.99)
+only nominates candidate pairs; the row-by-row comparison decides. The evidence for every constant
+column and candidate pair goes to `outputs/metrics/dataset_inspection/<dataset>/feature_screen.csv`, and
+the script exits with status 1 if the screen and the config disagree. Current result: CIC-IDS2017's 8
+constant columns and 9 duplicates (at most 20 differing rows) match the config; UNSW-NB15 has none (its
+closest pair, `swin`/`dwin`, differs in 2,540 rows).
 
 ### Preprocessing
 
@@ -526,13 +545,16 @@ python scripts/label_distribution.py --dataset unsw_nb15
 python scripts/label_distribution.py  # all datasets
 ```
 
-Plots are written to `outputs/plots/<dataset_name>/data/label_distribution.png`. `outputs/plots/`
+Plots are written to `outputs/plots/<dataset_name>/data/label_distribution.png` (processed train+test,
+i.e. after corrupted-row removal and deduplication) and `label_distribution_raw.png` (every raw record,
+after label normalization and consolidation, nothing removed - the datasets chapter's figures), with the
+raw counts in `outputs/metrics/dataset_inspection/<dataset_name>/label_distribution_raw.csv`. `outputs/plots/`
 is organized per dataset first, then grouped by purpose (since 2026-09-14), so no plot sits loose in
 a dataset or model folder:
 
 ```text
 outputs/plots/<dataset_name>/
-├── data/                   label_distribution, missing_values, train_test_split, feature_correlation
+├── data/                   label_distribution(_raw), missing_values, train_test_split, feature_correlation
 ├── agreement/              local_agreement_{feature,rank} (SHAP vs LIME)
 └── <model>_baseline/
     ├── performance/        confusion_matrix, roc_curves

@@ -129,6 +129,15 @@ _NUMERIC_COLUMNS = [
 _APPLICABILITY_ZERO_COLUMNS = ["ct_flw_http_mthd", "is_ftp_login"]
 
 
+def _normalize_labels(labels: pd.Series) -> pd.Series:
+    """attack_cat is blank for benign rows in the raw files (unlike the "Normal" string the
+    pre-built files this project used previously carried), and inconsistently whitespace-padded
+    and spelled ("Backdoor" vs "Backdoors") across the 4 files - normalized to "Backdoor" to match
+    every other reference to this class in the project. Stripping comes first, so a padded blank
+    would also map to Benign."""
+    return labels.str.strip().replace({"": "Benign", "Backdoors": "Backdoor"})
+
+
 class UNSWNB15Dataset(BaseDataset):
     """UNSW-NB15 adapter, over the full raw capture (4 part files), not the pre-built
     10%-sampled training-set/testing-set files this project used previously."""
@@ -174,13 +183,9 @@ class UNSWNB15Dataset(BaseDataset):
         # "-" and "" both mark "service not identified" in the raw data.
         data["service"] = data["service"].replace({"-": "unknown", "": "unknown"})
 
-        # (4) Harmonize the label scheme. attack_cat is blank for benign rows in the raw
-        # files (unlike the "Normal" string the pre-built files this project used previously
-        # carried), and inconsistently whitespace-padded and spelled ("Backdoor" vs
-        # "Backdoors") across the 4 files - normalized to "Backdoor" to match every other
-        # reference to this class in the project.
+        # (4) Harmonize the label scheme (see _normalize_labels).
         label_column = self.config.label_column
-        data[label_column] = data[label_column].str.strip().replace({"": "Benign", "Backdoors": "Backdoor"})
+        data[label_column] = _normalize_labels(data[label_column])
 
         # (5) Drop leakage / identifier / redundant feature columns (config.drop_columns):
         # srcip/dstip/sport/dsport (connection identifiers - metadata, not traffic behavior,
@@ -188,10 +193,14 @@ class UNSWNB15Dataset(BaseDataset):
         # - artifacts of the data-generation schedule, not traffic behavior; ltime is also
         # redundant with dur/stime, and stime is dropped here so a flow recorded twice at
         # different times collapses to one exact duplicate in step 6), the native binary
-        # label (attack_cat is used instead - see load_dataset_config), and ct_ftp_cmd.
-        data = data.drop(columns=list(self.config.drop_columns), errors="ignore")
+        # label (attack_cat is used instead - see load_dataset_config), and ct_ftp_cmd. The
+        # constant / near-duplicate screen removes nothing here (screen_drop_columns is empty).
+        data = self.drop_configured_columns(data)
 
         # (6) Deduplicate on canonical flow content, ignoring only the source-file tag, so a
         # flow duplicated across two source files is still caught.
         content_columns = [column for column in data.columns if column != _SOURCE_COLUMN]
         return data.loc[~data.duplicated(subset=content_columns)].reset_index(drop=True)
+
+    def raw_labels(self, data: pd.DataFrame) -> pd.Series:
+        return _normalize_labels(data[self.config.label_column])

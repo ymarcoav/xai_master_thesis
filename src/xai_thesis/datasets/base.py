@@ -15,6 +15,10 @@ class DatasetConfig:
     processed_path: Path
     label_column: str
     drop_columns: tuple[str, ...] = field(default_factory=tuple)
+    # Columns removed by the constant / near-duplicate screen (scripts/feature_screen.py), kept
+    # apart from drop_columns so the screen can be rerun with them present and checked against
+    # this list. clean() drops both lists alike.
+    screen_drop_columns: tuple[str, ...] = field(default_factory=tuple)
     categorical_columns: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -27,6 +31,7 @@ def load_dataset_config(config_path: str | Path) -> DatasetConfig:
         processed_path=Path(raw["processed_path"]),
         label_column=raw["label_column"],
         drop_columns=tuple(raw.get("drop_columns", [])),
+        screen_drop_columns=tuple(raw.get("screen_drop_columns", [])),
         categorical_columns=tuple(raw.get("categorical_columns", [])),
     )
 
@@ -44,6 +49,16 @@ class BaseDataset:
     def clean(self, data: pd.DataFrame) -> pd.DataFrame:
         """Apply dataset-specific cleanup."""
         raise NotImplementedError
+
+    def raw_labels(self, data: pd.DataFrame) -> pd.Series:
+        """The normalized label of every row of load_raw()'s output, with no row removed - the
+        raw class distribution the datasets chapter plots."""
+        raise NotImplementedError
+
+    def drop_configured_columns(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Drop config.drop_columns and config.screen_drop_columns (absent names are ignored)."""
+        columns = [*self.config.drop_columns, *self.config.screen_drop_columns]
+        return data.drop(columns=columns, errors="ignore")
 
     def build(self) -> pd.DataFrame:
         """Return cleaned data ready for shared preprocessing."""
