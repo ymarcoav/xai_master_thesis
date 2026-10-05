@@ -1,49 +1,23 @@
 name: unsw_nb15
 raw_path: data/raw/UNSW_NB15
 processed_path: data/processed/unsw_nb15
+# Multiclass target: the native attack category (nine attack classes plus Benign).
 label_column: attack_cat
 
-# NUSW-NB15_features.csv is the column-schema/description file (Name/Type/Description per
-# feature), not traffic data - excluded from dataset_inspection so it doesn't get mixed into
-# the aggregate row/column stats for the 4 actual UNSW-NB15_*.csv data files.
+# Column descriptions, not traffic data; skipped by scripts/inspect_datasets.py.
 exclude_files:
   - NUSW-NB15_features.csv
 
-# Multiclass classification: attack_cat is UNSW-NB15's own native 10-category ground
-# truth (Normal + Generic/Exploits/Fuzzers/DoS/Reconnaissance/Analysis/Backdoor/
-# Shellcode/Worms), the standard scheme used throughout UNSW-NB15 literature (Moustafa
-# & Slay 2015) essentially as-is - unlike CIC-IDS2017, there's no common further
-# consolidation of this scheme in the literature. The native binary label (0/1) is
-# dropped in favor of this.
 categorical_columns:
   - proto
   - service
   - state
-# srcip/dstip/sport/dsport: connection identifiers - metadata rather than descriptions of
-# traffic behavior, and prime targets for shortcut learning: a model can exploit spurious
-# correlations introduced by the data-generation process to reach inflated but ultimately
-# meaningless performance (D'hooge et al. 2022). Also not present in the pre-built training-
-# set/testing-set files this project used previously.
-# ltime, stime: absolute capture timestamps (record last-seen / flow-start time) - artifacts
-# of the data-generation schedule rather than descriptions of traffic behavior (D'hooge et
-# al. 2022). ltime is additionally redundant with dur/stime; stime is carried through the
-# earlier clean() steps and dropped here, just before the dedup step, so a flow recorded
-# twice at different times collapses to one exact duplicate (2026-08-31 - previously carried
-# further and dropped in the split, which the old chronological split needed to sort by; the
-# stratified random split does not).
-# label: native binary ground truth, dropped in favor of the native multiclass attack_cat.
-# ct_ftp_cmd: dropped 2026-08-13 - verified via direct data inspection that it is near-
-# redundant with the retained is_ftp_login (r~=0.92 on the deduplicated data, r~=0.85 on the
-# raw capture before dedup - both computed directly), and, when nonzero (only ~2% of rows),
-# its mean is ~1 (1.00-1.20) across every attack_cat that has any nonzero rows at all - no
-# per-class differentiation. Also documented as type-inconsistent (whitespace-padded in the
-# raw files, so pandas reads the column as object) - Tai et al. 2024. This drop stands on its
-# own evidence, independent of the service decision below.
-# service: dropped 2026-08-13 following Tai et al. 2024's UNSW-NB15 preprocessing, then
-# RESTORED the same day once the user set explicit policy ("improve performance" wins over
-# matching a paper's own undocumented preprocessing choices when the two conflict) - dropping
-# service had measurably cost real macro-F1 (gradient_boosting 0.569->0.507, random_forest
-# 0.566->0.524), so under that policy it belongs back in the feature set.
+
+# srcip, sport, dstip, dsport: connection identifiers (metadata, prone to shortcut learning).
+# ltime, stime: absolute capture timestamps (artifacts of the capture schedule).
+# label: native binary label (attack_cat is the target).
+# ct_ftp_cmd: near-redundant with is_ftp_login (r = 0.92); where nonzero (2% of records) its
+#   mean is about 1 in every class in which it occurs, so it does not separate the classes.
 drop_columns:
   - srcip
   - sport
@@ -53,6 +27,7 @@ drop_columns:
   - label
   - ct_ftp_cmd
   - stime
+
 # The constant / near-duplicate screen (scripts/feature_screen.py) removes nothing: no column is
-# constant, and the closest pair, swin/dwin (r = 0.997), still differs in 2,540 rows.
+# constant, and the closest pair, swin/dwin, still differs in 2,540 records.
 screen_drop_columns: []

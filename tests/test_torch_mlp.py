@@ -74,9 +74,8 @@ def test_same_random_state_gives_identical_probabilities() -> None:
 
 
 def test_balanced_weights_improve_rare_class_recall_over_unweighted() -> None:
-    # The sanity check for weight-tensor indexing: w_c must line up with the LabelEncoder's
-    # integer codes / CrossEntropyLoss targets. If it's misindexed, balancing does not help
-    # (often hurts) the rare class.
+    # Checks the class-weight indexing: w_c must belong to the LabelEncoder's integer code c.
+    # With misindexed weights, balancing would not help the rare class.
     x, y = _imbalanced_dataset()
     common = dict(hidden_layer_sizes=(64, 32), max_iter=80, random_state=1, batch_size=128)
 

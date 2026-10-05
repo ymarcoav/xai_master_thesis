@@ -1,4 +1,4 @@
-"""Preprocess one dataset into model-ready files."""
+"""Clean and split one or all datasets into model-ready train/test files."""
 
 from __future__ import annotations
 

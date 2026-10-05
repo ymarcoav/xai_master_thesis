@@ -2,9 +2,6 @@ name: unsw_nb15_svm_baseline
 dataset: unsw_nb15
 model: svm
 random_state: 42
-# svm: linear kernel + class_weight="balanced" (models.py); final fit runs on the stratified
-# subsample in pipeline.py's _FINAL_FIT_SUBSAMPLE. C is tuned via RandomizedSearchCV - re-running
-# `train.py --tune` rewrites model_params below and drops any comments inside it.
 model_params:
   C: 3
 preprocessing:

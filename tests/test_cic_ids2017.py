@@ -35,8 +35,6 @@ def _base_frame() -> pd.DataFrame:
 
 
 def test_cic_ids2017_clean_drops_configured_drop_columns() -> None:
-    # Regression test: clean() previously never applied self.config.drop_columns at all (every
-    # other dataset adapter does), so entries added to drop_columns silently had no effect.
     config = DatasetConfig(
         name="cic_ids2017",
         raw_path="unused",
@@ -91,11 +89,7 @@ def test_cic_ids2017_clean_drops_rows_with_negative_duration_or_iat() -> None:
 
 
 def test_cic_ids2017_clean_drops_rows_with_negative_header_length_or_segment_size() -> None:
-    # Regression test: a handful of raw rows carry physically impossible negative values in
-    # Fwd/Bwd Header Length and min_seg_size_forward (as low as -3.22e10 in the real data) -
-    # almost certainly a CICFlowMeter integer-underflow bug. Left in place, MinMaxScaler's
-    # global min/max would be anchored to the nonsensical outlier, corrupting these otherwise-
-    # informative columns for every other row.
+    # Negative header lengths or segment sizes are physically impossible; such rows are dropped.
     dataset = _make_dataset()
     data = _base_frame()
     data.loc[0, "Bwd Header Length"] = -1

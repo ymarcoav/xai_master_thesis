@@ -1,30 +1,18 @@
-# Exact environment that produced every model, metric and explanation figure in outputs/.
+# Exact environment used for every model, metric and figure reported in the thesis.
 #
 # Python 3.14.0 (CPython, Windows 11, AMD64)
 #
 # Recreate with:
 #     py -3.14 -m venv .venv
-#     .venv/Scripts/python -m pip install -r requirements.lock
+#     .venv/Scripts/python -m pip install -r requirements.lock --extra-index-url https://download.pytorch.org/whl/cpu
 #     .venv/Scripts/python -m pip install -e . --no-deps
 #
-# Why this file exists: the explanation results are version-sensitive, so a thesis reporting
-# exact attributions has to pin what produced them. Three specific dependencies:
+# The explanation results depend on library versions, in particular:
+#   shap 0.52.0    permutation explainer budget (max_evals) and seeding; TreeExplainer returns
+#                  log-odds for multiclass XGBoost.
+#   lime 0.2.0.1   default number of perturbation samples (5000) and kernel width.
 #
-#   shap 0.52.0    _SHAP_PERMUTATION_MULTIPLIER in explainability.py is set from
-#                  npermutations = max_evals // (2 * n_features + 1), which is the arithmetic in
-#                  this version's shap/explainers/_permutation.py:169. A version that changes
-#                  that formula, or the max_evals=500 default it compensates for, changes how
-#                  many permutations svm/neural_network SHAP actually runs. This version is also
-#                  the one whose PermutationExplainer accepts seed= (used for reproducibility)
-#                  and whose TreeExplainer rejects model_output="probability" for xgboost,
-#                  putting that model's attributions in log-odds space.
-#   lime 0.2.0.1   LimeTabularExplainer's default num_samples=5000 and its kernel width
-#                  sqrt(n_features)*0.75 are this version's; both feed the local agreement.
-#   pandas 3.0.4   DataFrame.applymap was removed here, which is why agreement.py's port of the
-#                  reference agreement_fraction uses .astype(str) instead.
-#
-# torch is the CPU build; if pip resolves a CUDA wheel, install it first from
-# https://download.pytorch.org/whl/cpu (see README Setup).
+# torch is the CPU build, served from the PyTorch package index (--extra-index-url above).
 
 cloudpickle==3.1.2
 colorama==0.4.6

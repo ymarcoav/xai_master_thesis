@@ -1,69 +1,29 @@
 name: cic_ids2017
 raw_path: data/raw/CIC_IDS2017
 processed_path: data/processed/cic_ids2017
+# Multiclass target: native labels consolidated into seven classes (see datasets/cic_ids2017.py).
 label_column: Label
 
-# Empty, not unset: CICFlowMeter's output is purely numeric flow statistics, unlike
-# UNSW-NB15's native proto/service/state categorical fields.
+# CICFlowMeter features are all numeric.
 categorical_columns: []
-# Destination Port dropped 2026-08-17, after it turned out to dominate every explainability
-# plot (34% of random_forest's total feature importance alone, >2.5x the next feature, #1 SHAP
-# feature for every class). Verified directly against the processed data before trusting that
-# as a red flag rather than a legitimate signal: per-class destination-port concentration is
-# near-total - DoS/DDoS 99.999% port 80, Web Attack 100% port 80, Infiltration 100% port 444,
-# Brute Force 81%/19% port 21/22, Bot 55% port 8080 - because the CICIDS2017 testbed launched
-# each attack scenario against one fixed target service, so the port encodes the capture
-# configuration rather than generalizable traffic behavior (D'hooge et al. 2022). A model
-# leaning on this is learning "which port this lab happened to attack" - the same kind of
-# identifier/testbed-configuration leakage this project already treats UNSW-NB15's
-# srcip/dstip/sport/dsport as (see configs/datasets/unsw_nb15.yaml), not a legitimate feature.
-# A broader per-class value-concentration scan across all other columns found nothing else
-# structurally identifier-like (no Source/Destination IP, Flow ID, or Protocol column exists in
-# this raw CICIDS2017 variant at all) - the many other high-concentration columns it did flag
-# (near-zero byte/IAT/flag counts for PortScan's single-packet probes and Web Attack's mostly
-# aborted flows) are genuine, well-documented attack-traffic behavior, not artifacts, and were
-# deliberately left in place rather than cut under a moving bar.
+
+# Each attack scenario of the testbed targets a fixed service, so the destination port encodes
+# the capture configuration rather than traffic behavior (D'hooge et al. 2022).
 drop_columns:
   - Destination Port
 
-# Constant and near-duplicate columns, removed by the feature screen. scripts/feature_screen.py
-# reruns the screen with these columns present and checks its result against this list
-# (outputs/metrics/dataset_inspection/cic_ids2017/feature_screen.csv).
-# Verified zero-variance in the actual processed data (a single constant value - 0 - across
-# every row of both the train and test splits, not just an example from a third-party paper):
-# the two backward-direction PSH/URG flag counts, and all six *_Bulk/Bulk_Rate columns
-# (Fwd/Bwd Avg Bytes per Bulk, Avg Packets per Bulk, Avg Bulk Rate). Left in place, these
-# constant columns are functionally dead weight - MinMaxScaler passes a constant column
-# through as inert zeros rather than erroring, so nothing breaks, but they add noise to
-# SHAP/permutation-importance rankings and PDP plots. NOT included here: the four near-constant
-# (but not literally zero-variance) flag columns Fwd URG Flags/RST/CWE/ECE Flag Count
-# (99.97-99.996% one value) - those still carry rare-but-real signal, unlike a truly constant
-# column, and this project's severely imbalanced datasets already lean on exactly this kind of
-# rare-but-informative signal elsewhere.
-# Near-duplicate columns, verified 2026-08-13 via direct pairwise correlation AND row-for-row
-# comparison on the full dataset (~2.83M rows, not just a plotted sample - a sample-based
-# check initially flagged Fwd/Bwd Header Length as a "duplicate" pair, a sampling artifact
-# from the ~35 corrupted rows dominating whichever random sample was drawn; everything below
-# was re-checked on all rows). The criterion is value identity, not a correlation threshold:
-# each dropped column repeats a retained column's value in all but a handful of rows.
-# Re-verified 2026-10-04 on the cleaned, deduplicated data (2,231,126 rows): six pairs are
-# identical in every row, Subflow Fwd Bytes differs in 1 row, Subflow Bwd Bytes in 20, ECE vs
-# RST Flag Count in 3 (r = 0.9978). Pairs that merely correlate are kept, even above r = 0.998:
-# Flow Duration / Fwd IAT Total (r = 0.9985), Packet Length Mean / Average Packet Size
-# (0.9983) and Flow IAT Max / Fwd IAT Max (0.9980) differ in 66-91% of rows - distinct
-# quantities, not aliases. One column of each pair is dropped as redundant, keeping whichever
-# name is the more standard/interpretable of the two for feature-importance write-ups:
-#   Total Fwd/Backward Packets kept over Subflow Fwd/Bwd Packets (same value, subflow==total
-#     whenever a flow has a single subflow, the common case)
-#   Fwd/Bwd Packet Length Mean kept over Avg Fwd/Bwd Segment Size (literal alias)
-#   Total Length of Fwd/Bwd Packets kept over Subflow Fwd/Bwd Bytes (same reasoning as above)
-#   SYN Flag Count kept over Fwd PSH Flags (exact 1.000 correlation in this data - plausibly
-#     another CICFlowMeter internal-counter quirk rather than a meaningful relationship, but
-#     redundant either way; SYN is the more security-interpretable of the two)
-#   RST Flag Count kept over ECE Flag Count (RST is far more relevant to scan/attack
-#     detection than the rarely-used ECN-Echo flag)
-#   Fwd URG Flags kept over CWE Flag Count (same reasoning - URG is the more interpretable
-#     name; Bwd URG Flags is already dropped below as zero-variance)
+# Removed by the constant / near-duplicate screen; scripts/feature_screen.py reruns the screen and
+# checks it against this list.
+#   Constant (always 0): Bwd PSH Flags, Bwd URG Flags and the six *Bulk* columns.
+#   Near-duplicates, each repeating a retained column in all but at most 20 records:
+#     Subflow Fwd/Bwd Packets   -> Total Fwd/Backward Packets
+#     Avg Fwd/Bwd Segment Size  -> Fwd/Bwd Packet Length Mean
+#     Subflow Fwd/Bwd Bytes     -> Total Length of Fwd/Bwd Packets
+#     Fwd PSH Flags             -> SYN Flag Count
+#     CWE Flag Count            -> Fwd URG Flags
+#     ECE Flag Count            -> RST Flag Count
+#   Strongly correlated columns that measure distinct quantities are kept, e.g. Flow Duration and
+#   Fwd IAT Total (r = 0.998, but different values in 77% of records).
 screen_drop_columns:
   - Bwd PSH Flags
   - Bwd URG Flags

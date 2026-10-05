@@ -2,14 +2,10 @@ name: cic_ids2017_svm_baseline
 dataset: cic_ids2017
 model: svm
 random_state: 42
-# Global SHAP (~440 s/instance, ~53 h for the 437-row global sample) is not recomputed by
-# generate_explanations; permutation importance is. The SHAP result from the 2026-10-01 chunked
-# run is kept and reported. Set false to recompute it (pass --shap-chunk-size/--shap-n-jobs to
-# scripts/explain.py to run it in parallel chunks).
+# Global SHAP for this model takes about 53 hours in a single process, so explain.py skips it
+# by default. Compute it once with scripts/explain.py --shap-chunk-size 5 --shap-n-jobs 8
+# after setting this to false.
 skip_global_shap: true
-# svm: linear kernel + class_weight="balanced" (models.py); final fit runs on the stratified
-# subsample in pipeline.py's _FINAL_FIT_SUBSAMPLE. C is tuned via RandomizedSearchCV - re-running
-# `train.py --tune` rewrites model_params below and drops any comments inside it.
 model_params:
   C: 10
 preprocessing:

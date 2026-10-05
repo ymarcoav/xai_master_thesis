@@ -1,0 +1,28 @@
+dataset,n_rows,check,column,other_column,r,n_differing,share_differing,flagged,in_screen_drop_columns
+cic_ids2017,2231126,constant,Bwd PSH Flags,,,0,0,True,Bwd PSH Flags
+cic_ids2017,2231126,constant,Bwd URG Flags,,,0,0,True,Bwd URG Flags
+cic_ids2017,2231126,constant,Fwd Avg Bytes/Bulk,,,0,0,True,Fwd Avg Bytes/Bulk
+cic_ids2017,2231126,constant,Fwd Avg Packets/Bulk,,,0,0,True,Fwd Avg Packets/Bulk
+cic_ids2017,2231126,constant,Fwd Avg Bulk Rate,,,0,0,True,Fwd Avg Bulk Rate
+cic_ids2017,2231126,constant,Bwd Avg Bytes/Bulk,,,0,0,True,Bwd Avg Bytes/Bulk
+cic_ids2017,2231126,constant,Bwd Avg Packets/Bulk,,,0,0,True,Bwd Avg Packets/Bulk
+cic_ids2017,2231126,constant,Bwd Avg Bulk Rate,,,0,0,True,Bwd Avg Bulk Rate
+cic_ids2017,2231126,pair,Total Fwd Packets,Subflow Fwd Packets,1,0,0,True,Subflow Fwd Packets
+cic_ids2017,2231126,pair,Total Backward Packets,Subflow Bwd Packets,1,0,0,True,Subflow Bwd Packets
+cic_ids2017,2231126,pair,Fwd Packet Length Mean,Avg Fwd Segment Size,1,0,0,True,Avg Fwd Segment Size
+cic_ids2017,2231126,pair,Fwd PSH Flags,SYN Flag Count,1,0,0,True,Fwd PSH Flags
+cic_ids2017,2231126,pair,Fwd URG Flags,CWE Flag Count,1,0,0,True,CWE Flag Count
+cic_ids2017,2231126,pair,Bwd Packet Length Mean,Avg Bwd Segment Size,1,0,0,True,Avg Bwd Segment Size
+cic_ids2017,2231126,pair,Total Length of Fwd Packets,Subflow Fwd Bytes,0.999999,1,4.48204e-07,True,Subflow Fwd Bytes
+cic_ids2017,2231126,pair,RST Flag Count,ECE Flag Count,0.997801,3,1.34461e-06,True,ECE Flag Count
+cic_ids2017,2231126,pair,Total Length of Bwd Packets,Subflow Bwd Bytes,1,20,8.96408e-06,True,Subflow Bwd Bytes
+cic_ids2017,2231126,pair,Idle Mean,Idle Max,0.990056,172406,0.0772731,False,
+cic_ids2017,2231126,pair,Total Fwd Packets,Total Backward Packets,0.991606,1125117,0.504282,False,
+cic_ids2017,2231126,pair,Total Fwd Packets,Subflow Bwd Packets,0.991606,1125117,0.504282,False,Subflow Bwd Packets
+cic_ids2017,2231126,pair,Total Backward Packets,Subflow Fwd Packets,0.991606,1125117,0.504282,False,Subflow Fwd Packets
+cic_ids2017,2231126,pair,Subflow Fwd Packets,Subflow Bwd Packets,0.991606,1125117,0.504282,False,Subflow Fwd Packets; Subflow Bwd Packets
+cic_ids2017,2231126,pair,Flow IAT Max,Fwd IAT Max,0.99804,1481182,0.663872,False,
+cic_ids2017,2231126,pair,Flow Duration,Fwd IAT Total,0.998505,1711585,0.76714,False,
+cic_ids2017,2231126,pair,Total Backward Packets,Bwd Header Length,0.993911,2013094,0.902277,False,
+cic_ids2017,2231126,pair,Bwd Header Length,Subflow Bwd Packets,0.993911,2013094,0.902277,False,Subflow Bwd Packets
+cic_ids2017,2231126,pair,Packet Length Mean,Average Packet Size,0.99827,2021047,0.905842,False,

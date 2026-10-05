@@ -1,20 +1,14 @@
 """A small PyTorch MLP with a scikit-learn classifier interface.
 
-Replaces ``sklearn.neural_network.MLPClassifier`` as this project's ``neural_network`` model
-so that class imbalance can be handled the *same way* as every other model in the catalog -
-by reweighting the training objective, never by resampling rows. ``MLPClassifier`` has no
-``class_weight``/``sample_weight`` support, which previously forced a bespoke
-resample-to-the-median-class-count path (removed alongside this module); ``nn.CrossEntropyLoss``
-takes a per-class ``weight`` vector directly, using the exact ``n / (k * count_c)`` formula
-``class_weight="balanced"`` applies for ``random_forest``/``svm`` and
-``compute_sample_weight("balanced", ...)`` applies for ``xgboost``.
+The MLP handles class imbalance like the other models in the catalog, by reweighting the
+training objective: ``nn.CrossEntropyLoss`` receives the per-class weights ``n / (k * count_c)``
+(scikit-learn's "balanced" scheme). scikit-learn's own ``MLPClassifier`` supports neither class
+nor sample weights.
 
-The wrapper keeps sklearn semantics so everything downstream is unchanged: ``fit(X, y)`` /
-``predict(X)`` returning the original (string) labels / ``predict_proba(X)`` returning an
-``(n_samples, n_classes)`` float64 array of softmax probabilities whose columns follow
-``classes_`` order. It is a cloneable ``BaseEstimator`` (``RandomizedSearchCV`` relies on
-this), and it consumes whatever the fitted ``ColumnTransformer`` hands it - it never fits or
-touches the scaler/encoder itself.
+The classifier follows scikit-learn conventions: ``fit(X, y)`` accepts string labels,
+``predict(X)`` returns them, and ``predict_proba(X)`` returns an ``(n_samples, n_classes)`` array of
+softmax probabilities in ``classes_`` order. It is a cloneable ``BaseEstimator``, so it works inside
+a ``Pipeline`` and ``RandomizedSearchCV``.
 """
 
 from __future__ import annotations
@@ -58,9 +52,7 @@ def _as_float32_array(x: Any) -> np.ndarray:
 class TorchMLPClassifier(ClassifierMixin, BaseEstimator):
     """PyTorch MLP classifier with class-weighted cross-entropy and a scikit-learn API.
 
-    Parameter names match MLPClassifier where an equivalent exists so the existing
-    ``PARAM_DISTRIBUTIONS["neural_network"]`` search space (``hidden_layer_sizes``, ``alpha``,
-    ``learning_rate_init``) and experiment configs carry over unchanged:
+    Parameter names follow scikit-learn's MLPClassifier where an equivalent exists:
 
     - ``hidden_layer_sizes``: one width per hidden layer.
     - ``alpha``: L2 penalty, passed to Adam as ``weight_decay``.
@@ -71,10 +63,10 @@ class TorchMLPClassifier(ClassifierMixin, BaseEstimator):
     - ``early_stopping`` / ``validation_fraction`` / ``n_iter_no_change`` / ``tol``: hold out a
       stratified validation split and stop when validation loss fails to improve by more than
       ``tol`` for ``n_iter_no_change`` consecutive epochs, restoring the best weights.
-    - ``batch_size``: DataLoader minibatch size (not part of the search space).
-    - ``random_state``: seeds torch, the parameter init, the train/val split and the DataLoader
-      shuffle generator, and enables ``torch.use_deterministic_algorithms`` so explanation
-      results are reproducible run to run.
+    - ``batch_size``: minibatch size.
+    - ``random_state``: seeds the parameter initialization, the validation split and the
+      minibatch shuffling, and enables ``torch.use_deterministic_algorithms`` for reproducible
+      results.
     """
 
     def __init__(
@@ -109,8 +101,7 @@ class TorchMLPClassifier(ClassifierMixin, BaseEstimator):
     def fit(self, X: Any, y: Any) -> "TorchMLPClassifier":
         seed = 0 if self.random_state is None else int(self.random_state)
         torch.manual_seed(seed)
-        # warn_only: some ops have no deterministic CPU kernel; we want reproducibility where
-        # possible without a hard failure on those.
+        # warn_only: operations without a deterministic implementation warn instead of failing.
         torch.use_deterministic_algorithms(True, warn_only=True)
 
         x_array = _as_float32_array(X)
@@ -120,11 +111,9 @@ class TorchMLPClassifier(ClassifierMixin, BaseEstimator):
         n_classes = len(self.classes_)
         self.n_features_in_ = x_array.shape[1]
 
-        # class_weight="balanced": w_c = n_samples / (n_classes * count_c), computed on THIS y
-        # (the training split the Pipeline passes in - no separate held-out counts). bincount is
-        # in encoded-label order, so weight[c] lines up with CrossEntropyLoss's target integer c
-        # and with self.classes_[c]. Getting this indexing wrong is the classic bug in this kind
-        # of change; the uniform-vs-balanced recall check in the tests guards it.
+        # class_weight="balanced": w_c = n_samples / (n_classes * count_c), computed on the y
+        # passed to fit(). bincount runs in encoded-label order, so weight[c] belongs to target
+        # integer c and to self.classes_[c].
         class_counts = np.bincount(y_encoded, minlength=n_classes)
         if self.class_weight == "balanced":
             weights = len(y_encoded) / (n_classes * np.clip(class_counts, 1, None))

@@ -6,24 +6,10 @@ __pycache__/
 .pytest_tmp/
 .ruff_cache/
 
-# Local data and generated artifacts
+# Datasets and generated artifacts (see README: Data, Reproducing the results)
 data/raw/*
 data/processed/*
-outputs/models/*
-outputs/metrics/*
-outputs/plots/*
+outputs/*
 
-# Keep directory placeholders
 !data/raw/.gitkeep
 !data/processed/.gitkeep
-!outputs/models/.gitkeep
-!outputs/metrics/.gitkeep
-!outputs/plots/.gitkeep
-
-# Local backups of superseded data/models/metrics/plots (e.g. before a dataset overhaul) -
-# same reasoning as the patterns above, just under a different directory name.
-data/_archive/
-outputs/_archive/
-
-# Hand-assembled copies of outputs for the thesis document (plots + CSVs), regenerable.
-outputs/thesis_deliverables/

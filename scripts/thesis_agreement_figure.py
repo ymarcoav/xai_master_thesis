@@ -107,8 +107,8 @@ def plot(table: pd.DataFrame, output_dir: Path) -> list[Path]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--csv", default="outputs/thesis_deliverables/data/local_agreement.csv")
-    parser.add_argument("--output-dir", default="outputs/thesis_deliverables/plots/k_sweep")
+    parser.add_argument("--csv", default="outputs/metrics/explanation_report/local_agreement.csv")
+    parser.add_argument("--output-dir", default="outputs/plots/thesis_figures")
     args = parser.parse_args()
     for path in plot(pd.read_csv(args.csv), Path(args.output_dir)):
         print(f"wrote {path}")

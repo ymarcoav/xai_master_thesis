@@ -1,3 +1,9 @@
+"""End-to-end pipeline: preprocessing, training, evaluation, explanation and agreement analysis.
+
+Each public function is driven by a script in scripts/ and reads its settings from the YAML
+configs in configs/.
+"""
+
 from __future__ import annotations
 
 import csv
@@ -55,12 +61,9 @@ from xai_thesis.utils import dump_yaml, ensure_directory, load_yaml
 
 logger = logging.getLogger(__name__)
 
-# xgboost's XGBClassifier has no class_weight constructor param at all (see models.py) - it
-# only supports per-sample weights at fit() time. compute_sample_weight("balanced", y) computes
-# the same per-class weighting class_weight="balanced" applies internally for random_forest/svm
-# (and the same weights TorchMLPClassifier feeds to nn.CrossEntropyLoss), just passed through
-# fit's sample_weight instead of set on the model itself. This is the only model that needs
-# fit-time handling; all four reweight the objective, none resample.
+# XGBClassifier has no class_weight parameter, so its balanced class weights are passed to fit()
+# as per-sample weights (compute_sample_weight("balanced", y): the same n / (k * count_c) weights
+# that the other models apply internally).
 _MODELS_REQUIRING_SAMPLE_WEIGHT = {"xgboost"}
 
 _METRIC_EXTRACTORS = {
@@ -68,11 +71,7 @@ _METRIC_EXTRACTORS = {
     "precision_macro": lambda report: report["macro avg"]["precision"],
     "recall_macro": lambda report: report["macro avg"]["recall"],
     "f1_macro": lambda report: report["macro avg"]["f1-score"],
-    # Every dataset in this project's catalog is multiclass (see evaluate_classifier()) - only
-    # the macro variants exist. A prior binary Attack/Benign framing had its own
-    # precision_attack/recall_attack/f1_attack/roc_auc/pr_auc entries here; removed 2026-08-27
-    # since no config has requested them since that framing was dropped project-wide
-    # (2026-07-31) and evaluate_classifier() no longer produces the report keys they read.
+    # One-vs-rest, macro-averaged (see evaluate_classifier()).
     "roc_auc_macro": lambda report: report["roc_auc_macro"],
     "pr_auc_macro": lambda report: report["pr_auc_macro"],
 }
@@ -97,11 +96,8 @@ def preprocess_dataset(config_path: str | Path) -> tuple[Path, Path]:
 
 
 def _split_dataset(config: DatasetConfig, data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    # Every dataset is split with a stratified random partition (fixed seed), stratified on
-    # the label so each class keeps the same share of rows in both splits - the conventional
-    # approach in the XAI-for-IDS literature this project follows (e.g. Arreche et al. 2024).
-    # Each adapter's clean() already drops its own non-feature columns (identifiers, capture
-    # timestamps); only "source_file", the per-row loading tag every adapter adds, is dropped here.
+    # Stratified random 70/30 split with a fixed seed. "source_file", the loading tag every
+    # adapter adds, is not a feature and is dropped here.
     return stratified_random_split(data, config.label_column, drop_columns=("source_file",))
 
 
@@ -125,15 +121,8 @@ def _load_experiment_and_data(
     return experiment, dataset_config, x_train, y_train, x_test, y_test
 
 
-# Model params applied only to the search-time pipeline built inside tune_hyperparameters(),
-# never written back to the experiment config - the final fit in run_experiment() always uses
-# the model's normal defaults/config. svm's probability=True is skipped during search
-# specifically: RandomizedSearchCV's f1_macro scoring only ever calls .predict(), never
-# .predict_proba(), so Platt-scaling calibration is pure overhead there - and this project's
-# own measurements found it dominates SVC's fit cost more than the kernel choice itself (an
-# RBF fit without it took ~5.5 min on UNSW-NB15 vs. ~26 min for the linear-kernel fit with it,
-# same data - see models.py). This alone is expected to cut the search phase by roughly the
-# same factor.
+# Model params used only during the hyperparameter search and never written to the config. The
+# search scores with predict() alone, so the SVM's costly probability calibration is skipped.
 _SEARCH_TIME_MODEL_PARAM_OVERRIDES: dict[str, dict[str, Any]] = {
     "svm": {"probability": False},
 }
@@ -146,41 +135,11 @@ def _build_pipeline(experiment: dict[str, Any], dataset_config: DatasetConfig, x
     return Pipeline(steps=[("preprocessing", preprocessing), ("model", model)])
 
 
-# svm's final fit on unsw_nb15 is intractable at the complete training-set size, re-confirmed
-# 2026-08-28 after two separate attempts on the fully-corrected raw data (128k more rows, no
-# more truncation/boundary duplicates than before): the first ran 18+ hours uncapped; a second
-# attempt with a lowered max_iter=5000 (a fix that worked in principle - it does eventually
-# stop) still ran 4h8m without finishing. Lowering max_iter alone is not a reliable lever at
-# this row count - each libsvm iteration itself is the expensive part, not just the iteration
-# count - so lowering the cap as the tractability fix was abandoned in favor of this subsample,
-# the one approach with an actual proven fast (~20 min) track record on this project's own
-# history. (models.py's generic max_iter=50_000 safety cap stays regardless - it only bounds
-# worst-case time on a pathological fit, it is not the mechanism that makes the fit tractable.)
-#
-# cic_ids2017 is included here too, by explicit user request for consistency, even though its
-# svm final fit had already completed successfully on the complete training set (see README.md
-# for that run's numbers - now stale under this change and pending a retrain). The rationale:
-# svm's final-fit methodology should be uniform across both datasets in this catalog rather
-# than "whichever happened to finish in time gets the full set" - the same
-# comparability-across-models argument that motivated removing this mechanism entirely a few
-# sessions ago now argues for comparability-across-datasets instead, given unsw_nb15's svm
-# cannot reliably train on its complete set at all.
-#
-# target_size raised 150_000->200_000 and min_per_class raised 200->500 on 2026-08-28, at
-# explicit user request, after svm's first subsampled retrain (150k/200) came in below
-# neural_network on macro-F1 (0.413 vs 0.449) on unsw_nb15. Checked directly before changing
-# anything: raising target_size alone (150k->200k, min_per_class held at 200) adds rows almost
-# entirely to the classes already well-represented (unsw_nb15's Benign alone absorbs ~90% of
-# the increase) - every class sitting at the min_per_class floor gets zero additional rows
-# either way, so target_size alone was very unlikely to move macro-F1, which weights every
-# class equally including the weak ones. Raising min_per_class to 500 is the lever that
-# actually changes anything for the floored classes: unsw_nb15's Analysis/Backdoor/Shellcode
-# and cic_ids2017's Web Attack/PortScan/Bot all go from 200 to a full 500 rows each (verified
-# directly - all six have well over 500 available in the complete training set). unsw_nb15's
-# Worms (118 total) and cic_ids2017's Infiltration (24 total) are unaffected by either
-# parameter - both floors already exceed their entire natural supply, so they're included in
-# full regardless. Whether this actually closes the gap with neural_network is not guaranteed;
-# it's the more targeted of the two available levers, not a proven fix.
+# The SVM's final fit is intractable on the full training partitions (well over a million rows),
+# so it is fitted on a stratified subsample given as (target_size, min_per_class): each class
+# contributes its proportional share of target_size or min_per_class rows, whichever is larger,
+# up to the number available. This keeps the rare attack classes usable. Both datasets are
+# treated alike.
 _FINAL_FIT_SUBSAMPLE: dict[tuple[str, str], tuple[int, int]] = {
     ("svm", "unsw_nb15"): (200_000, 500),
     ("svm", "cic_ids2017"): (200_000, 500),
@@ -211,8 +170,8 @@ def run_experiment(
     if experiment["model"] in _MODELS_REQUIRING_SAMPLE_WEIGHT:
         train_model(pipeline, x_train, y_train, model__sample_weight=compute_sample_weight("balanced", y_train))
     else:
-        # random_forest / svm reweight via class_weight="balanced"; neural_network's
-        # TorchMLPClassifier computes the same n/(k*count_c) weights from y inside fit().
+        # random_forest and svm use class_weight="balanced"; the MLP computes the same weights
+        # inside fit().
         train_model(pipeline, x_train, y_train)
 
     report = evaluate_classifier(pipeline, x_test, y_test)
@@ -239,8 +198,9 @@ def tune_hyperparameters(
     """Search for good hyperparameters on the training split and write them into the
     experiment config's model_params, for run_experiment() to pick up on the next run.
 
-    Datasets larger than subsample_size are stratify-subsampled for search tractability;
-    the final model is still trained on the full training set by run_experiment().
+    RandomizedSearchCV samples n_iter configurations (the whole grid if it is smaller) and scores
+    them by macro-F1 with stratified cv-fold cross-validation. Training sets larger than
+    subsample_size are first reduced to a class-proportional subsample.
     """
     experiment, dataset_config, x_train, y_train, _, _ = _load_experiment_and_data(
         experiment_config_path, dataset_config_dir
@@ -274,9 +234,8 @@ def tune_hyperparameters(
         random_state=random_state,
         n_jobs=n_jobs,
     )
-    # RandomizedSearchCV/Pipeline re-slice any fit_param whose length matches len(x_search) per
-    # CV fold automatically (a standard, well-supported sklearn mechanism - not special-cased
-    # here), so this is safe to compute once over the full search set rather than per fold.
+    # Per-sample fit params are sliced per CV fold by RandomizedSearchCV, so the weights can be
+    # computed once over the whole search set.
     fit_params = (
         {"model__sample_weight": compute_sample_weight("balanced", y_search)}
         if experiment["model"] in _MODELS_REQUIRING_SAMPLE_WEIGHT
@@ -292,7 +251,7 @@ def tune_hyperparameters(
     return tuned_params
 
 
-# Layout of outputs/plots/, grouped by purpose so no plot sits loose in a dataset or model folder:
+# Layout of outputs/plots/:
 #   <dataset>/data/                                label distribution, missing values, split, correlation
 #   <dataset>/agreement/                           local_agreement_{feature,rank}.png (SHAP vs LIME)
 #   <dataset>/<model>_baseline/performance/        confusion_matrix.png, roc_curves.png
@@ -306,11 +265,9 @@ def _dataset_plot_dir(plots_dir: str | Path, dataset_name: str, section: str) ->
 
 
 def _experiment_plot_dir(plots_dir: str | Path, dataset_name: str, experiment_name: str, section: str) -> Path:
-    """One purpose-named folder ("performance", "global" or "interview") inside a trained
-    experiment's plot folder; see the layout above. The experiment folder is nested under its
-    dataset (plots_dir/<dataset>/<model>_baseline/) rather than flat. Every experiment name in this
-    project follows "<dataset>_<model>_baseline", so stripping the dataset prefix leaves just the
-    model-identifying part as the folder name.
+    """One purpose-named folder ("performance", "global" or "interview") of a trained experiment,
+    plots_dir/<dataset>/<model>_baseline/<section>; see the layout above. Experiment names follow
+    "<dataset>_<model>_baseline".
     """
     model_folder = experiment_name.removeprefix(f"{dataset_name}_")
     return Path(plots_dir) / dataset_name / model_folder / section
@@ -335,8 +292,6 @@ def generate_confusion_matrix(
     model = joblib.load(Path(models_dir) / f"{experiment_name}.joblib")
     predictions = model.predict(x_test)
 
-    # Same experiment folder generate_explanations() writes into (its performance/ section), so
-    # every plot for one trained experiment lives under one folder.
     output_dir = ensure_directory(_experiment_plot_dir(plots_dir, dataset_config.name, experiment_name, "performance"))
     confusion_matrix_frame(y_test, predictions).to_csv(output_dir / "confusion_matrix.csv")
     return plot_confusion_matrix(y_test, predictions, output_dir / "confusion_matrix.png", normalize=normalize)
@@ -375,9 +330,6 @@ def generate_label_distribution(
     test_df = pd.read_csv(Path(dataset_config.processed_path) / "test.csv")
     labels = pd.concat([train_df[dataset_config.label_column], test_df[dataset_config.label_column]])
 
-    # Per-dataset folder (distinct namespace from the per-experiment folders used for
-    # confusion matrices/explanations, since a dataset name is never equal to one of its own
-    # experiment names) - this plot isn't tied to any one trained model.
     output_path = _dataset_plot_dir(plots_dir, dataset_config.name, "data") / "label_distribution.png"
     return plot_label_distribution(labels, output_path)
 
@@ -389,7 +341,7 @@ def generate_raw_label_distribution(
     metrics_dir: str | Path = "outputs/metrics",
 ) -> dict[str, Path]:
     """Plot the class distribution over every raw record, after label normalization (and, for
-    CIC-IDS2017, consolidation), before any row is removed - the datasets chapter's figure.
+    CIC-IDS2017, consolidation), before any row is removed.
 
     Unlike generate_label_distribution (processed train+test, so after corrupted-row removal and
     deduplication), this reads the raw files. Also writes the counts as
@@ -445,10 +397,8 @@ def generate_missing_value_summary(
     *,
     plots_dir: str | Path = "outputs/plots",
 ) -> Path:
-    """Plot per-column missing-value percentages for a processed dataset's combined
-    train+test data. Imputation happens inside the sklearn Pipeline at training time (see
-    preprocessing.py's build_preprocessing_pipeline), not before - so the processed CSVs on
-    disk still carry whatever missingness survived each dataset adapter's own cleanup.
+    """Plot per-column missing-value percentages for a processed dataset's combined train+test
+    data. Missing values are imputed later, inside the training pipeline.
     """
     dataset_config = load_dataset_config(dataset_config_path)
 
@@ -489,11 +439,8 @@ def generate_feature_correlation(
     """Plot a correlation heatmap over numeric feature columns for a processed dataset's
     training split.
 
-    Sampled down to at most sample_size rows before computing correlations - this project's
-    largest datasets have 1.5-2.3M processed rows, and pandas' .corr() over that many rows at
-    80-140 columns is expensive for no real accuracy benefit (correlation structure is stable
-    well below this sample size). Same subsampling-for-cost pattern already used for
-    RandomizedSearchCV tuning on these same two datasets (see models.py/pipeline.py).
+    At most sample_size randomly drawn rows are used, which keeps the computation cheap on the
+    large training partitions.
     """
     dataset_config = load_dataset_config(dataset_config_path)
 
@@ -506,28 +453,22 @@ def generate_feature_correlation(
     return plot_feature_correlation(features, output_path, title=f"{dataset_config.name} feature correlation")
 
 
-# SHAP background size, and the number of test instances the global SHAP/PFI plots explain.
-# The global sample is drawn class-balanced (see _class_balanced_sample), not stratified: a
-# prevalence-proportional draw of this project's test sets is 85-96% Benign and leaves most
-# attack classes with 0 rows (191/200 Benign on UNSW-NB15 at the old size of 200), so the
-# global SHAP bar / PFI rankings were effectively a two-class problem. 500 class-balanced rows
-# put every class in the ranking; classes with fewer test rows than their even share (e.g.
-# CIC-IDS2017 Infiltration, ~11 rows) contribute all of them.
+# Global explanations (SHAP and permutation importance) are computed on a class-balanced sample
+# of the test partition, so that every class is represented in the global rankings: a
+# prevalence-proportional sample would be 85-96% Benign. A class with fewer test rows than its
+# even share contributes all of them (CIC-IDS2017 Infiltration: 11).
 #
-# The background is only consulted by the permutation path (svm, neural_network); the tree
-# path ignores it. compute_shap_values passes it to shap.Explainer as-is (no further
-# sub-sampling), so this is the exact reference distribution - keep it small, since svm's
-# permutation SHAP cost scales with it (~90-410 s/instance at 50 rows). 50 divides evenly
-# into both datasets' class counts (5/class x 10 on UNSW-NB15, 7/class x 7 on CIC-IDS2017).
+# The SHAP background (reference distribution) is a class-balanced sample of the training
+# partition. Only the permutation explainer (svm, neural_network) uses it; its cost grows with
+# the background size, so the background is kept small.
 _SHAP_BACKGROUND_SIZE = 50
 _GLOBAL_EXPLANATION_SAMPLE_SIZE = 500
 
 # (dataset, model) pairs whose global SHAP generate_explanations skips unless the experiment
-# config sets `skip_global_shap: false`; their permutation importance is still computed. Any
-# other experiment computes global SHAP unless its config sets `skip_global_shap: true`.
-# cic_ids2017/svm: permutation SHAP runs ~440 s/instance, ~53 h for the 437-row global sample in
-# one call. (It was computed once, 2026-10-01, in 7.7 h via the chunked path - see
-# _compute_shap_in_chunks - and that cached result is kept; skipping only stops a rerun.)
+# config sets `skip_global_shap: false`; permutation importance is still computed. For these,
+# compute global SHAP once with scripts/explain.py --shap-chunk-size/--shap-n-jobs (checkpointed,
+# parallel); the cached result is then reused. Any other experiment computes global SHAP unless
+# its config sets `skip_global_shap: true`.
 _GLOBAL_SHAP_SKIPPED_BY_DEFAULT: dict[tuple[str, str], str] = {
     ("cic_ids2017", "svm"): "permutation SHAP ~440 s/instance, ~53 h for the 437-row global sample",
 }
@@ -540,10 +481,8 @@ def _skip_global_shap(experiment: dict[str, Any], dataset_name: str) -> bool:
 
 
 def _global_importance_path(metrics_dir: str | Path, experiment_name: str, method: str) -> Path:
-    """Cache of one experiment's global importance vector; method is "shap" or "pfi".
-
-    The two methods are separate files so that skipping global SHAP on a rerun leaves an
-    existing SHAP cache untouched while the PFI cache is refreshed.
+    """Cache of one experiment's global importance vector; method is "shap" or "pfi". Separate
+    files let a rerun that skips global SHAP keep the existing SHAP cache.
     """
     return ensure_directory(Path(metrics_dir) / "global_importance") / f"{experiment_name}__{method}.npz"
 
@@ -580,13 +519,10 @@ def _class_balanced_sample(
     """Sample ~total rows from features, spread evenly across the classes in target (a class
     with fewer rows than its even share contributes all of them).
 
-    Used for the SHAP background so the explainer's reference distribution is the same
-    ~uniform class mix for every model. A uniform random sample of this project's training
-    data is 85-96% Benign (see the imbalance-handling note in README.md), which pins the
-    permutation explainer's base value (svm, neural_network) to "an average Benign flow" and
-    leaves it on a different footing from the tree models, whose TreeExplainer base value
-    already reflects their class_weight/sample_weight-adjusted (near-balanced) internal prior.
-    A class-balanced background puts svm/neural_network on that same near-balanced footing.
+    Used for the global and local explanation samples and for the SHAP background. A balanced
+    background keeps the permutation explainer's base value close to that of the tree models,
+    whose class-weighted training already gives them a near-balanced prior; a uniform random
+    background would be dominated by Benign flows.
     """
     groups = [
         features.loc[index_block].sample(n=min(total // target.nunique() or 1, len(index_block)), random_state=random_state)
@@ -636,25 +572,21 @@ def _compute_shap_in_chunks(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str]]:
     """compute_shap_values over sample_x in fixed-size chunks, checkpointed and run in parallel.
 
-    Only worth it for the permutation path, whose cost is per instance (cic_ids2017/svm: ~440
-    s/instance, ~53 h for the 437-row global sample in one call). Each chunk is saved to
-    chunk_dir as soon as it finishes, and a rerun skips chunks already on disk, so an
-    interrupted run resumes instead of starting over; chunks run n_jobs at a time.
+    Intended for the permutation explainer, whose cost is per instance (several minutes per
+    instance for the CIC-IDS2017 SVM). Each chunk is saved to chunk_dir when it finishes and a
+    rerun skips chunks already on disk, so an interrupted run resumes; chunks run n_jobs at a time.
 
-    Chunk c is seeded random_state + c. shap's permutation explainer seeds NumPy's global
-    generator once per explainer (shap 0.52.0, _permutation.py), so an instance's permutations
-    depend on the instances explained before it in the same call: chunked values are therefore
-    not bit-identical to one unchunked call, though the estimator (permutation count,
-    background) is the same and the result is reproducible for a given chunk_size. The
-    per-chunk offset keeps chunks from reusing each other's permutation sequences.
+    Chunk c is seeded random_state + c. The permutation explainer draws from one random stream
+    per call, so chunked values are not bit-identical to a single call, although the estimator
+    (permutation count, background) is the same and the result is reproducible for a given
+    chunk_size.
     """
     chunk_dir = ensure_directory(chunk_dir)
     starts = list(range(0, len(sample_x), chunk_size))
     chunk_paths = [chunk_dir / f"chunk_{number:03d}.npz" for number in range(len(starts))]
     pending = [(number, start) for number, start in enumerate(starts) if not chunk_paths[number].exists()]
-    # max_nbytes=None: joblib otherwise memory-maps any argument over 1 MB read-only into the
-    # workers, and libsvm (svm's predict_proba) rejects its read-only support-vector arrays
-    # ("buffer source array is read-only"). Each worker gets its own copy of the ~26 MB model.
+    # max_nbytes=None: joblib would otherwise pass large arguments as read-only memory maps,
+    # which libsvm (the SVM's predict_proba) rejects.
     joblib.Parallel(n_jobs=n_jobs, verbose=10, max_nbytes=None)(
         joblib.delayed(_shap_chunk)(
             pipeline,
@@ -696,24 +628,13 @@ def generate_explanations(
     """Generate the global SHAP bar and permutation importance plots for an already-trained
     experiment, saving them under plots_dir/<dataset>/<model>_baseline/global/.
 
-    The global SHAP bar and permutation-importance plots explain a sample_size-row
-    *class-balanced* sample of the test set (_class_balanced_sample): ~even rows per class, a
-    class with fewer test rows than its even share contributing all of them. This is a
-    deliberate switch away from a stratified (prevalence-proportional) draw, which at
-    sample_size=200 was 191/200 Benign on UNSW-NB15 and left 7 of 10 classes with zero rows -
-    so the global rankings described a two-class problem. The trade-off is that the rankings no
-    longer reflect deployment prevalence; they answer "what drives each class" with every class
-    represented, and per-class prevalence is documented separately (label_distribution.png).
+    Both explain the same sample_size-row class-balanced sample of the test partition
+    (_class_balanced_sample). Global SHAP importance is the mean |SHAP| over instances and
+    classes; permutation importance is the drop in macro-F1 over 10 repetitions. Both vectors
+    are cached under metrics_dir/global_importance/.
 
     shap_chunk_size splits the global SHAP computation into checkpointed chunks run shap_n_jobs
-    at a time (see _compute_shap_in_chunks) - used only for cic_ids2017/svm, whose single-call
-    run would take ~53 h. None (the default) is one compute_shap_values call, as for every
-    other experiment.
-
-    Partial dependence plots (PDP) were removed entirely on 2026-08-27 (had been out of the
-    thesis's explainability scope since 2026-07-31, and out of this function specifically
-    since 2026-08-17) - explainability.py no longer has a plot_partial_dependence function at
-    all, not just an unused one.
+    at a time (see _compute_shap_in_chunks); None computes it in one call.
     """
     experiment, dataset_config, x_train, y_train, x_test, y_test = _load_experiment_and_data(
         experiment_config_path, dataset_config_dir
@@ -726,9 +647,7 @@ def generate_explanations(
     output_dir = ensure_directory(_experiment_plot_dir(plots_dir, dataset_config.name, experiment_name, "global"))
     class_names = list(pipeline.named_steps["model"].classes_)
 
-    # Local (per-instance) SHAP/LIME plots are not produced here: they exist only as interview
-    # stimuli (generate_interview_stimuli). The global SHAP beeswarm was removed on 2026-09-14,
-    # unused in the thesis.
+    # Local SHAP/LIME plots are produced by generate_interview_stimuli().
 
     sample_x = _class_balanced_sample(x_test, y_test, sample_size, random_state=random_state)
     sample_y = y_test.loc[sample_x.index]
@@ -773,8 +692,8 @@ def generate_explanations(
         paths["shap_bar"] = plot_shap_bar(
             shap_values, x_transformed, feature_names, class_names, output_dir / "shap_bar.png"
         )
-        # Global SHAP importance: mean |SHAP| over instances and classes, stored in raw column
-        # order. (plot_shap_bar stacks per-class means, so its bar length is n_classes x this.)
+        # Global SHAP importance: mean |SHAP| over instances and classes, in raw column order.
+        # (plot_shap_bar stacks the per-class means, so its bars are n_classes times longer.)
         shap_order = [feature_names.index(name) for name in sample_x.columns]
         paths["shap_cache"] = _save_global_importance(
             _global_importance_path(metrics_dir, experiment_name, "shap"),
@@ -783,10 +702,8 @@ def generate_explanations(
             sample_y,
         )
 
-    # sample_x/sample_y are class-balanced (see above), so this PFI measures each feature's
-    # macro-F1 drop under a *rebalanced* class distribution, not the natural 85-96%-Benign one.
-    # Intentional: it matches the class-balanced global SHAP bar, and macro-F1 already weights
-    # every class equally regardless of the sample's mix.
+    # The sample is class-balanced, so permutation importance measures the macro-F1 drop under
+    # an even class distribution, matching the global SHAP sample.
     pfi_path, _, pfi_result = compute_permutation_importance(
         pipeline, sample_x, sample_y, output_dir / "permutation_importance.png", random_state=random_state
     )
@@ -817,11 +734,9 @@ def _generate_instance_explanations(
     *,
     predictions: pd.Series | None = None,
 ) -> dict[str, Path]:
-    """SHAP waterfall + LIME plots for one curated (target_class, confused_with_class) instance
-    pair - a correct classification and a misclassification of target_class as
-    confused_with_class specifically. Used only by generate_interview_stimuli(): local plots
-    are interview stimuli, and generate_explanations() no longer writes any (removed
-    2026-09-14). Pass predictions to reuse an already-computed full-test-set prediction.
+    """SHAP waterfall and LIME plots for one correctly classified instance of target_class and
+    one misclassified as confused_with_class. Used by generate_interview_stimuli(). Pass
+    predictions to reuse an existing prediction of the whole test set.
     """
     paths: dict[str, Path] = {}
     instances = select_curated_instances(
@@ -844,8 +759,8 @@ def _generate_instance_explanations(
     )
     predicted_classes = pipeline.predict(instances_x)
 
-    # xgboost's TreeExplainer is in raw-margin (log-odds) space on this shap/xgboost build;
-    # every other model's SHAP values are probabilities (see compute_shap_values).
+    # XGBoost's SHAP values are in log-odds; the other models' are probabilities (see
+    # compute_shap_values).
     waterfall_space = "log-odds" if model_name == "xgboost" else "probability"
 
     for row_index, (kind, predicted_class) in enumerate(zip(instance_kinds, predicted_classes, strict=True)):
@@ -860,11 +775,9 @@ def _generate_instance_explanations(
             output_dir / f"shap_waterfall_{kind}.png",
             value_label=waterfall_space,
         )
-        # class_index (same one the SHAP waterfall above was just plotted for) pins LIME to
-        # that class too, rather than letting it pick its own via top_labels=1 - the two
-        # otherwise disagree for svm, whose pipeline.predict() (one-vs-one voting) doesn't
-        # always match predict_proba's argmax (what top_labels=1 selects). See
-        # _build_lime_explanation's docstring for the confirmed real-world impact.
+        # LIME explains the same class as the SHAP waterfall: the predicted class. Without
+        # class_index, LIME would pick the most probable class, which for the SVM can differ
+        # from its prediction (one-vs-one voting).
         paths[f"lime_{kind}"] = explain_instance_with_lime(
             pipeline,
             x_train,
@@ -880,11 +793,8 @@ def _generate_instance_explanations(
 
 
 def _most_common_confusion(y_test: pd.Series, predictions: pd.Series, target_class: str) -> str | None:
-    """The class target_class is most often predicted as, when the model gets it wrong -
-    derived from real predictions rather than hand-picked. Used by generate_interview_stimuli().
-    None if the model never misclassifies target_class in this test set (e.g. a class with
-    100% recall via massive over-prediction rather than genuine skill, so no misclassified
-    example exists at all).
+    """The class that target_class is most often misclassified as, or None if it is never
+    misclassified in the test set. Used by generate_interview_stimuli().
     """
     is_target = y_test == target_class
     wrong = predictions[is_target & (predictions != target_class)]
@@ -893,19 +803,11 @@ def _most_common_confusion(y_test: pd.Series, predictions: pd.Series, target_cla
     return wrong.value_counts().idxmax()
 
 
-# Well-known attack classes for interview stimulus curation: classes a security practitioner would
-# recognize by name, for showing to interview subjects. Chosen 2026-08-17 with
-# the user, re-checked 2026-09-01 against the stratified-split / retuned / Destination-Port-removed
-# data - every listed class has >=1 correct and >=1 misclassified test instance for every model.
-# Ruled out: UNSW-NB15's Worms (~120/51 rows), Generic/Analysis/Backdoor/Shellcode (not
-# recognizable security terms to a general audience), DoS (well-known, but every model's recall
-# on it is 6-38%); CIC-IDS2017's Web Attack (umbrella label folding SQLi/XSS/brute-force-login -
-# a subject can't tell which technique an instance is), Infiltration (24 train rows).
-# PortScan was dropped 2026-09-01: removing the leaky Destination Port column collapsed it under
-# dedup from 158,930 native rows to 1,958 (~157k near-identical scan flows differed only in
-# target port), so it is no longer a representative sample of scanning traffic. Bot (Ares botnet
-# C2) replaced it - recognizable, and the one CIC-IDS2017 attack class every model still
-# misclassifies (always -> Benign), so a genuine correct/misclassified pair exists for all four.
+# Candidate classes for interview stimuli: attack types a security practitioner recognizes by
+# name. Excluded: classes with very few records (UNSW-NB15 Worms, CIC-IDS2017 Infiltration),
+# category names that are not common security terms (Generic, Analysis, Backdoor, Shellcode),
+# umbrella labels that mix several techniques (Web Attack), and CIC-IDS2017 PortScan, which
+# deduplication reduces to a small, unrepresentative sample once Destination Port is removed.
 _INTERVIEW_STIMULUS_CLASSES: dict[str, list[str]] = {
     "unsw_nb15": ["Reconnaissance", "Exploits"],
     "cic_ids2017": ["DoS/DDoS", "Brute Force", "Bot"],
@@ -919,14 +821,13 @@ def generate_interview_stimuli(
     models_dir: str | Path = "outputs/models",
     plots_dir: str | Path = "outputs/plots",
 ) -> dict[str, dict[str, Path]]:
-    """Generate SHAP waterfall + LIME stimuli for interview use: one correct + one misclassified
-    instance per well-known class in _INTERVIEW_STIMULUS_CLASSES, for an already-trained
-    experiment. Classes are picked for real-world recognizability, to curate concrete cases to
-    show interview subjects.
-    Saves under plots_dir/<dataset>/<model>_baseline/interview/<class>/, keyed in the return
-    value by target class name, then by "shap_waterfall_correct"/"lime_correct"/etc. - a class
-    maps to an empty dict if the model never misclassifies it in this test set (no stimulus pair
-    possible, see _most_common_confusion).
+    """Generate SHAP waterfall and LIME plots for the interview stimuli of a trained experiment:
+    one correctly classified and one misclassified instance per class in
+    _INTERVIEW_STIMULUS_CLASSES.
+
+    Saves under plots_dir/<dataset>/<model>_baseline/interview/<class>/. The result maps each
+    class to its plot paths ("shap_waterfall_correct", "lime_correct", ...), or to an empty dict
+    if the model never misclassifies that class.
     """
     experiment, dataset_config, x_train, y_train, x_test, y_test = _load_experiment_and_data(
         experiment_config_path, dataset_config_dir
@@ -975,34 +876,23 @@ def generate_interview_stimuli(
 
 
 # --- Local disagreement analysis: SHAP vs LIME (Krishna et al. 2022) ------------
-# The systematic agreement analysis. Globally, only the number of features shared by the SHAP
-# and PFI top 10s is reported (explanation_report.global_overlap_table); no cross-model metric.
+# Globally, the only comparison is the number of features shared by the SHAP and permutation
+# importance top 10s (explanation_report.global_overlap_table).
 
-# Instances the agreement metrics are averaged over: _class_balanced_sample(total=60,
-# random_state=42) of the test split - 6/class x 10 = 60 on UNSW-NB15, 8/class x 7 = 56 on
-# CIC-IDS2017 - regardless of whether the model classifies them correctly. Class-balanced
-# rather than stratified, so agreement is measured across attack types instead of on the
-# 85-96%-Benign traffic mix a prevalence-proportional draw would give. The draw depends
-# only on the test split and the seed, never on the model, so all four models are
-# compared on the *identical* instances - which is what makes the result a statement
-# about the two methods rather than about which rows each model happened to get.
+# Instances the agreement metrics are averaged over: a class-balanced sample of the test
+# partition (60 on UNSW-NB15, 6 per class; 56 on CIC-IDS2017, 8 per class), included whether or
+# not the model classifies them correctly. The draw depends only on the test partition and the
+# seed, so all four models of a dataset are compared on the same instances.
 _AGREEMENT_SAMPLE_SIZE = 60
 
-# Top-k values the heatmaps sweep. Krishna et al. vary k the same way (their Figure 2, where
-# agreement falls as k grows). k=1 is the mean of ~60 per-instance outcomes with a real
-# standard error - "how often do the two methods even name the same single most important
-# feature?", which is what an analyst reading the top driver of an alert cares about. k=10 is
-# the headline value. k=20 was dropped on 2026-10-02: the thesis reports only k = 1, 5, 10.
+# Top-k values reported; k = 10 is the headline value.
 _AGREEMENT_K_VALUES = (1, 5, 10)
-_AGREEMENT_HEADLINE_K = 10
 
 # Fixed row order for the heatmaps, so panels line up across datasets and metrics.
 _AGREEMENT_MODEL_ORDER = ("random_forest", "xgboost", "neural_network", "svm")
 
-# (dataset, model) pairs left out of the *local* agreement panel, with the measured reason.
-# Empty: every local cell is computed, including cic_ids2017/svm (~7 h for its 56 instances).
-# Kept as a mechanism because an omission that only lives in prose is invisible in the figure:
-# anything listed here is dropped from the heatmap rows *and* named in the panel's footnote.
+# (dataset, model) pairs to leave out of the local agreement analysis, each with a reason that is
+# printed in the heatmap footnote. Empty: every pair is computed.
 _AGREEMENT_EXCLUDED: dict[tuple[str, str], str] = {}
 
 
@@ -1013,8 +903,7 @@ def _partition_excluded(
 ) -> tuple[list[tuple[str, Path]], list[str]]:
     """Split (model, config) pairs into those to compute and a note per model left out.
 
-    Two reasons a model is left out: the permanent exclusion list _AGREEMENT_EXCLUDED (too
-    expensive to compute, with the measured cost as its reason), and an explicit `models` filter.
+    A model is left out if it is listed in _AGREEMENT_EXCLUDED or not in the `models` filter.
     """
     included: list[tuple[str, Path]] = []
     notes: list[str] = []
@@ -1035,12 +924,9 @@ def _align_attribution_columns(
 ) -> tuple[list[int], list[int], list[str]]:
     """Index maps putting SHAP and LIME attributions on one shared feature order.
 
-    SHAP is computed in the transformed space and collapsed back onto the raw columns
-    (proto/service/state summed from their one-hot dummies - see compute_shap_values);
-    LIME already works in the raw space, minus any zero-variance column it drops. For
-    this project's two datasets the name sets are identical (40 columns for UNSW-NB15, 59
-    for CIC-IDS2017; nothing is dropped), so this is a guard rather than a real
-    reconciliation - but a future dataset with a constant column would need it.
+    SHAP attributions are mapped back onto the raw columns (see compute_shap_values), and LIME
+    works on the raw columns minus any zero-variance column it drops. For both datasets the two
+    name sets are identical, so this is a safeguard.
     """
     shap_position = {name: index for index, name in enumerate(shap_feature_names)}
     lime_position = {name: index for index, name in enumerate(lime_columns)}
@@ -1062,15 +948,13 @@ def compute_explanation_attributions(
     """Compute and cache the per-instance SHAP and LIME attribution matrices one experiment
     contributes to the agreement heatmaps.
 
-    Writes metrics_dir/agreement/attributions/<experiment>.npz with two
-    [n_instances, n_features] signed matrices on a shared feature order, plus the feature
-    names, the test-set row index, and the class each instance was explained for. Cached
-    because svm's permutation SHAP costs ~90 s/instance on UNSW-NB15 and ~410 s on
-    CIC-IDS2017; with the cache the heatmaps redraw in seconds.
+    Writes metrics_dir/agreement/attributions/<experiment>.npz with two [n_instances, n_features]
+    signed matrices on a shared feature order, plus the feature names, the test-set row index and
+    the class each instance was explained for. The result is cached because the permutation
+    explainer is slow for the SVM.
 
-    Both methods explain the same class for a given instance - the predict_proba argmax,
-    which is what LIME's top_labels=1 selects - so the metrics compare two explanations of
-    one prediction, as Krishna et al. define them.
+    Both methods explain the same class for a given instance: the class with the highest
+    predicted probability (LIME's top_labels=1).
     """
     experiment, dataset_config, x_train, y_train, x_test, y_test = _load_experiment_and_data(
         experiment_config_path, dataset_config_dir
@@ -1099,9 +983,8 @@ def compute_explanation_attributions(
         random_state=random_state,
     )
 
-    # One LIME explainer for the whole loop - building it scans all of x_train.
-    # num_features = every column so the surrogate weight vector comes back dense rather
-    # than truncated to LIME's default top 8, which the top-k metrics need.
+    # One LIME explainer for all instances (building it scans x_train). num_features covers every
+    # column, so the full weight vector is returned rather than LIME's default top 8.
     lime_explainer, lime_predict_fn, lime_encode_instance, lime_columns = _build_lime_explainer(
         pipeline,
         x_train,
@@ -1172,15 +1055,10 @@ def generate_agreement_heatmaps(
     """Feature- and rank-agreement heatmaps between SHAP and LIME for one dataset.
 
     Rows are the dataset's models, columns are top-k values, and each cell is the metric
-    averaged over the shared class-balanced instance set. Krishna et al. draw one
-    method-by-method heatmap per model; this project has only two methods that produce
-    per-instance attributions (SHAP and LIME - permutation importance is global-only and
-    has no per-prediction explanation to compare), so the method pair is fixed and the
-    panel varies model and k instead.
-
-    Each cell is the mean over instances; the CSV adds the standard error (sample SD with
-    ddof=1 / sqrt(n)) and n. Ties in |attribution| are broken by feature name (see
-    agreement.ranked_feature_indices). Raises if any two models' cached instance sets differ.
+    averaged over the shared class-balanced instance set. The CSV adds the standard error
+    (sample SD with ddof=1, divided by sqrt(n)) and n. Ties in |attribution| are broken by
+    feature name (see agreement.ranked_feature_indices). Raises if two models' cached instance
+    sets differ.
 
     Returns {"feature": path, "rank": path, "csv": path}; the CSV has one row per (model, k):
     dataset, model, k, fa_mean, fa_se, ra_mean, ra_se, n.
@@ -1190,11 +1068,8 @@ def generate_agreement_heatmaps(
     )
     k_values = list(k_values)
 
-    # The class-balanced instance draw in compute_explanation_attributions is seeded from each
-    # experiment's own random_state, and the heatmap only means anything if every model is
-    # scored on the *same* rows (that is what makes it a statement about SHAP vs LIME rather
-    # than about which instances each model happened to get). Fail loudly if the configs
-    # disagree rather than silently comparing models on different samples.
+    # The instance draw is seeded from each experiment's random_state, and every model must be
+    # scored on the same instances, so the seeds must agree.
     seeds = {model: load_yaml(path).get("random_state", 42) for model, path in experiments}
     if len(set(seeds.values())) > 1:
         raise ValueError(

@@ -1,0 +1,225 @@
+dataset,model,instance_index,true_class,predicted_class,explained_class,correct,error_type,predict_disagrees_with_proba,feature_agreement@1,rank_agreement@1,sign_agreement@1,feature_agreement@5,rank_agreement@5,sign_agreement@5,feature_agreement@10,rank_agreement@10,sign_agreement@10,sign_disagreements_top10
+cic_ids2017,random_forest,113547,Benign,Benign,Benign,True,correct,False,0,0,0,0,0,0,0.5,0,0.4,1
+cic_ids2017,random_forest,302550,Benign,Benign,Benign,True,correct,False,0,0,0,0.4,0.2,0.2,0.4,0.2,0.3,1
+cic_ids2017,random_forest,346549,Benign,Benign,Benign,True,correct,False,0,0,0,0.2,0.2,0,0.5,0.1,0.3,2
+cic_ids2017,random_forest,467373,Benign,Benign,Benign,True,correct,False,0,0,0,0,0,0,0.4,0,0.4,0
+cic_ids2017,random_forest,85291,Benign,Benign,Benign,True,correct,False,0,0,0,0,0,0,0.4,0,0.3,1
+cic_ids2017,random_forest,163357,Benign,Benign,Benign,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.3,0
+cic_ids2017,random_forest,164030,Benign,Benign,Benign,True,correct,False,0,0,0,0,0,0,0.3,0,0.1,2
+cic_ids2017,random_forest,416451,Benign,Benign,Benign,True,correct,False,0,0,0,0.4,0,0.4,0.4,0,0.3,1
+cic_ids2017,random_forest,152053,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.4,0.2,0.4,0.4,0.1,0.3,1
+cic_ids2017,random_forest,465313,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.6,0,0.4,0.3,0,0.2,1
+cic_ids2017,random_forest,161862,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.4,0,0.2,0.3,0,0.2,1
+cic_ids2017,random_forest,211123,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.6,0,0.6,0.4,0,0.4,0
+cic_ids2017,random_forest,243469,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.2,0,0.2,0.4,0,0.3,1
+cic_ids2017,random_forest,393932,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.2,1
+cic_ids2017,random_forest,646094,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.4,0,0.2,0.4,0,0.3,1
+cic_ids2017,random_forest,378531,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.2,0,0.2,0.2,0,0.2,0
+cic_ids2017,random_forest,205927,Brute Force,Brute Force,Brute Force,True,correct,False,0,0,0,0.2,0,0.2,0.2,0,0.2,0
+cic_ids2017,random_forest,374916,Brute Force,Brute Force,Brute Force,True,correct,False,1,1,1,0.4,0.2,0.4,0.7,0.3,0.7,0
+cic_ids2017,random_forest,321183,Brute Force,Brute Force,Brute Force,True,correct,False,0,0,0,0.4,0,0.4,0.3,0,0.2,1
+cic_ids2017,random_forest,327289,Brute Force,Brute Force,Brute Force,True,correct,False,1,1,1,0.4,0.4,0.4,0.6,0.2,0.6,0
+cic_ids2017,random_forest,498323,Brute Force,Brute Force,Brute Force,True,correct,False,0,0,0,0.4,0,0.4,0.5,0,0.4,1
+cic_ids2017,random_forest,618680,Brute Force,Brute Force,Brute Force,True,correct,False,1,1,1,0.4,0.2,0.4,0.5,0.1,0.5,0
+cic_ids2017,random_forest,539801,Brute Force,Brute Force,Brute Force,True,correct,False,1,1,1,0.4,0.2,0.4,0.6,0.1,0.6,0
+cic_ids2017,random_forest,189257,Brute Force,Brute Force,Brute Force,True,correct,False,0,0,0,0.4,0,0.4,0.6,0.1,0.5,1
+cic_ids2017,random_forest,660471,Bot,Bot,Bot,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.3,0
+cic_ids2017,random_forest,113675,Bot,Bot,Bot,True,correct,False,0,0,0,0.4,0,0.4,0.3,0,0.3,0
+cic_ids2017,random_forest,255973,Bot,Bot,Bot,True,correct,False,0,0,0,0.4,0,0.4,0.3,0,0.3,0
+cic_ids2017,random_forest,44624,Bot,Bot,Bot,True,correct,False,1,1,1,0.4,0.2,0.4,0.3,0.1,0.3,0
+cic_ids2017,random_forest,611200,Bot,Bot,Bot,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.3,0
+cic_ids2017,random_forest,412208,Bot,Bot,Bot,True,correct,False,0,0,0,0.4,0,0.2,0.3,0,0.1,2
+cic_ids2017,random_forest,648761,Bot,Bot,Bot,True,correct,False,0,0,0,0.2,0,0,0.5,0.1,0.3,2
+cic_ids2017,random_forest,223702,Bot,Bot,Bot,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.3,0
+cic_ids2017,random_forest,658553,Web Attack,Web Attack,Web Attack,True,correct,False,1,1,1,0.2,0.2,0.2,0.4,0.1,0.4,0
+cic_ids2017,random_forest,397314,Web Attack,Web Attack,Web Attack,True,correct,False,1,1,1,0.4,0.2,0.4,0.4,0.1,0.4,0
+cic_ids2017,random_forest,502138,Web Attack,Web Attack,Web Attack,True,correct,False,1,1,1,0.4,0.2,0.4,0.3,0.1,0.3,0
+cic_ids2017,random_forest,311686,Web Attack,Web Attack,Web Attack,True,correct,False,1,1,1,0.4,0.2,0.4,0.3,0.1,0.3,0
+cic_ids2017,random_forest,87068,Web Attack,Web Attack,Web Attack,True,correct,False,1,1,1,0.2,0.2,0.2,0.4,0.1,0.4,0
+cic_ids2017,random_forest,462098,Web Attack,Web Attack,Web Attack,True,correct,False,1,1,1,0.4,0.2,0.4,0.3,0.1,0.3,0
+cic_ids2017,random_forest,611913,Web Attack,Web Attack,Web Attack,True,correct,False,1,1,1,0.4,0.2,0.4,0.4,0.1,0.3,1
+cic_ids2017,random_forest,414113,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0,0,0,0.4,0,0.3,1
+cic_ids2017,random_forest,578374,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0.6,0,0.6,0.6,0,0.6,0
+cic_ids2017,random_forest,302415,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0,0,0,0.3,0,0.3,0
+cic_ids2017,random_forest,570272,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0.2,0.2,0.2,0.6,0.1,0.6,0
+cic_ids2017,random_forest,366385,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0,0,0,0.2,0,0.2,0
+cic_ids2017,random_forest,216458,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0,0,0,0.3,0,0.3,0
+cic_ids2017,random_forest,86146,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.3,0
+cic_ids2017,random_forest,325070,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0,0,0,0.3,0,0.3,0
+cic_ids2017,random_forest,191868,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0,0,0,0.4,0,0.4,0
+cic_ids2017,random_forest,381947,Infiltration,Infiltration,Infiltration,True,correct,False,0,0,0,0.2,0,0.2,0.6,0,0.6,0
+cic_ids2017,random_forest,21572,Infiltration,Infiltration,Infiltration,True,correct,False,0,0,0,0.4,0,0.2,0.5,0,0.4,1
+cic_ids2017,random_forest,637955,Infiltration,Benign,Benign,False,false_negative,False,0,0,0,0.2,0,0.2,0.3,0,0.2,1
+cic_ids2017,random_forest,649935,Infiltration,Benign,Benign,False,false_negative,False,0,0,0,0.4,0,0,0.4,0,0.2,2
+cic_ids2017,random_forest,331793,Infiltration,Benign,Benign,False,false_negative,False,0,0,0,0.2,0,0.2,0.3,0,0.2,1
+cic_ids2017,random_forest,309832,Infiltration,Infiltration,Infiltration,True,correct,False,0,0,0,0.2,0,0.2,0.4,0,0.4,0
+cic_ids2017,random_forest,617620,Infiltration,Infiltration,Infiltration,True,correct,False,0,0,0,0.2,0,0.2,0.4,0,0.4,0
+cic_ids2017,random_forest,368305,Infiltration,Infiltration,Infiltration,True,correct,False,0,0,0,0.4,0,0.4,0.5,0.1,0.5,0
+cic_ids2017,xgboost,113547,Benign,Benign,Benign,True,correct,False,0,0,0,0.2,0,0.2,0.2,0,0.1,1
+cic_ids2017,xgboost,302550,Benign,Benign,Benign,True,correct,False,0,0,0,0.2,0,0,0.3,0,0.2,1
+cic_ids2017,xgboost,346549,Benign,Benign,Benign,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.2,1
+cic_ids2017,xgboost,467373,Benign,Benign,Benign,True,correct,False,0,0,0,0.4,0,0,0.4,0,0.1,3
+cic_ids2017,xgboost,85291,Benign,Benign,Benign,True,correct,False,0,0,0,0.2,0,0,0.3,0,0.1,2
+cic_ids2017,xgboost,163357,Benign,Benign,Benign,True,correct,False,0,0,0,0.2,0,0.2,0.2,0,0.2,0
+cic_ids2017,xgboost,164030,Benign,Benign,Benign,True,correct,False,0,0,0,0,0,0,0,0,0,0
+cic_ids2017,xgboost,416451,Benign,Benign,Benign,True,correct,False,0,0,0,0.2,0,0,0.1,0,0,1
+cic_ids2017,xgboost,152053,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0,0,0,0.1,0,0.1,0
+cic_ids2017,xgboost,465313,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.2,0,0.2,0.1,0,0.1,0
+cic_ids2017,xgboost,161862,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0,0,0,0.1,0,0.1,0
+cic_ids2017,xgboost,211123,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.2,0,0.2,0.2,0,0.2,0
+cic_ids2017,xgboost,243469,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0,0,0,0.4,0,0.4,0
+cic_ids2017,xgboost,393932,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.6,0,0.6,0.4,0,0.4,0
+cic_ids2017,xgboost,646094,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.2,0,0.2,0.2,0,0.2,0
+cic_ids2017,xgboost,378531,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.2,1
+cic_ids2017,xgboost,205927,Brute Force,Brute Force,Brute Force,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.2,1
+cic_ids2017,xgboost,374916,Brute Force,Brute Force,Brute Force,True,correct,False,0,0,0,0,0,0,0.3,0.1,0.3,0
+cic_ids2017,xgboost,321183,Brute Force,Brute Force,Brute Force,True,correct,False,0,0,0,0.6,0,0.6,0.4,0.1,0.4,0
+cic_ids2017,xgboost,327289,Brute Force,Brute Force,Brute Force,True,correct,False,0,0,0,0,0,0,0.3,0,0.3,0
+cic_ids2017,xgboost,498323,Brute Force,Brute Force,Brute Force,True,correct,False,0,0,0,0.4,0,0.4,0.4,0.1,0.3,1
+cic_ids2017,xgboost,618680,Brute Force,Brute Force,Brute Force,True,correct,False,0,0,0,0.2,0,0.2,0.4,0.1,0.4,0
+cic_ids2017,xgboost,539801,Brute Force,Brute Force,Brute Force,True,correct,False,0,0,0,0.4,0,0.4,0.3,0,0.3,0
+cic_ids2017,xgboost,189257,Brute Force,Brute Force,Brute Force,True,correct,False,0,0,0,0.6,0,0.6,0.3,0,0.3,0
+cic_ids2017,xgboost,660471,Bot,Bot,Bot,True,correct,False,0,0,0,0,0,0,0.4,0,0.3,1
+cic_ids2017,xgboost,113675,Bot,Bot,Bot,True,correct,False,0,0,0,0,0,0,0.4,0,0.4,0
+cic_ids2017,xgboost,255973,Bot,Bot,Bot,True,correct,False,0,0,0,0,0,0,0.4,0,0.2,2
+cic_ids2017,xgboost,44624,Bot,Bot,Bot,True,correct,False,0,0,0,0,0,0,0.2,0,0.2,0
+cic_ids2017,xgboost,611200,Bot,Bot,Bot,True,correct,False,0,0,0,0.2,0,0.2,0.4,0,0.3,1
+cic_ids2017,xgboost,412208,Bot,Bot,Bot,True,correct,False,0,0,0,0.2,0,0.2,0.2,0,0.2,0
+cic_ids2017,xgboost,648761,Bot,Bot,Bot,True,correct,False,0,0,0,0.2,0,0.2,0.2,0,0.1,1
+cic_ids2017,xgboost,223702,Bot,Bot,Bot,True,correct,False,0,0,0,0,0,0,0.3,0,0.2,1
+cic_ids2017,xgboost,658553,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.3,0
+cic_ids2017,xgboost,397314,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.3,0
+cic_ids2017,xgboost,502138,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0,0,0,0.3,0,0.3,0
+cic_ids2017,xgboost,311686,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.3,0
+cic_ids2017,xgboost,87068,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0.4,0,0.4,0.5,0.2,0.5,0
+cic_ids2017,xgboost,462098,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0.2,0,0.2,0.5,0,0.5,0
+cic_ids2017,xgboost,611913,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0,0,0,0.3,0,0.3,0
+cic_ids2017,xgboost,414113,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.3,0
+cic_ids2017,xgboost,578374,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0.4,0.2,0.4,0.2,0.1,0.2,0
+cic_ids2017,xgboost,302415,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0,0,0,0.2,0,0.2,0
+cic_ids2017,xgboost,570272,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0.2,0,0.2,0.3,0.1,0.3,0
+cic_ids2017,xgboost,366385,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.3,0
+cic_ids2017,xgboost,216458,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.3,0
+cic_ids2017,xgboost,86146,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0,0,0,0.5,0,0.4,1
+cic_ids2017,xgboost,325070,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.3,0
+cic_ids2017,xgboost,191868,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0,0,0,0.3,0,0.3,0
+cic_ids2017,xgboost,381947,Infiltration,Infiltration,Infiltration,True,correct,False,0,0,0,0.2,0,0.2,0.1,0,0.1,0
+cic_ids2017,xgboost,21572,Infiltration,Infiltration,Infiltration,True,correct,False,0,0,0,0,0,0,0.1,0,0.1,0
+cic_ids2017,xgboost,637955,Infiltration,Benign,Benign,False,false_negative,False,0,0,0,0.2,0.2,0,0.1,0.1,0,1
+cic_ids2017,xgboost,649935,Infiltration,Benign,Benign,False,false_negative,False,0,0,0,0,0,0,0.2,0,0,2
+cic_ids2017,xgboost,331793,Infiltration,Benign,Benign,False,false_negative,False,0,0,0,0.2,0,0,0.1,0,0,1
+cic_ids2017,xgboost,309832,Infiltration,Infiltration,Infiltration,True,correct,False,0,0,0,0,0,0,0.2,0,0.2,0
+cic_ids2017,xgboost,617620,Infiltration,Infiltration,Infiltration,True,correct,False,0,0,0,0,0,0,0.2,0,0.2,0
+cic_ids2017,xgboost,368305,Infiltration,Infiltration,Infiltration,True,correct,False,0,0,0,0,0,0,0.1,0,0.1,0
+cic_ids2017,neural_network,113547,Benign,Benign,Benign,True,correct,False,0,0,0,0.4,0,0.4,0.7,0,0.5,2
+cic_ids2017,neural_network,302550,Benign,Benign,Benign,True,correct,False,0,0,0,0.6,0,0.6,0.3,0,0.3,0
+cic_ids2017,neural_network,346549,Benign,Benign,Benign,True,correct,False,0,0,0,0.2,0,0.2,0.4,0,0.4,0
+cic_ids2017,neural_network,467373,Benign,Benign,Benign,True,correct,False,0,0,0,0.6,0,0.6,0.6,0,0.6,0
+cic_ids2017,neural_network,85291,Benign,Benign,Benign,True,correct,False,0,0,0,0.4,0.2,0.4,0.3,0.1,0.3,0
+cic_ids2017,neural_network,163357,Benign,Benign,Benign,True,correct,False,0,0,0,0.6,0.2,0.4,0.4,0.1,0.3,1
+cic_ids2017,neural_network,164030,Benign,Benign,Benign,True,correct,False,0,0,0,0,0,0,0.3,0,0.3,0
+cic_ids2017,neural_network,416451,Benign,Bot,Bot,False,false_positive,False,0,0,0,0,0,0,0.2,0,0.2,0
+cic_ids2017,neural_network,152053,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.4,0.2,0.4,0.5,0.2,0.5,0
+cic_ids2017,neural_network,465313,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.6,0.2,0.6,0.6,0.1,0.6,0
+cic_ids2017,neural_network,161862,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.4,0.2,0.4,0.7,0.1,0.6,1
+cic_ids2017,neural_network,211123,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.6,0.2,0.6,0.7,0.1,0.6,1
+cic_ids2017,neural_network,243469,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.4,0,0.4,0.5,0.1,0.5,0
+cic_ids2017,neural_network,393932,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.6,0.4,0.6,0.6,0.2,0.6,0
+cic_ids2017,neural_network,646094,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,1,1,1,0.6,0.2,0.6,0.7,0.2,0.7,0
+cic_ids2017,neural_network,378531,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.6,0.2,0.6,0.6,0.1,0.6,0
+cic_ids2017,neural_network,205927,Brute Force,Benign,Benign,False,false_negative,False,0,0,0,0.6,0,0.6,0.8,0.1,0.7,1
+cic_ids2017,neural_network,374916,Brute Force,Brute Force,Brute Force,True,correct,False,0,0,0,0.4,0.2,0.4,0.3,0.1,0.3,0
+cic_ids2017,neural_network,321183,Brute Force,Brute Force,Brute Force,True,correct,False,1,1,1,0.4,0.2,0.2,0.3,0.2,0.2,1
+cic_ids2017,neural_network,327289,Brute Force,Brute Force,Brute Force,True,correct,False,0,0,0,0.6,0,0.6,0.5,0,0.5,0
+cic_ids2017,neural_network,498323,Brute Force,Brute Force,Brute Force,True,correct,False,1,1,1,0.2,0.2,0.2,0.5,0.1,0.4,1
+cic_ids2017,neural_network,618680,Brute Force,Brute Force,Brute Force,True,correct,False,0,0,0,0.4,0,0.4,0.3,0,0.3,0
+cic_ids2017,neural_network,539801,Brute Force,Brute Force,Brute Force,True,correct,False,0,0,0,0.4,0,0.4,0.3,0,0.3,0
+cic_ids2017,neural_network,189257,Brute Force,Brute Force,Brute Force,True,correct,False,1,1,1,0.6,0.2,0.4,0.5,0.1,0.4,1
+cic_ids2017,neural_network,660471,Bot,Bot,Bot,True,correct,False,0,0,0,0.2,0,0.2,0.4,0.1,0.4,0
+cic_ids2017,neural_network,113675,Bot,Bot,Bot,True,correct,False,0,0,0,0,0,0,0.1,0,0.1,0
+cic_ids2017,neural_network,255973,Bot,Bot,Bot,True,correct,False,0,0,0,0.2,0,0.2,0.3,0,0.2,1
+cic_ids2017,neural_network,44624,Bot,Bot,Bot,True,correct,False,0,0,0,0.4,0,0.4,0.2,0,0.2,0
+cic_ids2017,neural_network,611200,Bot,Bot,Bot,True,correct,False,0,0,0,0,0,0,0.1,0,0.1,0
+cic_ids2017,neural_network,412208,Bot,Bot,Bot,True,correct,False,0,0,0,0,0,0,0.4,0,0.4,0
+cic_ids2017,neural_network,648761,Bot,Bot,Bot,True,correct,False,0,0,0,0,0,0,0.2,0,0.2,0
+cic_ids2017,neural_network,223702,Bot,Bot,Bot,True,correct,False,0,0,0,0,0,0,0.1,0,0.1,0
+cic_ids2017,neural_network,658553,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0.6,0.2,0.6,0.4,0.1,0.4,0
+cic_ids2017,neural_network,397314,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0.6,0,0.6,0.4,0,0.4,0
+cic_ids2017,neural_network,502138,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0.6,0,0.6,0.3,0,0.3,0
+cic_ids2017,neural_network,311686,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0.6,0,0.6,0.4,0,0.4,0
+cic_ids2017,neural_network,87068,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0.6,0,0.6,0.4,0,0.4,0
+cic_ids2017,neural_network,462098,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0.6,0.2,0.6,0.6,0.1,0.6,0
+cic_ids2017,neural_network,611913,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0.4,0,0.4,0.2,0,0.2,0
+cic_ids2017,neural_network,414113,Web Attack,Web Attack,Web Attack,True,correct,False,0,0,0,0.4,0,0.4,0.2,0,0.2,0
+cic_ids2017,neural_network,578374,PortScan,DoS/DDoS,DoS/DDoS,False,attack_confusion,False,0,0,0,0.6,0,0.6,0.6,0.1,0.5,1
+cic_ids2017,neural_network,302415,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0.2,0,0.2,0.7,0,0.6,1
+cic_ids2017,neural_network,570272,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0.4,0.2,0.4,0.5,0.1,0.5,0
+cic_ids2017,neural_network,366385,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0.4,0,0.4,0.4,0,0.4,0
+cic_ids2017,neural_network,216458,PortScan,PortScan,PortScan,True,correct,False,1,1,1,0.4,0.4,0.4,0.5,0.2,0.4,1
+cic_ids2017,neural_network,86146,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0.2,0,0.2,0.6,0,0.5,1
+cic_ids2017,neural_network,325070,PortScan,DoS/DDoS,DoS/DDoS,False,attack_confusion,False,0,0,0,0.6,0,0.6,0.5,0.1,0.5,0
+cic_ids2017,neural_network,191868,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0.4,0.2,0.4,0.5,0.2,0.5,0
+cic_ids2017,neural_network,381947,Infiltration,Infiltration,Infiltration,True,correct,False,0,0,0,0.2,0.2,0.2,0.3,0.1,0.3,0
+cic_ids2017,neural_network,21572,Infiltration,Infiltration,Infiltration,True,correct,False,0,0,0,0.6,0,0.6,0.6,0,0.6,0
+cic_ids2017,neural_network,637955,Infiltration,Benign,Benign,False,false_negative,False,0,0,0,0.4,0,0.4,0.4,0,0.3,1
+cic_ids2017,neural_network,649935,Infiltration,Infiltration,Infiltration,True,correct,False,0,0,0,0,0,0,0.2,0,0.2,0
+cic_ids2017,neural_network,331793,Infiltration,Brute Force,Brute Force,False,attack_confusion,False,0,0,0,0.2,0.2,0.2,0.4,0.1,0.4,0
+cic_ids2017,neural_network,309832,Infiltration,Infiltration,Infiltration,True,correct,False,0,0,0,0.6,0,0.6,0.6,0.1,0.6,0
+cic_ids2017,neural_network,617620,Infiltration,Infiltration,Infiltration,True,correct,False,0,0,0,0.4,0,0.4,0.6,0,0.5,1
+cic_ids2017,neural_network,368305,Infiltration,Infiltration,Infiltration,True,correct,False,0,0,0,0.4,0,0.4,0.6,0,0.6,0
+cic_ids2017,svm,113547,Benign,Benign,Benign,True,correct,False,0,0,0,0.4,0,0.4,0.6,0.1,0.6,0
+cic_ids2017,svm,302550,Benign,Bot,Benign,False,false_positive,True,0,0,0,0.8,0,0.8,0.7,0,0.7,0
+cic_ids2017,svm,346549,Benign,Benign,Benign,True,correct,False,0,0,0,0.4,0,0.4,0.4,0,0.3,1
+cic_ids2017,svm,467373,Benign,Benign,Benign,True,correct,False,0,0,0,0.6,0,0.6,0.7,0.1,0.7,0
+cic_ids2017,svm,85291,Benign,Benign,Benign,True,correct,False,0,0,0,0.6,0,0.6,0.6,0.1,0.6,0
+cic_ids2017,svm,163357,Benign,Benign,Benign,True,correct,False,0,0,0,0.8,0,0.8,0.6,0,0.6,0
+cic_ids2017,svm,164030,Benign,Benign,Benign,True,correct,False,1,1,1,0.4,0.4,0.4,0.4,0.2,0.4,0
+cic_ids2017,svm,416451,Benign,Bot,Benign,False,false_positive,True,0,0,0,0.6,0,0.6,0.4,0,0.4,0
+cic_ids2017,svm,152053,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.4,0.2,0.4,0.5,0.1,0.5,0
+cic_ids2017,svm,465313,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.8,0.6,0.8,0.7,0.4,0.7,0
+cic_ids2017,svm,161862,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,1,1,1,0.4,0.4,0.4,0.6,0.2,0.6,0
+cic_ids2017,svm,211123,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,1,1,1,0.6,0.4,0.6,0.6,0.3,0.6,0
+cic_ids2017,svm,243469,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.4,0.2,0.4,0.5,0.1,0.5,0
+cic_ids2017,svm,393932,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,1,1,1,0.8,0.4,0.8,0.7,0.4,0.7,0
+cic_ids2017,svm,646094,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,0,0,0,0.6,0,0.6,0.7,0,0.7,0
+cic_ids2017,svm,378531,DoS/DDoS,DoS/DDoS,DoS/DDoS,True,correct,False,1,1,1,0.6,0.2,0.6,0.6,0.1,0.6,0
+cic_ids2017,svm,205927,Brute Force,Web Attack,Benign,False,attack_confusion,True,0,0,0,0.4,0,0.4,0.5,0,0.5,0
+cic_ids2017,svm,374916,Brute Force,Brute Force,Benign,True,correct,True,1,1,1,0.4,0.2,0.4,0.4,0.1,0.4,0
+cic_ids2017,svm,321183,Brute Force,Brute Force,Benign,True,correct,True,0,0,0,0.6,0.4,0.6,0.6,0.2,0.6,0
+cic_ids2017,svm,327289,Brute Force,Brute Force,Benign,True,correct,True,0,0,0,0.4,0.2,0.4,0.5,0.1,0.5,0
+cic_ids2017,svm,498323,Brute Force,Brute Force,Benign,True,correct,True,0,0,0,0.6,0,0.6,0.5,0,0.5,0
+cic_ids2017,svm,618680,Brute Force,Brute Force,Benign,True,correct,True,0,0,0,0.2,0,0.2,0.4,0,0.4,0
+cic_ids2017,svm,539801,Brute Force,Brute Force,Benign,True,correct,True,0,0,0,0.6,0,0.6,0.6,0.1,0.6,0
+cic_ids2017,svm,189257,Brute Force,Brute Force,Benign,True,correct,True,0,0,0,0.4,0.2,0.4,0.5,0.1,0.5,0
+cic_ids2017,svm,660471,Bot,Bot,Benign,True,correct,True,0,0,0,0.6,0.2,0.6,0.5,0.2,0.5,0
+cic_ids2017,svm,113675,Bot,Bot,Benign,True,correct,True,0,0,0,0.6,0,0.6,0.4,0,0.4,0
+cic_ids2017,svm,255973,Bot,Bot,Benign,True,correct,True,0,0,0,0.6,0.2,0.6,0.5,0.2,0.5,0
+cic_ids2017,svm,44624,Bot,Bot,Bot,True,correct,False,0,0,0,0.2,0,0.2,0.4,0.2,0.4,0
+cic_ids2017,svm,611200,Bot,Bot,Benign,True,correct,True,0,0,0,0.6,0.4,0.6,0.6,0.2,0.6,0
+cic_ids2017,svm,412208,Bot,Bot,Benign,True,correct,True,0,0,0,0.8,0.4,0.8,0.6,0.2,0.6,0
+cic_ids2017,svm,648761,Bot,Bot,Benign,True,correct,True,0,0,0,0.8,0.2,0.8,0.6,0.1,0.6,0
+cic_ids2017,svm,223702,Bot,Bot,Benign,True,correct,True,0,0,0,0.6,0.2,0.6,0.6,0.1,0.6,0
+cic_ids2017,svm,658553,Web Attack,Web Attack,Benign,True,correct,True,0,0,0,0.4,0.2,0.4,0.7,0.1,0.7,0
+cic_ids2017,svm,397314,Web Attack,Web Attack,Benign,True,correct,True,0,0,0,0.6,0.2,0.6,0.6,0.1,0.6,0
+cic_ids2017,svm,502138,Web Attack,Web Attack,Benign,True,correct,True,0,0,0,0.4,0.2,0.4,0.6,0.1,0.6,0
+cic_ids2017,svm,311686,Web Attack,Web Attack,Benign,True,correct,True,0,0,0,0.4,0.4,0.4,0.5,0.2,0.5,0
+cic_ids2017,svm,87068,Web Attack,Web Attack,Benign,True,correct,True,0,0,0,0.6,0.2,0.6,0.7,0.1,0.6,1
+cic_ids2017,svm,462098,Web Attack,Web Attack,Benign,True,correct,True,0,0,0,0.6,0.2,0.6,0.7,0.1,0.7,0
+cic_ids2017,svm,611913,Web Attack,Web Attack,Benign,True,correct,True,0,0,0,0.6,0,0.4,0.5,0,0.4,1
+cic_ids2017,svm,414113,Web Attack,Web Attack,Benign,True,correct,True,0,0,0,0.6,0,0.6,0.4,0,0.4,0
+cic_ids2017,svm,578374,PortScan,PortScan,DoS/DDoS,True,correct,True,0,0,0,0.2,0.2,0.2,0.6,0.1,0.5,1
+cic_ids2017,svm,302415,PortScan,PortScan,Benign,True,correct,True,0,0,0,0.6,0,0.6,0.5,0.1,0.5,0
+cic_ids2017,svm,570272,PortScan,PortScan,Benign,True,correct,True,1,1,1,0.4,0.2,0.4,0.5,0.1,0.4,1
+cic_ids2017,svm,366385,PortScan,PortScan,PortScan,True,correct,False,0,0,0,0.2,0,0.2,0.5,0,0.5,0
+cic_ids2017,svm,216458,PortScan,PortScan,Benign,True,correct,True,0,0,0,0.6,0,0.6,0.6,0,0.6,0
+cic_ids2017,svm,86146,PortScan,PortScan,Benign,True,correct,True,0,0,0,0.4,0,0.4,0.5,0,0.5,0
+cic_ids2017,svm,325070,PortScan,DoS/DDoS,DoS/DDoS,False,attack_confusion,False,0,0,0,0.4,0,0.4,0.4,0,0.4,0
+cic_ids2017,svm,191868,PortScan,PortScan,Benign,True,correct,True,1,1,1,0.6,0.2,0.6,0.6,0.1,0.5,1
+cic_ids2017,svm,381947,Infiltration,Infiltration,Benign,True,correct,True,0,0,0,0.2,0,0.2,0.4,0,0.3,1
+cic_ids2017,svm,21572,Infiltration,Infiltration,Benign,True,correct,True,1,1,1,0.6,0.4,0.6,0.6,0.2,0.6,0
+cic_ids2017,svm,637955,Infiltration,Benign,Benign,False,false_negative,False,1,1,1,0.6,0.2,0.6,0.6,0.1,0.6,0
+cic_ids2017,svm,649935,Infiltration,Benign,Benign,False,false_negative,False,0,0,0,0.2,0.2,0.2,0.2,0.1,0.2,0
+cic_ids2017,svm,331793,Infiltration,Bot,Benign,False,attack_confusion,True,0,0,0,0.6,0.4,0.6,0.5,0.3,0.5,0
+cic_ids2017,svm,309832,Infiltration,Infiltration,Benign,True,correct,True,1,1,1,0.8,0.6,0.8,0.6,0.3,0.6,0
+cic_ids2017,svm,617620,Infiltration,Infiltration,Benign,True,correct,True,0,0,0,0.4,0,0.4,0.6,0,0.6,0
+cic_ids2017,svm,368305,Infiltration,Infiltration,Benign,True,correct,True,0,0,0,0.4,0,0.4,0.6,0,0.6,0

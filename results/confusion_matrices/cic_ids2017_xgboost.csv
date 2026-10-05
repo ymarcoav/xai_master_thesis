@@ -1,0 +1,8 @@
+true_class,Benign,Bot,Brute Force,DoS/DDoS,Infiltration,PortScan,Web Attack
+Benign,567743,431,9,201,3,39,18
+Bot,4,428,0,0,0,0,0
+Brute Force,0,0,2743,0,0,0,1
+DoS/DDoS,16,0,0,96452,0,5,4
+Infiltration,4,0,0,0,7,0,0
+PortScan,5,0,0,9,0,571,2
+Web Attack,7,0,0,0,0,0,636

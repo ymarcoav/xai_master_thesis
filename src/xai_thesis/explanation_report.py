@@ -1,40 +1,32 @@
-"""Tables behind the thesis's explanation results.
+"""Tables behind the explanation results reported in the thesis.
 
-Everything here is read from caches the pipeline already wrote - nothing is recomputed:
+Everything is read from caches the pipeline has already written; nothing is recomputed:
 
-  global  outputs/metrics/global_importance/<experiment>__{shap,pfi}.npz - the global SHAP
-          importance (mean |SHAP| over instances and classes) and permutation feature importance
-          (macro-F1 drop, 10 repeats) behind each model's shap_bar.png / permutation_importance.png,
-          both on the same class-balanced test sample (total=500, random_state=42).
+  global  outputs/metrics/global_importance/<experiment>__{shap,pfi}.npz - global SHAP importance
+          (mean |SHAP| over instances and classes) and permutation feature importance (macro-F1
+          drop, 10 repeats), both on the same class-balanced test sample.
   local   outputs/metrics/agreement/attributions/<experiment>.npz - the signed per-instance SHAP
-          and LIME vectors of the agreement instance set (class-balanced, total=60: 60 UNSW-NB15 /
-          56 CIC-IDS2017 rows, identical for every model), plus
+          and LIME attributions of the agreement instance set (60 UNSW-NB15 / 56 CIC-IDS2017
+          instances, the same for every model), plus
           outputs/metrics/stimuli/<dataset>_error_profile.csv for each instance's true and
           predicted class.
 
 The global table lists each method's top 10 per model; the only global comparison is the number
-of features the SHAP and PFI top 10s share (feature agreement at k = 10, global_overlap_table).
-The systematic agreement analysis is local, SHAP vs LIME (feature and rank agreement,
-src/xai_thesis/agreement.py).
+of features shared by the SHAP and permutation importance top 10s (global_overlap_table). The
+local comparison is SHAP vs LIME feature and rank agreement (agreement.py).
 
-All tables are on the raw (pre-encoding) features: SHAP is computed on the one-hot encoded
-columns and summed back onto proto/service/state, while LIME and permutation importance already
-work on raw columns - 40 features for UNSW-NB15, 59 for CIC-IDS2017.
+All tables use the raw (pre-encoding) features: 40 for UNSW-NB15, 59 for CIC-IDS2017.
 
-Ordering. Local attributions are ranked by |value| with ties broken by feature name
+Ordering. Local attributions are ranked by |value|, ties broken by feature name
 (agreement.ranked_feature_indices), so every top-k set here is the one the agreement metrics
-score. Global importances are ranked by value, descending, ties by feature name: mean |SHAP| is
-non-negative, and a negative permutation importance (shuffling the feature slightly improved
-macro-F1) means no measurable importance, so it ranks below zero rather than by its magnitude.
-Ranks are 1-based.
+score. Global importances are ranked by value, descending, ties by feature name; a negative
+permutation importance means no measurable importance and ranks below zero. Ranks are 1-based.
 
-Sign (local only) - both methods explain the same class per instance (the predict_proba argmax),
-so a positive value pushes toward that class and a negative one against it. LIME runs with
-discretized features, so its sign says whether the instance's quartile bin for that feature
-pushes toward the class, while SHAP's is relative to the background sample - comparable in
-direction, not identical in meaning. Sign agreement is Krishna et al.'s definition: the fraction
-of the top-k features that are in both top-k sets *and* carry the same sign. It is a supplementary
-per-instance column, not one of the thesis's two agreement metrics.
+Sign (local only). Both methods explain the same class per instance (the most probable class),
+so a positive value pushes toward that class. LIME uses discretized features, so its sign refers
+to the instance's quartile bin, while SHAP's is relative to the background sample. Sign agreement
+(Krishna et al.) is the share of the top-k features that are in both top-k sets and carry the
+same sign; it is a supplementary column, not one of the two agreement metrics.
 """
 
 from __future__ import annotations
@@ -51,7 +43,6 @@ from xai_thesis.agreement import agreement_fraction, ranked_feature_indices, sum
 logger = logging.getLogger(__name__)
 
 GLOBAL_METHODS = {"shap": "SHAP", "pfi": "PFI"}
-LOCAL_METHODS = ("shap", "lime")
 REPORT_K_VALUES = (1, 5, 10)
 TOP_N = 10
 

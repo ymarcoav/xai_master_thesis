@@ -48,9 +48,7 @@ def _fitted_pipeline(model_name: str, x, y, random_state: int = 42, categorical_
 
 
 def _fitted_pipeline_without_predict_proba(x, y, random_state: int = 42) -> Pipeline:
-    # No model currently in the catalog lacks predict_proba (see models.py), but the
-    # fallback that handles that case is kept as generic infrastructure, so it's tested
-    # directly against a raw margin-only classifier rather than through build_model.
+    # A classifier without predict_proba, to test the softmax(decision_function) fallback.
     preprocessing = build_preprocessing_pipeline(x, categorical_columns=[])
     model = LinearSVC(random_state=random_state, class_weight="balanced")
     pipeline = Pipeline(steps=[("preprocessing", preprocessing), ("model", model)])
@@ -134,17 +132,9 @@ def test_compute_shap_values_collapses_one_hot_columns_and_restores_original_val
 
 
 def test_compute_shap_values_expands_binary_classifier_to_per_class_shape() -> None:
-    # TreeExplainer collapses a binary classifier's output to a single raw-margin column
-    # (unlike the always-per-class multiclass case, or the permutation explainer's
-    # predict_proba-based path), which crashed downstream shape-dependent code the first time
-    # this project trained on real binary-labeled data. Only exercised by margin/log-odds-space
-    # explainers - xgboost is currently the only one left in the catalog (gradient_boosting and
-    # logistic_regression's LinearExplainer used to as well, before both were removed - see
-    # models.py). random_forest does NOT hit this path and so can't be used here instead: its
-    # TreeExplainer output for a binary problem is already 3D / already per-class
-    # (expected_value already something like [0.4996, 0.5004], summing to 1 like real
-    # complementary probabilities, not a negated pair) - verified directly, not assumed -
-    # so _expand_binary_class_dimension's ndim==3 early-exit correctly skips it entirely.
+    # For a binary problem, TreeExplainer returns a single log-odds column for XGBoost; the
+    # result must still have one column per class. (The random forest's output is already per
+    # class, so it does not exercise this path.)
     model_name = "xgboost"
     x, y = _make_dataset(n_classes=2)
     pipeline = _fitted_pipeline(model_name, x, y)

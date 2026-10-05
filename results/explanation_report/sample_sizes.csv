@@ -1,0 +1,39 @@
+dataset,sample,class,n
+unsw_nb15,local,Analysis,6
+unsw_nb15,local,Backdoor,6
+unsw_nb15,local,Benign,6
+unsw_nb15,local,DoS,6
+unsw_nb15,local,Exploits,6
+unsw_nb15,local,Fuzzers,6
+unsw_nb15,local,Generic,6
+unsw_nb15,local,Reconnaissance,6
+unsw_nb15,local,Shellcode,6
+unsw_nb15,local,Worms,6
+unsw_nb15,local,ALL,60
+unsw_nb15,global,Analysis,50
+unsw_nb15,global,Backdoor,50
+unsw_nb15,global,Benign,50
+unsw_nb15,global,DoS,50
+unsw_nb15,global,Exploits,50
+unsw_nb15,global,Fuzzers,50
+unsw_nb15,global,Generic,50
+unsw_nb15,global,Reconnaissance,50
+unsw_nb15,global,Shellcode,50
+unsw_nb15,global,Worms,50
+unsw_nb15,global,ALL,500
+cic_ids2017,local,Benign,8
+cic_ids2017,local,Bot,8
+cic_ids2017,local,Brute Force,8
+cic_ids2017,local,DoS/DDoS,8
+cic_ids2017,local,Infiltration,8
+cic_ids2017,local,PortScan,8
+cic_ids2017,local,Web Attack,8
+cic_ids2017,local,ALL,56
+cic_ids2017,global,Benign,71
+cic_ids2017,global,Bot,71
+cic_ids2017,global,Brute Force,71
+cic_ids2017,global,DoS/DDoS,71
+cic_ids2017,global,Infiltration,11
+cic_ids2017,global,PortScan,71
+cic_ids2017,global,Web Attack,71
+cic_ids2017,global,ALL,437

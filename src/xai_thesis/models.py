@@ -1,3 +1,5 @@
+"""Model catalog: factories for the four classifiers and their hyperparameter search spaces."""
+
 from collections.abc import Callable
 from typing import Any
 
@@ -11,23 +13,15 @@ from xai_thesis.torch_mlp import TorchMLPClassifier
 
 
 class _StringLabelXGBClassifier(_XGBClassifier):
-    """XGBClassifier as of xgboost>=1.6 requires y already integer-encoded 0..n_classes-1 and
-    raises ValueError otherwise (verified directly against the installed xgboost 3.4.1: fitting
-    on this project's raw string labels, e.g. "Benign"/"Analysis", fails outright) - unlike
-    every other model in this catalog, which is fit on those raw string labels straight from
-    preprocessing.py's split_features_target, with .classes_ exposing them as-is afterward
-    (evaluate_classifier, compute_shap_values, select_curated_instances and the class-name
-    lookups in pipeline.py all assume this). This subclass (not a wrapper - shap.TreeExplainer needs to
-    recognize the object directly, verified) label-encodes internally so it's a drop-in
-    replacement matching that same string-label contract.
+    """XGBClassifier that accepts string class labels, like the other models in the catalog.
 
-    Ordering matters in fit(): xgboost's own fit() validates np.unique(y) against self.classes_
-    (a read-only property) *during* the call, so the encoder must not be visible on self yet at
-    that point - it's assigned to self._label_encoder only after super().fit() returns
-    successfully, and the classes_ property below falls back to the base (integer-arange)
-    behavior via super().classes_ until then. Setting self._label_encoder up front instead
-    would make classes_ report strings while xgboost's own internal check still expects the
-    encoded integers, reproducing the exact ValueError this exists to avoid.
+    XGBClassifier requires labels encoded as 0..n_classes-1. This subclass encodes them in fit()
+    and decodes them in predict(), so classes_ exposes the original label strings. It is a
+    subclass rather than a wrapper so that shap.TreeExplainer still recognizes the model.
+
+    The encoder is attached only after super().fit() returns: xgboost validates the labels
+    against classes_ during fit(), and at that point classes_ must still report the encoded
+    integers.
     """
 
     def fit(self, X, y, **kwargs: Any) -> "_StringLabelXGBClassifier":
@@ -45,87 +39,22 @@ class _StringLabelXGBClassifier(_XGBClassifier):
         return self._label_encoder.inverse_transform(super().predict(X, **kwargs).astype(int))
 
 
-# neural_network is TorchMLPClassifier (see torch_mlp.py), a small PyTorch MLP that takes a
-# per-class weight vector in nn.CrossEntropyLoss using the same n/(k*count_c) formula
-# class_weight="balanced" applies below - so random_forest, svm, xgboost and the MLP now all
-# handle imbalance by reweighting the objective, none by resampling rows. (It replaced
-# sklearn's MLPClassifier, which has no class_weight/sample_weight support and so had forced a
-# bespoke resample-to-median-class-count path, since removed.)
+# All four models handle class imbalance by reweighting the training objective with the
+# scikit-learn "balanced" weights n / (k * count_c); none resamples rows.
+#   - random_forest, svm: class_weight="balanced".
+#   - neural_network: TorchMLPClassifier applies the same per-class weights in its
+#     cross-entropy loss (see torch_mlp.py).
+#   - xgboost: has no class_weight parameter; pipeline.py passes the equivalent per-sample
+#     weights to fit().
 #
-# ⚠️ logistic_regression and gradient_boosting removed entirely 2026-08-24 (explicit user
-# request) - both had been flagged out-of-scope-but-functional since 2026-08-09 and archived
-# 2026-08-17, then removed outright rather than kept around unused. Their model factory
-# entries, tuning grids, archived configs/models/metrics/plots, and every
-# now-dead code path (explainability.py's LinearExplainer branch, _TREE_MODELS entry) were
-# deleted, not just hidden. Historical comments elsewhere in this project that reference
-# results from these two models are kept as-is - they document real findings from when those
-# models existed, not a claim that the models are still in the catalog.
+# svm uses a linear kernel, matching the configuration evaluated by Arreche et al. (2024); only
+# C is searched. probability=True enables predict_proba, which the explanation methods require;
+# it is overridable so that the hyperparameter search, which only calls predict(), can skip the
+# costly probability calibration. max_iter is a safety cap that bounds the run time of a fit
+# that fails to converge; it does not affect fits that converge normally.
 #
-# ⚠️ xgboost added 2026-08-24; in scope for the thesis's own reported results (corrected
-# 2026-08-27 - this comment previously called it out-of-scope-but-functional, which was wrong
-# as of this date). Unlike every other model here, XGBClassifier has no class_weight
-# constructor param at all (not even an unsupported one to omit - it simply isn't in
-# xgboost's sklearn API), only per-sample weights at fit() time.
-# pipeline.py's _MODELS_REQUIRING_SAMPLE_WEIGHT computes those via
-# sklearn.utils.class_weight.compute_sample_weight("balanced", y) - mathematically the same
-# per-class weighting class_weight="balanced" applies internally for the other models, and the
-# same n/(k*count_c) weights TorchMLPClassifier feeds to nn.CrossEntropyLoss - and passes them
-# through at fit time. All four models now reweight the objective; none resample rows. (A
-# smote_balance_classes experiment for the old MLPClassifier resampling path was tried and
-# reverted; that whole path is gone now.) tree_method="hist" and eval_metric="mlogloss" are fixed for speed/determinism
-# on this project's largest datasets (~2M rows) and to silence an eval_metric-at-fit-time
-# deprecation warning respectively; neither is searched.
-#
-# random_forest was previously dropped from the catalog (shared gradient_boosting's
-# tree-ensemble family and TreeExplainer, with near-highest cross-model SHAP agreement of
-# any pair in this project, while underperforming it - gradient_boosting has since been
-# removed entirely, see above) - re-added by explicit request despite that redundancy
-# concern still applying.
-#
-# svm here means SVC with a linear kernel, not the LinearSVC previously tried under this same
-# catalog key and dropped for substantially worse macro-F1 than the other models. kernel stays
-# fixed to match an external reference configuration exactly and is not searched; C is tuned
-# via this project's usual RandomizedSearchCV as of 2026-08-09 (PARAM_DISTRIBUTIONS below) -
-# the reference's own C=0.5 is kept only as tune_hyperparameters()'s starting model_params,
-# overwritten once a search actually runs. An earlier RBF-kernel attempt was abandoned after
-# measuring ~5.5 minutes for a single untuned fit on UNSW-NB15 alone (~101k rows) - the linear
-# kernel was adopted for tractability as much as to match the reference.
-#
-# 2026-08-24: revisited RBF specifically to fix a taxonomy inconsistency (a linear-kernel SVM
-# is a linear decision function in the input space, same family as the removed
-# logistic_regression) - abandoned again after ~46 min of active (confirmed non-hung, CPU
-# climbing) RandomizedSearchCV time on just a 40k-row UNSW-NB15 subsample without finishing a
-# single search, worse than the original linear-kernel search took on 5x the rows (200k). The
-# taxonomy inconsistency is real but accepted; the compute cost isn't worth it for this
-# project's scope.
-#
-# probability defaults to True (matching the reference configuration) but is deliberately left
-# overridable via **kwargs (hence not hardcoded after it below, unlike every other fixed
-# setting here) rather than baked in unconditionally: tune_hyperparameters() in pipeline.py
-# passes probability=False during the search phase specifically, since RandomizedSearchCV's
-# f1_macro scoring only ever calls .predict(), never .predict_proba() - Platt-scaling
-# calibration is pure overhead there. probability=True is restored for the final fit in
-# run_experiment() (every experiment config's model_params has no "probability" key, so the
-# True default applies), which is the only place it's actually needed, for the explanation
-# pipeline's predict_proba calls. sklearn 1.9 deprecates this parameter in favor of wrapping
-# with CalibratedClassifierCV, but it still works and is simpler to keep matching the
-# reference's stated configuration directly.
-#
-# max_iter=50_000 is a hard safety cap, not a modeling choice - discovered necessary the hard
-# way: an early attempt at tuning C via RandomizedSearchCV (unsw_nb15, C candidates up to 100)
-# hung for over 19 hours of CPU time on what should have been a multi-minute fit, almost
-# certainly libsvm's QP solver failing to converge for some (C, fold) combination under
-# class_weight="balanced"'s extreme per-sample weights on this project's severely imbalanced
-# data - the same class of failure already documented for the (now-removed) gradient_boosting
-# model's l2_regularization=0 incident (see the xgboost reg_lambda comment in
-# PARAM_DISTRIBUTIONS below for the full story), just silent instead of producing an
-# obviously-bad model. Without a cap, sklearn's default (-1, unlimited) has no way to fail fast
-# on a pathological fit - it can only hang. With the cap, a fit that would have hung instead
-# stops early with a ConvergenceWarning and returns whatever (possibly suboptimal) solution it
-# had reached, which is a far better failure mode for an automated search loop that may run
-# many fits unattended. 50,000 is generous headroom above every fit observed to actually
-# converge normally (a handful of minutes each), while still bounding worst-case time to
-# something finite.
+# xgboost: tree_method="hist" for speed on the large training partitions; eval_metric is set to
+# avoid a deprecation warning. Neither is searched.
 _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
     "neural_network": lambda random_state, **kwargs: TorchMLPClassifier(random_state=random_state, **kwargs),
     "random_forest": lambda random_state, **kwargs: RandomForestClassifier(
@@ -143,16 +72,15 @@ _MODEL_FACTORIES: dict[str, Callable[..., ClassifierMixin]] = {
     ),
 }
 
-# Hyperparameter search spaces for RandomizedSearchCV, keyed by model name. Parameter names
-# are prefixed "model__" to match the ("model", ...) step name in the sklearn Pipeline that
-# wraps preprocessing + model together (see pipeline.py).
+# Search spaces for RandomizedSearchCV, keyed by model name. The "model__" prefix addresses the
+# ("model", ...) step of the preprocessing + model Pipeline built in pipeline.py.
+#
+# neural_network: learning rates are kept small because larger ones are unstable under the
+# strong class weights. svm: only C is searched (gamma has no effect on a linear kernel); the
+# grid stops at 10 because larger values combined with the class weights converge very slowly.
+# xgboost: reg_lambda starts at 0.1 because unregularized boosting under extreme sample weights
+# can degenerate.
 PARAM_DISTRIBUTIONS: dict[str, dict[str, list[Any]]] = {
-    # learning_rate_init range shifted down (was up to 0.05) and batch_size added when
-    # neural_network became a from-scratch minibatch PyTorch MLP (TorchMLPClassifier): the
-    # old top-of-range 0.05, fine for MLPClassifier's adam, is unstable here against the
-    # strong class weights (a first retune with the old grid picked lr=0.05 on CIC-IDS2017
-    # and collapsed to 0.52 accuracy / 0.22 macro-F1). max_iter/early_stopping stay in the
-    # experiment configs, not searched.
     "neural_network": {
         "model__hidden_layer_sizes": [(50,), (100,), (100, 50), (128, 64), (256, 128), (256, 128, 64)],
         "model__alpha": [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1],
@@ -166,27 +94,9 @@ PARAM_DISTRIBUTIONS: dict[str, dict[str, list[Any]]] = {
         "model__min_samples_leaf": [1, 2, 5, 10, 20],
         "model__min_samples_split": [2, 5, 10, 20],
     },
-    # C is the only thing searched: kernel="linear" and probability=True stay fixed to match
-    # the external reference configuration (see _MODEL_FACTORIES above). gamma isn't included
-    # since it has no effect on a linear kernel. Capped at 10, not higher: larger C forces a
-    # harder-margin fit, which combined with class_weight="balanced"'s extreme per-sample
-    # weights under this project's severe imbalance is the exact combination that triggered
-    # the multi-hour libsvm non-convergence hang documented in _MODEL_FACTORIES above (that
-    # incident used candidates up to 100) - max_iter=50_000 now bounds worst-case fit time
-    # regardless, but there's no reason to spend search budget on C values this unlikely to be
-    # both well-behaved and better than the reference's own C=0.5 anyway.
     "svm": {
         "model__C": [0.01, 0.03, 0.1, 0.3, 0.5, 1, 3, 10],
     },
-    # reg_lambda's minimum is 0.1, not 0: the now-removed gradient_boosting model had an
-    # analogous "model__l2_regularization" grid that once included 0.0 and, under
-    # class_weight="balanced"'s extreme per-sample weights on this project's severe class
-    # imbalance (e.g. a ~334,000x weight ratio between CIC-IDS2017's Heartbleed and BENIGN
-    # classes at the time), produced a near-degenerate model - 3.7% accuracy vs. 99.5% with
-    # l2_regularization=0.1, identical everything else. xgboost's sample-weight-based balancing
-    # (see _MODEL_FACTORIES' xgboost comment) creates the same kind of extreme weights, so this
-    # grid avoids the analogous zero-regularization combination proactively rather than
-    # rediscovering the same failure mode.
     "xgboost": {
         "model__n_estimators": [100, 200, 300, 500],
         "model__max_depth": [3, 5, 7, 10, 15],
@@ -209,7 +119,6 @@ def build_model(model_name: str, random_state: int = 42, **kwargs: Any) -> Class
 
 
 def train_model(model: ClassifierMixin, x_train, y_train, **fit_params: Any) -> ClassifierMixin:
-    """Fit a model (or Pipeline) and return it. fit_params are forwarded to .fit() as-is - e.g.
-    sample_weight for a bare model, or model__sample_weight for a Pipeline (see pipeline.py's
-    _MODELS_REQUIRING_SAMPLE_WEIGHT)."""
+    """Fit a model (or Pipeline) and return it. fit_params are forwarded to fit(), e.g.
+    model__sample_weight for a Pipeline."""
     return model.fit(x_train, y_train, **fit_params)

@@ -1,3 +1,5 @@
+"""Dataset configuration and the base class of the dataset adapters."""
+
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -15,9 +17,8 @@ class DatasetConfig:
     processed_path: Path
     label_column: str
     drop_columns: tuple[str, ...] = field(default_factory=tuple)
-    # Columns removed by the constant / near-duplicate screen (scripts/feature_screen.py), kept
-    # apart from drop_columns so the screen can be rerun with them present and checked against
-    # this list. clean() drops both lists alike.
+    # Columns removed by the constant / near-duplicate screen. Kept separate from drop_columns so
+    # that scripts/feature_screen.py can rerun the screen with them present; clean() drops both.
     screen_drop_columns: tuple[str, ...] = field(default_factory=tuple)
     categorical_columns: tuple[str, ...] = field(default_factory=tuple)
 

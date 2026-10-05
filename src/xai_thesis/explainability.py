@@ -1,3 +1,5 @@
+"""SHAP, LIME and permutation feature importance for the fitted model pipelines, and their plots."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
@@ -6,8 +8,7 @@ from typing import Any
 
 import matplotlib
 
-# Force the non-interactive backend: this module only saves figures to disk, and the
-# default backend can try to initialize a Tk display that isn't available headlessly.
+# Non-interactive backend: figures are only saved to disk.
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
@@ -19,37 +20,19 @@ from sklearn.inspection import permutation_importance  # noqa: E402
 from sklearn.metrics import f1_score  # noqa: E402
 from sklearn.pipeline import Pipeline  # noqa: E402
 
-# Models with a fast, exact structural SHAP explainer (tree ensembles). Everything else
-# (neural_network, svm) falls back to a model-agnostic permutation explainer, which is far
-# slower since it makes many repeated calls to the model rather than reading its structure
-# directly. xgboost is one of TreeExplainer's best-supported cases (verified directly against
-# the installed shap/xgboost versions) - the label-encoding subclass in models.py doesn't
-# interfere, since it's a real XGBClassifier subclass, not a wrapper.
-#
-# gradient_boosting (also TreeExplainer) and logistic_regression (its own dedicated
-# shap.LinearExplainer branch, since removed) were both removed from the model catalog
-# entirely on 2026-08-24 (explicit user request) - see models.py for the full removal note.
+# Models explained with the exact tree-specific SHAP explainer. The others (neural_network, svm)
+# use the model-agnostic permutation explainer, which estimates Shapley values by sampling.
 _TREE_MODELS = ("random_forest", "xgboost")
 
-# Permutation count for the model-agnostic SHAP explainer (svm, neural_network). SHAP's own
-# max_evals default (500) works out to only ~4 permutations at this project's 52-59 post-one-hot
-# feature count (npermutations = max_evals // (2 * n_features + 1)), which is a high-variance
-# Shapley estimate; 50 is far more stable. SVM cost scales ~linearly in this - measured on
-# CIC-IDS2017's SVM at ~48 s/instance for 4 permutations vs ~430 s/instance for 50 - so this is
-# the knob to turn down if the permutation path becomes intractable on a bigger model/dataset.
-# Tree models ignore it entirely (TreeExplainer reads the model structure directly).
+# Number of permutations for the permutation explainer. SHAP's default budget (max_evals=500)
+# amounts to only about 4 permutations at 52-59 features, a high-variance estimate; 50 gives a
+# much more stable one. The run time grows roughly linearly with this number.
 _SHAP_PERMUTATION_MULTIPLIER = 50
 
 
 def predict_proba_fn(model: Any) -> Callable[[np.ndarray], np.ndarray]:
-    """Return a predict_proba-like callable for any classifier, even ones without one.
-
-    No model currently in the catalog actually lacks predict_proba (LinearSVC, the one that
-    did, was dropped early on - see models.py), but this stays
-    generic rather than assuming that always holds: softmax(decision_function) is a
-    deterministic, argmax-preserving stand-in for a margin-only classifier (the predicted
-    class is always identical to model.predict()), unlike CalibratedClassifierCV, which was
-    found to shift predictions under severe class imbalance and is deliberately not used.
+    """Return the model's predict_proba, or softmax(decision_function) for a classifier
+    without one. All four models in the catalog provide predict_proba.
     """
     if hasattr(model, "predict_proba"):
         return model.predict_proba
@@ -80,49 +63,25 @@ def compute_shap_values(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str]]:
     """Compute SHAP values for x_data using the fastest suitable explainer.
 
-    TreeExplainer and LinearExplainer need direct access to the fitted model, which only ever
-    sees the transformed (quantile-scaled, one-hot-encoded) feature space, so the underlying
-    Shapley values are computed there. For display, one-hot dummy columns' attributions are
-    summed back into their parent categorical feature, and the transformed numeric/categorical
-    values are swapped for the original, untransformed ones - unlike LIME/permutation
-    importance/PDP, which already operate on the original feature space directly by wrapping
-    the whole pipeline rather than the bare model.
+    The explainers operate on the fitted model, i.e. in the transformed (scaled, one-hot encoded)
+    feature space. For reporting, the attributions of a categorical feature's one-hot columns are
+    summed back into that feature, and the display values are the original, untransformed ones.
 
-    Output space and base-value footing differ by explainer and are not fully unifiable here:
+    Output space by model:
+      - random_forest: TreeExplainer (tree_path_dependent, no background), probabilities.
+      - xgboost: TreeExplainer, log-odds. SHAP supports probability output for XGBoost only for
+        binary objectives, so for these multiclass models the values stay in log-odds; their
+        level is not comparable with the other models', their ranking and signs are.
+      - svm, neural_network: permutation explainer over predict_proba, probabilities, with
+        background_data as the reference distribution.
 
-      - random_forest: TreeExplainer in probability space, feature_perturbation=
-        "tree_path_dependent" (no background). shap_values and base_values are probabilities;
-        base_values sit near 1/n_classes given this project's balanced class weighting.
-      - xgboost: TreeExplainer, same path, but in *raw margin* (log-odds) space, not
-        probabilities. Root cause, confirmed directly against shap 0.52.0 / xgboost 3.4.1: shap's
-        TreeExplainer converts to probability space via a per-objective link-function lookup
-        table that only covers binary objectives (binary:logistic, etc.) - this project's
-        xgboost models use multi:softprob (every dataset here is multiclass), which isn't in that
-        table, so probability output is unsupported regardless of feature_perturbation choice:
-        tree_path_dependent (this project's mode, no background needed) rejects it outright
-        ('Only model_output="raw" is supported for feature_perturbation="tree_path_dependent"'),
-        and interventional (background-based) rejects it too, with a different message ('Model
-        does not have a known objective or output type'). xgboost's values and base_values are
-        therefore not comparable *in level* to random_forest's (attribution directions and
-        relative magnitudes still are). plot_shap_waterfall's x-axis label states which space
-        each plot is in (see its value_label parameter).
-      - svm, neural_network: model-agnostic permutation explainer over predict_proba, so
-        probability space. background_data is used exactly as passed (no sub-sampling);
-        pipeline.py passes a class-balanced sample so the per-instance base_values land on the
-        same near-1/n_classes footing rather than on the 85-96%-Benign raw prior.
-
-    The permutation path is seeded (random_state, default 42) and run at a fixed permutation
-    count (_SHAP_PERMUTATION_MULTIPLIER, via max_evals) rather than SHAP's ~4-permutation
-    default, so svm/neural_network SHAP values are both reproducible and materially lower
-    variance. The tree path is exact and already deterministic, so random_state does not
-    affect it.
+    The permutation explainer is seeded with random_state and runs a fixed number of
+    permutations (_SHAP_PERMUTATION_MULTIPLIER). The tree explainer is exact and deterministic.
 
     Returns (shap_values, base_values, display_data, feature_names):
       - shap_values: shape (n_samples, n_original_features, n_classes), already collapsed
-      - base_values: shape (n_samples, n_classes). TreeExplainer/LinearExplainer give one
-        constant expected_value per class (broadcast across samples here for a uniform
-        shape); the permutation explainer (no .expected_value attribute) already returns
-        base values per instance directly.
+      - base_values: shape (n_samples, n_classes); the tree explainer's per-class expected
+        value is broadcast across samples.
       - display_data: shape (n_samples, n_original_features), original units/categories,
         object-dtype since numeric and categorical columns are mixed
     """
@@ -142,8 +101,7 @@ def compute_shap_values(
         shap_values, expected_value = _expand_binary_class_dimension(shap_values, expected_value, n_classes)
         base_values = np.broadcast_to(expected_value, (n_samples, expected_value.shape[0]))
     else:
-        # background_transformed is already the curated class-balanced reference sample
-        # (pipeline.py's _SHAP_BACKGROUND_SIZE rows); pass it as-is, no further sub-sampling.
+        # The background is used as passed (a small class-balanced sample, see pipeline.py).
         max_evals = _SHAP_PERMUTATION_MULTIPLIER * (2 * x_transformed.shape[1] + 1)
         explainer = shap.Explainer(
             predict_proba_fn(model), background_transformed, algorithm="permutation", seed=random_state
@@ -161,19 +119,11 @@ def compute_shap_values(
 def _expand_binary_class_dimension(
     shap_values: np.ndarray, expected_value: np.ndarray, n_classes: int
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Some binary classifiers' TreeExplainer/LinearExplainer output collapses to a single raw
-    margin/log-odds column (the positive class, model.classes_[1]) rather than one per class,
-    since the other class's contribution there is just its negation - unlike the multiclass
-    case, the permutation explainer (always one column per class from predict_proba regardless
-    of class count), or - verified directly, not assumed - RandomForestClassifier's own
-    TreeExplainer output, which is already 3D/per-class for a binary problem (expected_value
-    already something like [0.4996, 0.5004], summing to ~1 like real complementary
-    probabilities, not [-x, x]). The ndim==3 check below is what tells these two cases apart;
-    the sign convention this function applies (index 1 as-is, index 0 negated) only holds for
-    the collapsed, margin-space case and was verified empirically against that model's own
-    predict_proba output, not assumed - don't assume it generalizes to every future model
-    without checking shap_values.ndim / expected_value's own shape first, the way random_forest
-    already disproved it would.
+    """Give a binary margin-space explanation one column per class.
+
+    For a binary problem, TreeExplainer can return a single log-odds column for the positive
+    class. That column is kept for class 1 and negated for class 0. Multiclass output, and
+    output that is already per class, is returned unchanged.
     """
     if n_classes != 2 or shap_values.ndim == 3:
         return shap_values, expected_value
@@ -186,21 +136,15 @@ def _collapse_to_original_features(
     x_data: pd.DataFrame,
     categorical_columns: Sequence[str],
 ) -> tuple[np.ndarray, np.ndarray, list[str]]:
-    """Sum one-hot dummy columns' SHAP values back into their parent categorical feature, and
-    replace the (transformed-space) display values with the original, untransformed ones.
+    """Sum the SHAP values of each categorical feature's one-hot columns into that feature, and
+    replace the transformed display values with the original ones.
 
-    Numeric features map 1:1 onto a transformed column, so their SHAP values pass through
-    unchanged; only their displayed value changes (original units instead of quantile-scaled).
-
-    Dummies are summed *signed*, not by magnitude: within one instance the active level's dummy
-    and the inactive levels' dummies partly offset, and their signed sum is that categorical's
-    net contribution to the prediction (which is what a local waterfall should show). A
-    consequence is that plot_shap_bar's global bar for a categorical is mean|net contribution|,
-    which can sit below the sum of its dummies' individual mean|SHAP| when levels pull opposite
-    ways - intended, not a bug.
+    Numeric features map one-to-one onto a transformed column and pass through unchanged. The
+    one-hot columns are summed with their signs, which gives the categorical feature's net
+    contribution to the prediction; its global importance is therefore the mean |net
+    contribution|.
     """
-    # Longest-name-first so a categorical column name that happens to prefix another (e.g. a
-    # column "a" and a column "a_b") doesn't grab the wrong dummy block.
+    # Longest name first, so that a column name which prefixes another cannot claim its dummies.
     sorted_categorical = sorted(categorical_columns, key=len, reverse=True)
 
     def _owner(name: str) -> str:
@@ -226,10 +170,8 @@ def _collapse_to_original_features(
 def class_colors(class_names: Sequence[str]) -> list[tuple[float, float, float, float]]:
     """One fixed colour per class, indexed like class_names (model.classes_ order).
 
-    Shared by plot_shap_bar and compute_permutation_importance so a class keeps the same colour
-    across both stacked global figures regardless of how each figure orders its stack. Uses
-    shap's own red_blue_circle map at the same evenly spaced points shap's multiclass bar uses,
-    so the palette looks like shap's default, just keyed to class instead of stack position.
+    Shared by plot_shap_bar and compute_permutation_importance, so that a class has the same
+    colour in both global figures. Uses SHAP's default red_blue_circle palette.
     """
     return [shap.plots.colors.red_blue_circle(i / len(class_names)) for i in range(len(class_names))]
 
@@ -244,27 +186,12 @@ def plot_shap_bar(
 ) -> Path:
     """Global bar plot of mean |SHAP value| per feature, stacked across all classes.
 
-    max_display defaults to 10 to match every other explanation plot in this project (SHAP
-    waterfall's own max_display and compute_permutation_importance below), not
-    shap.summary_plot's own default. Left unspecified, summary_plot silently defaults max_display
-    to 7 on the multi-class/list-of-arrays code path this function's plot_type="bar" call takes.
-
-    The x-axis is each feature's mean |SHAP value|, summed across the stacked per-class segments -
-    shap.summary_plot's own default label spells that out ("mean(|SHAP value|) (average impact on
-    model output magnitude)"), but on this project's class counts (7-10 classes, so a wide legend)
-    the label is longer than the 8-inch-wide figure shap.summary_plot fixes internally, and gets
-    cut off mid-word: bbox_inches="tight" on save (_save_figure) does not widen the canvas to fit
-    it (confirmed - a short label at the same figure width does not get cut, so this is a label-
-    length problem, not a save-path one). Overridden here to the shorter form for exactly that
-    reason, not merely for brevity.
-
-    Class colours come from class_colors, not shap's default: shap colours each segment by its
-    stack position, so a class's colour depended on its importance rank and differed from the
-    permutation-importance plot's for the same model (UNSW-NB15 random_forest: first-stack blue
-    was Fuzzers here, Worms there). Stack order itself is unchanged from shap's default.
+    Shows the top max_display features, like the other explanation plots. Each bar's segments
+    are the per-class mean |SHAP value|. The x-axis label is shortened because SHAP's default
+    label is cut off at this figure width. Segments are coloured by class (class_colors), so the
+    colours match the permutation importance plot; the stack order is SHAP's default.
     """
-    # Same stack order shap picks by default (classes by overall mean |SHAP|), but coloured by
-    # class rather than by stack position - see class_colors.
+    # SHAP's default stack order (classes by overall mean |SHAP|), coloured by class.
     class_inds = np.argsort(-np.abs(shap_values).mean(axis=(0, 1)))
     palette = class_colors(class_names)
     shap.summary_plot(
@@ -296,16 +223,9 @@ def plot_shap_waterfall(
 ) -> Path:
     """Local waterfall plot explaining one instance's prediction for one class.
 
-    The x-axis is the model output, running from the base value E[f(X)] (bottom-left tick) to
-    this instance's prediction f(x) (top-right tick, both drawn on the plot by shap itself); each
-    bar is one feature's signed contribution to that movement. value_label names the space that
-    axis lives in - "probability" for random_forest / svm / neural_network (this function's
-    default), "log-odds" for xgboost, whose TreeExplainer emits raw-margin values on this
-    shap/xgboost build rather than probabilities (see compute_shap_values's docstring for the
-    confirmed root cause: shap's probability-conversion path has no link function registered for
-    xgboost's multiclass objective, multi:softprob, so there is no way to get probabilities out
-    of it here) - drawn as the x-axis label so an xgboost margin plot is not mistaken for a
-    probability one.
+    The x-axis runs from the base value E[f(X)] to the instance's output f(x); each bar is one
+    feature's signed contribution. value_label names the output space shown on the x-axis:
+    "probability", or "log-odds" for XGBoost (see compute_shap_values).
     """
     explanation = shap.Explanation(
         values=shap_values[instance_index, :, class_index],
@@ -314,12 +234,8 @@ def plot_shap_waterfall(
         feature_names=feature_names,
     )
     shap.plots.waterfall(explanation, show=False, max_display=max_display)
-    # shap.plots.waterfall adds a twiny() top axis for the E[f(X)] tick mark and leaves it as
-    # the current axes (plt.gca()), so the label has to be set on the original bottom axis
-    # (fig.axes[0]) explicitly, or it lands on the twin and renders at the top instead of the
-    # bottom where the E[f(X)] -> f(x) tick values actually are. labelpad clears the "E[f(X)] = "
-    # annotation shap draws just under the bottom axis (see the library's own xlabel comment,
-    # commented out, at the same position - this project's label just isn't commented out).
+    # The waterfall plot adds a secondary top axis and makes it current, so the label is set on
+    # the bottom axis explicitly; labelpad clears the "E[f(X)] = " annotation below it.
     plt.gcf().axes[0].set_xlabel(f"Model output: {value_label}", fontsize=12, labelpad=28)
     return _save_current_figure(output_path)
 
@@ -339,24 +255,18 @@ def _build_lime_explainer(
     turns one raw test row into the vector explain_instance expects, and `columns` is the
     (zero-variance-dropped) feature order LIME's local_exp indices refer to.
 
-    Split out from _build_lime_explanation so a batch caller (e.g. the agreement metric, which
-    explains dozens of instances) builds the explainer - which scans all of x_train - once
-    instead of once per instance.
+    Building the explainer scans all of x_train, so callers that explain many instances build it
+    once.
 
-    LimeTabularExplainer requires categorical columns to already be label-encoded as integers
-    (categorical_names then supplies the display strings); the pipeline itself still expects the
-    original values, so encoding/decoding happens transparently here.
+    LimeTabularExplainer expects categorical columns encoded as integers (categorical_names holds
+    the display strings), while the pipeline expects the original values; the returned
+    functions translate between the two.
 
-    discretize_continuous=True (LIME's own default) bins each continuous feature into training
-    quartiles, which is what gives the bar chart its readable range labels ("dttl > 29.00")
-    rather than bare feature names. The discretizer needs NaN-free training data: it computes a
-    std per bin, a single NaN makes that std NaN, and scipy's truncnorm then rejects it ("scale
-    must be positive") as soon as explain_instance perturbs a row. That is what crashed LIME on
-    CIC-IDS2017, where Flow Bytes/s and Flow Packets/s hold 1,120 NaN cells (inf mapped to NaN at
-    load time) - column skew was wrongly blamed before, and discretization was switched off
-    there as a workaround. Numeric NaNs, in both the training data and each explained row, are
-    therefore filled with x_train's column medians: exactly what the pipeline's own
-    SimpleImputer(strategy="median") substitutes, so the model's prediction for a row is unchanged.
+    discretize_continuous=True (LIME's default) bins continuous features into training quartiles,
+    which gives the plots readable range labels. The discretizer requires NaN-free data, so
+    numeric NaNs in the training data and in each explained row are filled with the training
+    medians, which is exactly what the pipeline's median imputer does; the model's prediction for
+    a row is therefore unchanged.
     """
     all_columns = list(x_train.columns)
     numeric_columns = x_train.select_dtypes(include="number").columns
@@ -427,17 +337,10 @@ def _build_lime_explanation(
     """Build the explainer and run explain_instance for a single row. Returns
     (explanation, predicted_label, columns).
 
-    class_index, if given, pins the explanation to that specific class (LIME's labels=
-    argument) instead of the default top_labels=1 (whichever class predict_proba ranks
-    highest). This matters because a SHAP plot generated for the same instance is keyed to
-    whichever class pipeline.predict() returns, and for svm those two can disagree: sklearn's
-    SVC.predict() uses one-vs-one vote counting, not predict_proba's Platt-scaled argmax (see
-    this project's README for the measured rate on the agreement sample). Confirmed to bite in
-    practice, not just in theory: 6 of the 10 curated svm interview instances had SHAP and LIME
-    explaining different classes for the same row before class_index was threaded through here -
-    left at the default (None, top_labels=1) every other model still agrees with class_index by
-    construction, so their plots are unaffected either way.
-    See _build_lime_explainer for the encoding/discretization details.
+    class_index, if given, fixes the explained class (LIME's labels argument) instead of the
+    default top_labels=1, the most probable class. The interview plots pass the predicted class,
+    so that LIME explains the same class as the SHAP waterfall; for the SVM, whose prediction
+    uses one-vs-one voting, the predicted class is not always the most probable one.
     """
     explainer, predict_fn_on_encoded, encode_instance, columns = _build_lime_explainer(
         pipeline,
@@ -470,16 +373,8 @@ def explain_instance_with_lime(
     discretize_continuous: bool = True,
     class_index: int | None = None,
 ) -> Path:
-    """Local LIME explanation for one instance, rendered as LIME's default single-panel
-    feature-weight bar chart. See _build_lime_explanation for the encoding/explainer details,
-    including what class_index is for and why it matters (pins the explained class to match a
-    same-instance SHAP plot, since they otherwise pick the explained class two different ways).
-
-    as_pyplot_figure() draws its own title ("Local explanation for class <name>") and no x-axis
-    label at all; both are overridden here - the title dropped (redundant with the file's own
-    "interview_<class>" folder and "lime_correct"/"lime_misclassified" name), and a plain
-    "Feature weight" x-axis label added instead, since the axis otherwise carries no explanation
-    of what the numbers mean.
+    """Local LIME explanation for one instance as LIME's feature-weight bar chart, with the
+    default title removed and an x-axis label added. See _build_lime_explanation for class_index.
     """
     explanation, label, _columns = _build_lime_explanation(
         pipeline,
@@ -510,36 +405,17 @@ def compute_permutation_importance(
     random_state: int = 42,
     top_n: int = 10,
 ) -> tuple[Path, list[str], Any]:
-    """Permutation feature importance on the full pipeline (raw, pre-encoding feature names),
-    as each feature's macro-F1 drop, drawn stacked by class like plot_shap_bar.
+    """Permutation feature importance on the full pipeline (raw feature names), measured as each
+    feature's drop in macro-F1 over n_repeats shuffles, and plotted stacked by class.
 
-    The per-class split is exact, not an approximation: macro-F1 is the plain mean of the K
-    per-class F1 scores, so a feature's macro-F1 drop is (1/K) * sum_k (class k's F1 drop), and
-    the segments drawn are those (1/K)-scaled per-class drops - they sum to the bar's total. All
-    K+1 scores come from one multi-metric permutation_importance call (one set of predictions
-    per shuffle, every metric scored from it), so this costs the same as the old macro-only run.
-    Both scores use labels=model.classes_, so a class absent from y_data would count as F1 0
-    before and after shuffling (a zero segment, but still one of the K in the mean); pipeline.py
-    passes a class-balanced sample, where every class is present.
+    Macro-F1 is the mean of the K per-class F1 scores, so a feature's macro-F1 drop splits
+    exactly into K per-class segments (each class's F1 drop divided by K). All scores come from
+    one multi-metric permutation_importance call. A class's segment can be negative (shuffling
+    slightly helped that class); negative segments are drawn left of zero. Classes are stacked
+    and coloured as in plot_shap_bar.
 
-    Unlike mean|SHAP| segments, a class's F1 drop can be negative (shuffling a feature can
-    slightly help one class while hurting others). Negative segments are drawn left of zero
-    rather than clipped, so the positive and negative parts together still sum to the total.
-    Stack order mirrors plot_shap_bar (classes sorted by total contribution), and each class
-    gets the same colour as in plot_shap_bar (class_colors), so the two global figures for a
-    model can be read side by side.
-
-    top_n defaults to 10 (changed from 15 on 2026-08-29) to match every other explanation plot
-    in this project - see plot_shap_bar's docstring for the full story of why these needed
-    aligning. Returns the plot path and the top_n most important feature names; the latter is
-    currently unused by pipeline.py's own caller (originally consumed by plot_partial_dependence,
-    removed 2026-08-28) but kept in the return signature since it's a real, free-standing return
-    value some other caller could still want.
-
-    The third return is sklearn's raw macro-F1 Bunch (importances_mean / _std / the full repeat
-    matrix), so a caller that needs the ranking itself - pipeline.py's global agreement cache -
-    reuses this one computation instead of running permutation_importance a second time over
-    the same rows, which for svm is hours.
+    Returns the plot path, the top_n feature names, and sklearn's result for macro-F1
+    (importances_mean, importances_std, importances).
     """
     class_names = [str(name) for name in pipeline.named_steps["model"].classes_]
     labels = list(pipeline.named_steps["model"].classes_)
@@ -581,13 +457,9 @@ def _plot_stacked_permutation_importance(
 ) -> Path:
     """Draw compute_permutation_importance's per-class stacked bars, most important on top.
 
-    contributions is (n_features, n_classes) in display order; positive segments stack right
-    from zero, negative ones left, and a black diamond with a single error bar (std of the macro
-    drop over repeats) marks each feature's net total. The marker matters once a feature has
-    negative segments: its net total then sits short of the positive stack's right edge, and a
-    bare whisker floating inside the coloured bar reads as a drawing error. Per-segment error
-    bars are left off: per-class F1 drops are much noisier than their mean, and K overlapping
-    whiskers would be unreadable.
+    contributions is (n_features, n_classes) in display order. Positive segments stack to the
+    right of zero and negative ones to the left; a black diamond with an error bar (standard
+    deviation over repeats) marks each feature's net macro-F1 drop.
     """
     n_features = contributions.shape[0]
     y_pos = np.arange(n_features)[::-1]
@@ -629,13 +501,9 @@ def select_curated_instances(
     predictions: pd.Series | None = None,
     random_state: int = 42,
 ) -> dict[str, int]:
-    """Pick one correctly-classified and one misclassified instance of target_class.
-
-    Instance selection informed by confusion-matrix findings rather than random sampling,
-    e.g. a genuine target_class case the model got right, and one it mistook for
-    confused_with_class specifically - ties local explanations back to known error patterns.
-    Pass predictions (aligned to x_test.index) to reuse an already-computed full-test-set
-    prediction instead of recomputing it - matters for the slow svm pipeline.
+    """Pick one correctly classified instance of target_class and one misclassified as
+    confused_with_class, at random with a fixed seed. Pass predictions (aligned to x_test.index)
+    to reuse an existing prediction of the whole test set.
     """
     if predictions is None:
         predictions = pd.Series(pipeline.predict(x_test), index=x_test.index)

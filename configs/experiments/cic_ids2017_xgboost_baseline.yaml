@@ -11,9 +11,6 @@ metrics:
 - f1_macro
 - roc_auc_macro
 - pr_auc_macro
-# model_params: RandomizedSearchCV result (scripts/train.py --tune). The expert interviews used
-# explanations of an earlier xgboost configuration, archived with its model and plots in
-# outputs/_archive/xgboost_interview_model/.
 model_params:
   subsample: 0.8
   reg_lambda: 2.0

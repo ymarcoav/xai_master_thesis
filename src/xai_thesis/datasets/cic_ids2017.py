@@ -1,3 +1,5 @@
+"""CIC-IDS2017 adapter: loads the eight raw CSV files and applies the dataset-specific cleaning."""
+
 from pathlib import Path
 
 import numpy as np
@@ -8,17 +10,9 @@ from xai_thesis.datasets.base import BaseDataset
 _DUPLICATE_COLUMN = "Fwd Header Length.1"
 _SOURCE_COLUMN = "source_file"
 
-# CIC-IDS2017 is modeled as multiclass over 7 categories (Benign + 6 attack families),
-# matching the scheme used by Arreche et al. 2024 ("E-XAI: Evaluating Black-Box Explainable
-# AI Frameworks for Network Intrusion Detection", IEEE Access) - confirmed against that
-# paper's own Figure 21 SHAP-plot legend, which explicitly lists these 7 class names
-# (the paper's prose description is internally inconsistent, claiming "six distinct attack
-# profiles" while naming seven, so the figure legend - not the prose - is the source of truth
-# here). DoS and DDoS are merged into one DoS/DDoS bucket, as are the two brute-force tools
-# (FTP-Patator, SSH-Patator) into "Brute Force" and the three Web Attack subtypes into "Web
-# Attack"; Heartbleed folds into DoS/DDoS too (it's a DoS-class vulnerability, and native
-# CIC-IDS2017 has only a handful of Heartbleed rows total - far too few to model as its own
-# class). PortScan, Infiltration, and Bot are already single native labels.
+# Native labels consolidated into seven classes, following the grouping of Arreche et al. (2024):
+# the DoS and DDoS variants and Heartbleed become DoS/DDoS, FTP-Patator and SSH-Patator become
+# Brute Force, and the three Web Attack subtypes become Web Attack (see _map_to_category).
 _ATTACK_CATEGORY: dict[str, str] = {
     "DoS Hulk": "DoS/DDoS",
     "DDoS": "DoS/DDoS",
@@ -35,14 +29,10 @@ _ATTACK_CATEGORY: dict[str, str] = {
 
 
 def _map_to_category(value: str) -> str:
-    """Map a native CIC-IDS2017 label to Benign or one of the 6 attack categories.
+    """Map a native CIC-IDS2017 label to Benign or one of the six attack classes.
 
-    The three native "Web Attack - <subtype>" labels don't get an exact dict entry: the
-    separator byte between "Web Attack" and the subtype is a corrupted, non-ASCII character
-    baked into the raw files themselves (confirmed via raw byte inspection: literal UTF-8
-    encoding of U+FFFD, not a decoding artifact on this project's end), so matching by
-    startswith() is robust to however pandas happens to decode that byte, rather than
-    depending on an exact string match against a specific corrupted character.
+    The three "Web Attack - <subtype>" labels are matched by prefix, because the separator in the
+    raw files is a corrupted non-ASCII character.
     """
     if value == "BENIGN":
         return "Benign"
@@ -52,7 +42,7 @@ def _map_to_category(value: str) -> str:
 
 
 class CICIDS2017Dataset(BaseDataset):
-    """CIC-IDS-2017 adapter."""
+    """CIC-IDS2017 adapter over the eight raw CSV files."""
 
     def load_raw(self) -> pd.DataFrame:
         raw_path = Path(self.config.raw_path)
@@ -64,52 +54,34 @@ class CICIDS2017Dataset(BaseDataset):
         return pd.concat(frames, ignore_index=True)
 
     def clean(self, data: pd.DataFrame) -> pd.DataFrame:
-        # Raw-schema fixes (CIC-IDS2017-specific, before the shared steps below): column names
-        # are inconsistently prefixed with a leading space in the raw files, and "Fwd Header
-        # Length" is duplicated verbatim in every file (the second copy, auto-suffixed ".1" by
-        # pandas, is byte-for-byte identical to the first).
+        # Column names carry inconsistent leading spaces, and "Fwd Header Length" appears twice
+        # (pandas names the identical copy "Fwd Header Length.1").
         data = data.rename(columns=lambda column: column.strip())
         data = data.drop(columns=[_DUPLICATE_COLUMN], errors="ignore")
 
-        # Steps (1)-(6) below follow the shared dataset-cleaning order documented in the
-        # methodology chapter and mirrored by UNSWNB15Dataset.clean(); only the per-step
-        # detail is CIC-IDS2017-specific. (Step (3), repairing non-applicable values, has no
-        # CIC-IDS2017 case - CICFlowMeter emits no "not applicable" placeholders.)
 
-        # (1) Coerce numeric types. Flow Bytes/s and Flow Packets/s divide by flow duration;
-        # where duration is 0 the result is +Inf (~1.5k rows in Flow Bytes/s, ~2.9k in Flow
-        # Packets/s; -Inf is handled too but does not occur in the raw data). Treat as missing
-        # so the shared median imputer fills them - same as the ~1.4k genuine blanks Flow
-        # Bytes/s already carries.
+        # (1) Flow Bytes/s and Flow Packets/s are infinite for flows with a duration of zero;
+        #     infinities are treated as missing and filled by the median imputer.
         data = data.replace([np.inf, -np.inf], np.nan)
 
-        # (2) Drop corrupted rows. Flow Duration and *IAT columns are occasionally negative
-        # due to a known flow-exporter timestamp bug; those rows are corrupted, not valid
-        # traffic. Fwd Header Length, Bwd Header Length, and min_seg_size_forward likewise
-        # carry physically impossible negative values in ~35 rows (as low as -3.22e10 - a
-        # byte-length/segment-size field can never be negative), almost certainly a
-        # CICFlowMeter integer-underflow bug. Found via pairwise feature correlation: those
-        # ~35-row outliers were extreme enough to flip Fwd/Bwd Header Length's measured
-        # correlation from ~0 to ~1 depending on which rows landed in a given sample; left in
-        # place, one such row would anchor MinMaxScaler's global min to a nonsensical value.
+        # (2) Drop corrupted rows with physically impossible negative values: negative flow
+        #     durations or inter-arrival times (a known CICFlowMeter timestamp error), and
+        #     negative header lengths or segment sizes (an integer overflow).
         duration_columns = [column for column in data.columns if column == "Flow Duration" or "IAT" in column]
         data = data.loc[~(data[duration_columns] < 0).any(axis=1)]
         non_negative_columns = ["Fwd Header Length", "Bwd Header Length", "min_seg_size_forward"]
         data = data.loc[~(data[non_negative_columns] < 0).any(axis=1)]
 
-        # (4) Harmonize the label scheme: native ~15-way label collapsed into 7 categories -
-        # see _ATTACK_CATEGORY / _map_to_category above.
+        # (3) Consolidate the labels into seven classes (see _map_to_category).
         label_column = self.config.label_column
         data[label_column] = data[label_column].map(_map_to_category)
 
-        # (5) Drop leakage / redundant feature columns: Destination Port (drop_columns - leaked
-        # the testbed's fixed per-attack target ports), and the constant and near-duplicate
-        # columns the feature screen found (screen_drop_columns) - see
-        # configs/datasets/cic_ids2017.yaml for the full list and rationale.
+        # (4) Drop Destination Port (drop_columns) and the constant and near-duplicate columns
+        #     found by the feature screen (screen_drop_columns); see
+        #     configs/datasets/cic_ids2017.yaml.
         data = self.drop_configured_columns(data)
 
-        # (6) Deduplicate on canonical flow content, ignoring the source-file tag, so a flow
-        # duplicated across two source files is still caught.
+        # (5) Remove exact duplicate records, ignoring the source-file tag.
         content_columns = [column for column in data.columns if column != _SOURCE_COLUMN]
         return data.loc[~data.duplicated(subset=content_columns)].reset_index(drop=True)
 

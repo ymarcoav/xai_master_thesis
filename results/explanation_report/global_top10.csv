@@ -1,0 +1,161 @@
+dataset,model,method,rank,feature,importance,n_instances
+unsw_nb15,random_forest,SHAP,1,proto,0.0347573,500
+unsw_nb15,random_forest,SHAP,2,service,0.0315554,500
+unsw_nb15,random_forest,SHAP,3,sbytes,0.0283153,500
+unsw_nb15,random_forest,SHAP,4,sttl,0.0269131,500
+unsw_nb15,random_forest,SHAP,5,dbytes,0.0125759,500
+unsw_nb15,random_forest,SHAP,6,smean,0.0122289,500
+unsw_nb15,random_forest,SHAP,7,ct_srv_dst,0.0118439,500
+unsw_nb15,random_forest,SHAP,8,ct_state_ttl,0.0116885,500
+unsw_nb15,random_forest,SHAP,9,ct_dst_src_ltm,0.0114787,500
+unsw_nb15,random_forest,SHAP,10,dmean,0.0062437,500
+unsw_nb15,random_forest,PFI,1,sbytes,0.217407,500
+unsw_nb15,random_forest,PFI,2,service,0.209653,500
+unsw_nb15,random_forest,PFI,3,sttl,0.166428,500
+unsw_nb15,random_forest,PFI,4,smean,0.107908,500
+unsw_nb15,random_forest,PFI,5,dbytes,0.0637451,500
+unsw_nb15,random_forest,PFI,6,proto,0.0604678,500
+unsw_nb15,random_forest,PFI,7,synack,0.0333639,500
+unsw_nb15,random_forest,PFI,8,dmean,0.0326086,500
+unsw_nb15,random_forest,PFI,9,ct_srv_dst,0.0265071,500
+unsw_nb15,random_forest,PFI,10,sjit,0.0195206,500
+unsw_nb15,xgboost,SHAP,1,proto,0.430269,500
+unsw_nb15,xgboost,SHAP,2,sbytes,0.339552,500
+unsw_nb15,xgboost,SHAP,3,sttl,0.321897,500
+unsw_nb15,xgboost,SHAP,4,service,0.269546,500
+unsw_nb15,xgboost,SHAP,5,smean,0.204281,500
+unsw_nb15,xgboost,SHAP,6,dbytes,0.144646,500
+unsw_nb15,xgboost,SHAP,7,dmean,0.142351,500
+unsw_nb15,xgboost,SHAP,8,ct_srv_dst,0.113284,500
+unsw_nb15,xgboost,SHAP,9,dttl,0.0919715,500
+unsw_nb15,xgboost,SHAP,10,sload,0.0668955,500
+unsw_nb15,xgboost,PFI,1,sttl,0.188977,500
+unsw_nb15,xgboost,PFI,2,sbytes,0.155926,500
+unsw_nb15,xgboost,PFI,3,service,0.122961,500
+unsw_nb15,xgboost,PFI,4,proto,0.0937196,500
+unsw_nb15,xgboost,PFI,5,smean,0.0695484,500
+unsw_nb15,xgboost,PFI,6,dmean,0.0214315,500
+unsw_nb15,xgboost,PFI,7,dbytes,0.0137129,500
+unsw_nb15,xgboost,PFI,8,sjit,0.0125501,500
+unsw_nb15,xgboost,PFI,9,synack,0.00862177,500
+unsw_nb15,xgboost,PFI,10,ct_srv_dst,0.00795917,500
+unsw_nb15,neural_network,SHAP,1,dttl,0.0390373,500
+unsw_nb15,neural_network,SHAP,2,service,0.0367096,500
+unsw_nb15,neural_network,SHAP,3,sttl,0.0365809,500
+unsw_nb15,neural_network,SHAP,4,proto,0.0346033,500
+unsw_nb15,neural_network,SHAP,5,state,0.0267635,500
+unsw_nb15,neural_network,SHAP,6,dmean,0.016423,500
+unsw_nb15,neural_network,SHAP,7,ct_srv_dst,0.0157846,500
+unsw_nb15,neural_network,SHAP,8,smean,0.0140344,500
+unsw_nb15,neural_network,SHAP,9,ct_dst_src_ltm,0.0106237,500
+unsw_nb15,neural_network,SHAP,10,ct_srv_src,0.00790317,500
+unsw_nb15,neural_network,PFI,1,service,0.167807,500
+unsw_nb15,neural_network,PFI,2,sttl,0.158992,500
+unsw_nb15,neural_network,PFI,3,dttl,0.143429,500
+unsw_nb15,neural_network,PFI,4,proto,0.125904,500
+unsw_nb15,neural_network,PFI,5,state,0.0764864,500
+unsw_nb15,neural_network,PFI,6,ct_srv_dst,0.0461968,500
+unsw_nb15,neural_network,PFI,7,ct_dst_src_ltm,0.0404837,500
+unsw_nb15,neural_network,PFI,8,dmean,0.0403015,500
+unsw_nb15,neural_network,PFI,9,smean,0.0333782,500
+unsw_nb15,neural_network,PFI,10,dwin,0.0168644,500
+unsw_nb15,svm,SHAP,1,dttl,0.053096,500
+unsw_nb15,svm,SHAP,2,proto,0.0458305,500
+unsw_nb15,svm,SHAP,3,state,0.0329276,500
+unsw_nb15,svm,SHAP,4,service,0.0265644,500
+unsw_nb15,svm,SHAP,5,dmean,0.0211209,500
+unsw_nb15,svm,SHAP,6,swin,0.0197213,500
+unsw_nb15,svm,SHAP,7,sttl,0.0195024,500
+unsw_nb15,svm,SHAP,8,dwin,0.0161665,500
+unsw_nb15,svm,SHAP,9,smean,0.0111522,500
+unsw_nb15,svm,SHAP,10,ct_state_ttl,0.0102688,500
+unsw_nb15,svm,PFI,1,proto,0.253792,500
+unsw_nb15,svm,PFI,2,dttl,0.228279,500
+unsw_nb15,svm,PFI,3,service,0.21766,500
+unsw_nb15,svm,PFI,4,dmean,0.11754,500
+unsw_nb15,svm,PFI,5,dwin,0.106563,500
+unsw_nb15,svm,PFI,6,state,0.103261,500
+unsw_nb15,svm,PFI,7,swin,0.10257,500
+unsw_nb15,svm,PFI,8,smean,0.0899459,500
+unsw_nb15,svm,PFI,9,sttl,0.0847088,500
+unsw_nb15,svm,PFI,10,ct_srv_dst,0.0760526,500
+cic_ids2017,random_forest,SHAP,1,Fwd IAT Std,0.0333854,437
+cic_ids2017,random_forest,SHAP,2,Total Backward Packets,0.0266498,437
+cic_ids2017,random_forest,SHAP,3,Bwd Header Length,0.0254578,437
+cic_ids2017,random_forest,SHAP,4,Bwd Packet Length Std,0.0232668,437
+cic_ids2017,random_forest,SHAP,5,Fwd Packet Length Max,0.0216496,437
+cic_ids2017,random_forest,SHAP,6,Init_Win_bytes_backward,0.0204705,437
+cic_ids2017,random_forest,SHAP,7,Fwd Packet Length Mean,0.0159485,437
+cic_ids2017,random_forest,SHAP,8,Average Packet Size,0.0142904,437
+cic_ids2017,random_forest,SHAP,9,PSH Flag Count,0.0133261,437
+cic_ids2017,random_forest,SHAP,10,Init_Win_bytes_forward,0.0131905,437
+cic_ids2017,random_forest,PFI,1,Fwd IAT Std,0.175214,437
+cic_ids2017,random_forest,PFI,2,Fwd Packet Length Max,0.144311,437
+cic_ids2017,random_forest,PFI,3,Init_Win_bytes_backward,0.130438,437
+cic_ids2017,random_forest,PFI,4,Bwd Header Length,0.115347,437
+cic_ids2017,random_forest,PFI,5,Total Backward Packets,0.0982429,437
+cic_ids2017,random_forest,PFI,6,Packet Length Mean,0.0805449,437
+cic_ids2017,random_forest,PFI,7,Fwd Packet Length Std,0.0665855,437
+cic_ids2017,random_forest,PFI,8,Init_Win_bytes_forward,0.0448364,437
+cic_ids2017,random_forest,PFI,9,PSH Flag Count,0.0447519,437
+cic_ids2017,random_forest,PFI,10,Bwd Packet Length Mean,0.0377945,437
+cic_ids2017,xgboost,SHAP,1,Init_Win_bytes_forward,1.17279,437
+cic_ids2017,xgboost,SHAP,2,Init_Win_bytes_backward,1.01698,437
+cic_ids2017,xgboost,SHAP,3,Flow IAT Min,0.78985,437
+cic_ids2017,xgboost,SHAP,4,min_seg_size_forward,0.641774,437
+cic_ids2017,xgboost,SHAP,5,Fwd IAT Min,0.587896,437
+cic_ids2017,xgboost,SHAP,6,Flow Duration,0.568115,437
+cic_ids2017,xgboost,SHAP,7,Bwd Packets/s,0.559608,437
+cic_ids2017,xgboost,SHAP,8,Flow Bytes/s,0.427745,437
+cic_ids2017,xgboost,SHAP,9,Flow IAT Max,0.384827,437
+cic_ids2017,xgboost,SHAP,10,Bwd Packet Length Mean,0.383252,437
+cic_ids2017,xgboost,PFI,1,Init_Win_bytes_forward,0.0421266,437
+cic_ids2017,xgboost,PFI,2,Init_Win_bytes_backward,0.0278823,437
+cic_ids2017,xgboost,PFI,3,Fwd IAT Min,0.0171729,437
+cic_ids2017,xgboost,PFI,4,Flow Duration,0.0165103,437
+cic_ids2017,xgboost,PFI,5,act_data_pkt_fwd,0.0112032,437
+cic_ids2017,xgboost,PFI,6,Bwd IAT Total,0.0100829,437
+cic_ids2017,xgboost,PFI,7,Fwd Packet Length Max,0.0100829,437
+cic_ids2017,xgboost,PFI,8,Fwd Packet Length Mean,0.00784224,437
+cic_ids2017,xgboost,PFI,9,Bwd Packet Length Mean,0.00755686,437
+cic_ids2017,xgboost,PFI,10,Bwd IAT Min,0.00687398,437
+cic_ids2017,neural_network,SHAP,1,PSH Flag Count,0.0520843,437
+cic_ids2017,neural_network,SHAP,2,Init_Win_bytes_forward,0.0487684,437
+cic_ids2017,neural_network,SHAP,3,Init_Win_bytes_backward,0.0350369,437
+cic_ids2017,neural_network,SHAP,4,ACK Flag Count,0.0320051,437
+cic_ids2017,neural_network,SHAP,5,min_seg_size_forward,0.0270159,437
+cic_ids2017,neural_network,SHAP,6,Bwd IAT Total,0.022166,437
+cic_ids2017,neural_network,SHAP,7,Flow Duration,0.0212791,437
+cic_ids2017,neural_network,SHAP,8,Flow IAT Max,0.0182208,437
+cic_ids2017,neural_network,SHAP,9,Bwd Packet Length Std,0.0162961,437
+cic_ids2017,neural_network,SHAP,10,Fwd IAT Total,0.014808,437
+cic_ids2017,neural_network,PFI,1,Init_Win_bytes_forward,0.2894,437
+cic_ids2017,neural_network,PFI,2,PSH Flag Count,0.238214,437
+cic_ids2017,neural_network,PFI,3,Init_Win_bytes_backward,0.186267,437
+cic_ids2017,neural_network,PFI,4,Flow IAT Max,0.147701,437
+cic_ids2017,neural_network,PFI,5,ACK Flag Count,0.14767,437
+cic_ids2017,neural_network,PFI,6,Flow Duration,0.109775,437
+cic_ids2017,neural_network,PFI,7,Fwd IAT Max,0.100782,437
+cic_ids2017,neural_network,PFI,8,min_seg_size_forward,0.0799365,437
+cic_ids2017,neural_network,PFI,9,Packet Length Mean,0.0732617,437
+cic_ids2017,neural_network,PFI,10,Bwd Packet Length Mean,0.0676859,437
+cic_ids2017,svm,SHAP,1,Flow IAT Max,0.0362104,437
+cic_ids2017,svm,SHAP,2,PSH Flag Count,0.0336595,437
+cic_ids2017,svm,SHAP,3,ACK Flag Count,0.0283567,437
+cic_ids2017,svm,SHAP,4,Bwd IAT Total,0.0269285,437
+cic_ids2017,svm,SHAP,5,Fwd IAT Max,0.0269238,437
+cic_ids2017,svm,SHAP,6,Idle Max,0.026374,437
+cic_ids2017,svm,SHAP,7,Flow Duration,0.0245208,437
+cic_ids2017,svm,SHAP,8,min_seg_size_forward,0.0233039,437
+cic_ids2017,svm,SHAP,9,Packet Length Variance,0.0214131,437
+cic_ids2017,svm,SHAP,10,Bwd Packet Length Std,0.0213623,437
+cic_ids2017,svm,PFI,1,min_seg_size_forward,0.260211,437
+cic_ids2017,svm,PFI,2,Bwd IAT Total,0.248795,437
+cic_ids2017,svm,PFI,3,Idle Max,0.223459,437
+cic_ids2017,svm,PFI,4,PSH Flag Count,0.186918,437
+cic_ids2017,svm,PFI,5,Init_Win_bytes_backward,0.166376,437
+cic_ids2017,svm,PFI,6,Init_Win_bytes_forward,0.155371,437
+cic_ids2017,svm,PFI,7,Flow Duration,0.153648,437
+cic_ids2017,svm,PFI,8,ACK Flag Count,0.148929,437
+cic_ids2017,svm,PFI,9,Fwd IAT Max,0.141961,437
+cic_ids2017,svm,PFI,10,Fwd IAT Total,0.137097,437

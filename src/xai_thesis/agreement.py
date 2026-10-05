@@ -19,11 +19,9 @@ every T_k and every rank, is unique and reproducible. A shared feature counts to
 it sits at the same position in both orderings, so RA_k <= FA_k always, and agreement_fraction
 asserts it.
 
-This differs from the authors' reference implementation (AI4LIFE-GROUP/disagreement-problem,
-experiments/tabular/metrics.py), which this module previously ported: that code leaves ties to
-np.argsort's unstable default and gives tied features a shared dense rank. On this project's
-cached attribution matrices no two features tie anywhere in a top 21, so both produce identical
-numbers here (checked when the change was made, 2026-10-01).
+Unlike the authors' reference implementation (AI4LIFE-GROUP/disagreement-problem), which leaves
+ties to np.argsort's unstable order, ties are broken deterministically. For the attributions
+analysed here no two features tie within the top 10, so the results are the same.
 
 Both functions take two signed attribution matrices of shape [n_points, n_features] for the
 *same* points, in the same feature order, and return one value per point.
@@ -162,21 +160,10 @@ def plot_agreement_heatmap(
 ) -> Path:
     """Annotated heatmap of SHAP-vs-LIME agreement, rows = models, columns = k.
 
-    Follows the reference implementation's `heatmap_metric_avg`: seaborn heatmap on a
-    fixed [0, 1] colour scale (so panels are comparable), value annotated in each cell,
-    and the min/max standard error printed underneath. Deviations from the reference:
-    the axes are models x k rather than method x method (this project has only two
-    per-instance methods, SHAP and LIME, so the method-pair matrix would be 2x2), and
-    dpi is this project's usual 150 rather than the reference's 2000.
-
-    The colormap is sequential "Reds", light for low agreement and dark for high, matching
-    the paper's own convention (its Figure 1 caption: "lower values (lighter colors)
-    indicating stronger disagreement"). A diverging map would be wrong here regardless of
-    taste: agreement runs 0 to 1 with no meaningful midpoint, so the white band a diverging
-    palette puts at 0.5 would imply a neutral point that does not exist.
-
-    footnote adds a further line under the plot - used to record which models were left out
-    and why.
+    Fixed [0, 1] colour scale so that panels are comparable, the value annotated in each cell,
+    and the minimum and maximum standard error printed underneath. The sequential colormap is
+    light for low and dark for high agreement. footnote adds a line under the plot, e.g. to name
+    models that were left out.
     """
     fig, ax = plt.subplots(figsize=(1.5 * len(k_values) + 3.5, 0.75 * len(row_labels) + 2.5))
     sns.heatmap(

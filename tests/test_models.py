@@ -74,11 +74,8 @@ def test_build_model_xgboost_forwards_kwargs() -> None:
 
 
 def test_xgboost_fits_and_predicts_original_string_labels() -> None:
-    # xgboost's XGBClassifier rejects raw string labels outright (verified directly against
-    # the installed version) - _StringLabelXGBClassifier's job is to make it a drop-in
-    # replacement for every other model here, which all accept/return the original string
-    # labels directly. This is the regression test for that: classes_, predict(), and
-    # predict_proba's column order must all agree with the original (unsorted-by-y) labels.
+    # XGBClassifier itself rejects string labels; the wrapper must accept them, and classes_,
+    # predict() and predict_proba's column order must all agree with the original labels.
     model = build_model("xgboost", random_state=7, n_estimators=5, max_depth=2)
     x_train = [[0, 0], [1, 1], [0, 1], [1, 0], [2, 2], [2, 3]]
     y_train = ["benign", "attack", "benign", "attack", "other", "other"]

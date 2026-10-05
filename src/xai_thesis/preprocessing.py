@@ -1,3 +1,5 @@
+"""Train/test split, subsampling and the shared preprocessing pipeline."""
+
 from collections.abc import Sequence
 
 import pandas as pd
@@ -26,17 +28,11 @@ def stratified_random_split(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Split data into train/test with a stratified random partition (fixed seed).
 
-    Stratifying on label_column keeps every class's share of the rows identical across the
-    two splits - the conventional choice in the XAI-for-IDS literature this project's
-    methodology otherwise follows (e.g. Arreche et al. 2024, whose multiclass label
-    grouping the dataset adapters already match), and simpler to state and reproduce than a
-    temporal hold-out. test_fraction defaults to 0.3 (70/30), the ratio used by most of
-    those reference papers; random_state is fixed so the partition is reproducible.
+    Stratifying on label_column keeps every class's share of the rows the same in both
+    partitions. test_fraction defaults to 0.3 (a 70/30 split).
 
-    drop_columns lists helper columns that exist only for loading/cleaning (e.g. the
-    per-row "source_file" tag) and must not reach preprocessing or the model; any that are
-    present are removed before the split. Passing a name that isn't in the frame is a
-    no-op, so callers can list every dataset's helper columns without branching per dataset.
+    drop_columns lists helper columns that must not reach the model (e.g. the "source_file"
+    loading tag); names not present in the frame are ignored.
     """
     present_drop = [column for column in drop_columns if column in data.columns]
     features = data.drop(columns=present_drop)
@@ -57,10 +53,9 @@ def stratified_subsample(
     min_per_class: int = 1,
     random_state: int = 42,
 ) -> tuple[pd.DataFrame, pd.Series]:
-    """Subsample down to roughly target_size rows, proportionally per class, while
-    guaranteeing every class keeps at least min_per_class rows (or all of them, if it has
-    fewer). Plain proportional stratified sampling can whittle an already-rare class (e.g. 5
-    total rows) down below what a downstream cv-fold split needs; this puts a floor under it.
+    """Subsample to roughly target_size rows, proportionally per class, while every class keeps
+    at least min_per_class rows (or all of them, if it has fewer). Raising a class to the minimum
+    adds rows on top of the proportional shares, so the result can exceed target_size slightly.
     """
     counts = target.value_counts()
     proportions = counts / counts.sum()
@@ -89,25 +84,17 @@ def build_preprocessing_pipeline(
     """Create the shared preprocessing pipeline for numeric and categorical features."""
     numeric_columns = [column for column in features.columns if column not in categorical_columns]
 
-    # Min-max scaling, matching the reference methodology this project now follows. Verified
-    # this doesn't reproduce the RobustScaler regression found earlier (which broke LinearSVC
-    # outright, since a few heavy-tailed columns' IQR-scaled output ballooned to 10^5-10^6x
-    # other features): the tree ensemble is scale-invariant regardless (splits depend on
-    # value ordering, not magnitude) and the retained neural network took only a moderate,
-    # non-catastrophic hit on the most heavily-skewed dataset - LinearSVC is no longer in the
-    # catalog (see models.py), so its specific fragility to this choice no longer applies.
+    # Numeric features: median imputation, then min-max scaling to [0, 1]. Both are fitted on the
+    # training data; test values outside the training range are not clipped.
     numeric_pipeline = Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="median")),
             ("scaler", MinMaxScaler()),
         ]
     )
-    # min_frequency: categories below this share of the training rows are folded into one
-    # "infrequent" bucket per column (bounds proto's dimensionality on UNSW-NB15). The
-    # retained categories and threshold are fixed on the training partition.
-    # handle_unknown="infrequent_if_exist": a category seen only in the test partition is
-    # routed to that same infrequent bucket when the column has one, and to an all-zero
-    # vector otherwise - so a rare unseen value behaves like a rare seen one.
+    # Categorical features: one-hot encoding. Categories below min_frequency of the training rows
+    # share one "infrequent" bucket per column, and categories seen only in the test data are
+    # assigned to that bucket (or to an all-zero vector if the column has none).
     categorical_pipeline = Pipeline(
         steps=[
             (

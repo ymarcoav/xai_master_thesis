@@ -515,10 +515,8 @@ def test_run_experiment_does_not_subsample_other_model_dataset_combinations(tmp_
 
 
 def test_run_experiment_neural_network_trains_through_the_plain_pipeline_path(tmp_path) -> None:
-    # neural_network is now TorchMLPClassifier and handles imbalance via a weighted loss, so
-    # it takes the same _build_pipeline + train_model path as random_forest - no resampling,
-    # so preprocessing fits on the real training rows and the pipeline is a normal fitted
-    # Pipeline (not one reassembled from separately-fitted parts).
+    # The MLP handles imbalance with a weighted loss and trains through the same Pipeline path as
+    # the random forest.
     dataset_config_dir = tmp_path / "datasets"
     dataset_config_dir.mkdir()
     processed_dir = tmp_path / "processed" / "toy"
@@ -700,9 +698,8 @@ def test_tune_hyperparameters_writes_best_params_into_experiment_yaml(tmp_path) 
 
 
 def test_tune_hyperparameters_neural_network_round_trip_retrains_successfully(tmp_path) -> None:
-    # TorchMLPClassifier must be cloneable by RandomizedSearchCV and accept the
-    # hidden_layer_sizes / alpha / learning_rate_init grid; run_experiment must then retrain
-    # from the tuned params. No resampling special-case in the search anymore.
+    # TorchMLPClassifier must be cloneable by RandomizedSearchCV and accept its search grid;
+    # run_experiment must then retrain from the tuned params.
     dataset_config_dir = tmp_path / "datasets"
     dataset_config_dir.mkdir()
     processed_dir = tmp_path / "processed" / "toy"
