@@ -11,12 +11,14 @@ metrics:
 - f1_macro
 - roc_auc_macro
 - pr_auc_macro
-# Do not re-tune: the expert interviews used the CIC-IDS2017 xgboost model's explanations.
+# model_params: RandomizedSearchCV result (scripts/train.py --tune). The expert interviews used
+# explanations of an earlier xgboost configuration, archived with its model and plots in
+# outputs/_archive/xgboost_interview_model/.
 model_params:
-  subsample: 0.8
-  reg_lambda: 0.5
-  n_estimators: 100
+  subsample: 1.0
+  reg_lambda: 2.0
+  n_estimators: 200
   min_child_weight: 1
-  max_depth: 7
-  learning_rate: 0.1
+  max_depth: 5
+  learning_rate: 0.03
   colsample_bytree: 0.8

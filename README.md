@@ -507,14 +507,30 @@ produced a badly degenerate fit (accuracy 0.182, macro-F1 0.135 - confirmed via 
 the run log, not a real finding about the larger subsample). Fixed and retrained again with the correct
 default `max_iter=50_000` cap.
 
+#### Hyperparameter search
+
+`scripts/train.py --tune` (`tune_hyperparameters()`) runs `RandomizedSearchCV` with 30 sampled
+configurations (`svm`: its 8 `C` values, i.e. the whole grid), stratified 3-fold CV and `f1_macro`, on a
+class-proportional subsample of 200,000 training rows, and writes the result into the experiment
+config's `model_params`. Do not re-tune: the reported results and the thesis text rest on the current
+configs.
+
+**Interview model.** The expert interviews used explanations of an earlier `xgboost` configuration
+(CIC-IDS2017). On 2026-10-05 both `xgboost` models were retrained with the search's selected params
+(the configs' current `model_params`) and every `xgboost` result was regenerated. The interview
+configuration - its configs, models, metrics, plots and every interview stimulus - is archived in
+`outputs/_archive/xgboost_interview_model/` (local only; `outputs/` is gitignored). Do not run
+`scripts/interview_stimuli.py` for `xgboost` expecting the interview plots: it would explain the
+current model.
+
 **Final results — stratified random 70/30 split, all four models retrained with the params in
 `configs/experiments/`, `svm` final fit on the 200k / `min_per_class=500` subsample. Regenerated
-2026-08-31/09-01.**
+2026-08-31/09-01; `xgboost` retrained 2026-10-05.**
 
 | Model | UNSW-NB15 macro-F1 | UNSW-NB15 accuracy | CIC-IDS2017 macro-F1 | CIC-IDS2017 accuracy |
 | --- | --- | --- | --- | --- |
 | `random_forest` | **0.609** | 0.977 | 0.888 | 0.999 |
-| `xgboost` | 0.597 | 0.976 | **0.901** | 0.999 |
+| `xgboost` | 0.554 | 0.975 | **0.893** | 0.999 |
 | `neural_network` | 0.463 | 0.971 | 0.428 | 0.942 |
 | `svm` | 0.419 | 0.968 | 0.379 | 0.864 |
 
@@ -522,22 +538,15 @@ Full per-metric numbers are in `outputs/metrics/*_baseline.json`; `roc_auc_macro
 for every model/dataset, so `f1_macro` (which weights the rare classes equally) is the
 discriminating headline metric.
 
-- **`xgboost` is best on CIC-IDS2017 (0.901), `random_forest` best on UNSW-NB15 (0.609)** - the two
-  tree ensembles are within ~0.01-0.02 of each other on both datasets and clear of `neural_network`
-  and `svm`.
+- **`xgboost` is best on CIC-IDS2017 (0.893), `random_forest` best on UNSW-NB15 (0.609)** - the two
+  tree ensembles are within ~0.01 of each other on CIC-IDS2017 and ~0.06 on UNSW-NB15, and clear of
+  `neural_network` and `svm` on both.
 - **Re-tuning on the new split moved things.** `random_forest` on CIC-IDS2017 jumped from 0.720
   (old params reused) to 0.888 once the search dropped `max_features="log2"` for `0.5` - the same
   column-count sensitivity documented for the earlier feature-set cut. `neural_network` went from a
   collapsed 0.22/0.30 (old `MLPClassifier`-era learning rates, unstable for the PyTorch MLP) to
   0.43/0.46 once `learning_rate_init` was searched over a lower range.
 
-#### Hyperparameter search
-
-`scripts/train.py --tune` (`tune_hyperparameters()`) runs `RandomizedSearchCV` with 30 sampled
-configurations (`svm`: its 8 `C` values, i.e. the whole grid), stratified 3-fold CV and `f1_macro`, on a
-class-proportional subsample of 200,000 training rows, and writes the result into the experiment
-config's `model_params`. The models are frozen: the expert interviews used the CIC-IDS2017 `xgboost`
-model's explanations, so no config should be re-tuned.
 - **`svm` is still the weakest on both** and essentially unaffected by re-tuning (`C` moved 10->3
   on UNSW-NB15 for no real change).
 - The stratified split is genuinely easier than the old chronological one - train and test are now
@@ -865,7 +874,7 @@ Outputs: `outputs/plots/<dataset>/agreement/local_agreement_{feature,rank}.png` 
 | model | UNSW-NB15 FA@10 | UNSW-NB15 RA@10 | CIC-IDS2017 FA@10 | CIC-IDS2017 RA@10 |
 | --- | --- | --- | --- | --- |
 | `random_forest` | 0.375 +/- 0.018 | 0.045 +/- 0.007 | 0.389 +/- 0.015 | 0.041 +/- 0.009 |
-| `xgboost` | 0.357 +/- 0.016 | 0.075 +/- 0.010 | 0.282 +/- 0.016 | 0.030 +/- 0.007 |
+| `xgboost` | 0.410 +/- 0.016 | 0.085 +/- 0.012 | 0.270 +/- 0.015 | 0.016 +/- 0.006 |
 | `neural_network` | 0.623 +/- 0.017 | 0.090 +/- 0.010 | 0.434 +/- 0.023 | 0.057 +/- 0.009 |
 | `svm` | 0.692 +/- 0.010 | 0.172 +/- 0.016 | 0.545 +/- 0.014 | 0.107 +/- 0.014 |
 
