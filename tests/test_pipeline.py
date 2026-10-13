@@ -99,9 +99,8 @@ def _write_unsw_fixture(raw_dir: Path) -> None:
     # 20 rows across the 4 required raw part files, after dedup: 8 Benign + 8 Exploits + 4 DoS
     # (dur/stime vary per row so none collide as exact duplicates). The per-class counts are
     # chosen so the stratified 70/30 split lands every class in both partitions (DoS's
-    # continuous test allocation is 4 * 0.3 = 1.2 >= 1). File 2 exercises the "-" service
-    # sentinel and the is_ftp_login=2 data-entry bug; files 2-4 also keep the multi-file
-    # load_raw concat under test.
+    # continuous test allocation is 4 * 0.3 = 1.2 >= 1). File 2 exercises the is_ftp_login=2
+    # data-entry bug; files 2-4 also keep the multi-file load_raw concat under test.
     file1_rows = [
         _unsw_row(
             dur=f"0.{i}",
@@ -139,8 +138,8 @@ def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
                 "raw_path": raw_dir.as_posix(),
                 "processed_path": processed_dir.as_posix(),
                 "label_column": "attack_cat",
-                "drop_columns": ["srcip", "sport", "dstip", "dsport", "ltime", "label", "ct_ftp_cmd", "stime"],
-                "categorical_columns": ["proto", "service", "state"],
+                "drop_columns": ["srcip", "sport", "dstip", "dsport", "ltime", "stime", "service", "label"],
+                "categorical_columns": ["proto", "state"],
             }
         ),
         encoding="utf-8",
@@ -158,7 +157,7 @@ def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
     assert "sport" not in train_df.columns
     assert "ltime" not in train_df.columns
     assert "label" not in train_df.columns
-    assert "ct_ftp_cmd" not in train_df.columns
+    assert "service" not in train_df.columns
     assert "stime" not in train_df.columns  # not a model feature - dropped in clean() via drop_columns
     assert "source_file" not in train_df.columns
     # 20 rows after dedup (8 Benign + 8 Exploits + 4 DoS), partitioned 70/30 by the stratified
@@ -167,7 +166,6 @@ def test_preprocess_dataset_writes_cleaned_train_and_test_csv(tmp_path) -> None:
     assert len(test_df) == 6
     assert set(train_df["attack_cat"]) == {"Benign", "Exploits", "DoS"}
     assert set(test_df["attack_cat"]) == {"Benign", "Exploits", "DoS"}
-    assert "unknown" in (set(train_df["service"]) | set(test_df["service"]))  # "-" sentinel normalized
     assert pd.concat([train_df["is_ftp_login"], test_df["is_ftp_login"]]).max() == 1  # clipped from 2
 
 

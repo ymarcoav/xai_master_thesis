@@ -71,7 +71,7 @@ _COLUMN_NAMES = [
 ]
 
 # Columns converted to numbers; the identifiers, the categorical fields (proto, service, state)
-# and the two label columns stay strings.
+# and the two label columns stay strings. service is dropped in clean() (see the dataset config).
 _NUMERIC_COLUMNS = [
     "dur",
     "sbytes",
@@ -105,6 +105,7 @@ _NUMERIC_COLUMNS = [
     "ct_state_ttl",
     "ct_flw_http_mthd",
     "is_ftp_login",
+    "ct_ftp_cmd",
     "ct_srv_src",
     "ct_srv_dst",
     "ct_dst_ltm",
@@ -114,10 +115,10 @@ _NUMERIC_COLUMNS = [
     "ct_dst_src_ltm",
 ]
 
-# ct_flw_http_mthd and is_ftp_login are blank in more than half of the raw records (53.1% and
-# 56.3%), concentrated in non-HTTP and non-FTP flows: the feature does not apply, so blank means 0
-# rather than a missing value for the imputer.
-_APPLICABILITY_ZERO_COLUMNS = ["ct_flw_http_mthd", "is_ftp_login"]
+# ct_flw_http_mthd, is_ftp_login and ct_ftp_cmd are blank in more than half of the raw records
+# (53.1%, 56.3% and 56.3%), concentrated in non-HTTP and non-FTP flows: the feature does not apply,
+# so blank means 0 rather than a missing value for the imputer.
+_APPLICABILITY_ZERO_COLUMNS = ["ct_flw_http_mthd", "is_ftp_login", "ct_ftp_cmd"]
 
 
 def _normalize_labels(labels: pd.Series) -> pd.Series:
@@ -133,7 +134,7 @@ class UNSWNB15Dataset(BaseDataset):
         raw_path = Path(self.config.raw_path)
         frames = []
         for file_name in _RAW_FILES:
-            # Read everything as text so that placeholders (blank, "-") are kept as written and
+            # Read everything as text so that placeholders (blank entries) are kept as written and
             # handled explicitly in clean().
             frame = pd.read_csv(raw_path / file_name, header=None, names=_COLUMN_NAMES, dtype=str, keep_default_na=False)
             frame[_SOURCE_COLUMN] = file_name
@@ -151,19 +152,17 @@ class UNSWNB15Dataset(BaseDataset):
         #     (guards against truncated records; the current files contain none).
         data = data.loc[data["label"].isin(["0", "1"])].copy()
 
-        # (3) Repair invalid and non-applicable values. Blank ct_flw_http_mthd / is_ftp_login
-        #     mean "not applicable" and become 0 (see _APPLICABILITY_ZERO_COLUMNS).
+        # (3) Repair invalid and non-applicable values. Blank ct_flw_http_mthd / is_ftp_login /
+        #     ct_ftp_cmd mean "not applicable" and become 0 (see _APPLICABILITY_ZERO_COLUMNS).
         data[_APPLICABILITY_ZERO_COLUMNS] = data[_APPLICABILITY_ZERO_COLUMNS].fillna(0)
         # is_ftp_login is documented as binary but contains values of 2 and 4.
         data["is_ftp_login"] = data["is_ftp_login"].clip(upper=1)
-        # "-" marks an unidentified service.
-        data["service"] = data["service"].replace({"-": "unknown", "": "unknown"})
 
         # (4) Normalize the labels (see _normalize_labels).
         label_column = self.config.label_column
         data[label_column] = _normalize_labels(data[label_column])
 
-        # (5) Drop the configured columns: connection identifiers, capture timestamps, ct_ftp_cmd
+        # (5) Drop the configured columns: connection identifiers, capture timestamps, service
         #     and the native binary label (see configs/datasets/unsw_nb15.yaml).
         data = self.drop_configured_columns(data)
 

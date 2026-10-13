@@ -101,8 +101,8 @@ of the metrics and tables as reported in the thesis.
 ## Method summary
 
 - **Cleaning:** label normalization (CIC-IDS2017: seven consolidated classes); infinite values
-  treated as missing; removal of corrupted records, identifiers, timestamps, constant and
-  near-duplicate columns, and exact duplicate records. The dataset-specific steps are documented
+  treated as missing; removal of corrupted records, identifiers, timestamps, the destination-port
+  proxy `service` (UNSW-NB15), constant and near-duplicate columns, and exact duplicate records. The dataset-specific steps are documented
   in `src/xai_thesis/datasets/` and `configs/datasets/`.
 - **Preprocessing:** stratified 70/30 split; median imputation, min-max scaling and one-hot
   encoding (categories below 1% grouped), all fitted on the training partition.

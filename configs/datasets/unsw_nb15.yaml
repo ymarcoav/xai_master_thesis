@@ -10,23 +10,21 @@ exclude_files:
 
 categorical_columns:
   - proto
-  - service
   - state
 
 # srcip, sport, dstip, dsport: connection identifiers (metadata, prone to shortcut learning).
 # ltime, stime: absolute capture timestamps (artifacts of the capture schedule).
+# service: proxy for the destination port (D'hooge et al. 2022).
 # label: native binary label (attack_cat is the target).
-# ct_ftp_cmd: near-redundant with is_ftp_login (r = 0.92); where nonzero (2% of records) its
-#   mean is about 1 in every class in which it occurs, so it does not separate the classes.
 drop_columns:
   - srcip
   - sport
   - dstip
   - dsport
   - ltime
-  - label
-  - ct_ftp_cmd
   - stime
+  - service
+  - label
 
 # The constant / near-duplicate screen (scripts/feature_screen.py) removes nothing: no column is
 # constant, and the closest pair, swin/dwin, still differs in 2,540 records.

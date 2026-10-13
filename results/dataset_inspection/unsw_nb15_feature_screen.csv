@@ -1,4 +1,4 @@
 dataset,n_rows,check,column,other_column,r,n_differing,share_differing,flagged,in_screen_drop_columns
-unsw_nb15,2026609,pair,swin,dwin,0.996988,2540,0.00125333,False,
-unsw_nb15,2026609,pair,dloss,dpkts,0.992263,1970584,0.972355,False,
-unsw_nb15,2026609,pair,dbytes,dloss,0.99165,1970607,0.972367,False,
+unsw_nb15,2026568,pair,swin,dwin,0.996988,2540,0.00125335,False,
+unsw_nb15,2026568,pair,dloss,dpkts,0.992284,1970556,0.972361,False,
+unsw_nb15,2026568,pair,dbytes,dloss,0.99165,1970579,0.972373,False,

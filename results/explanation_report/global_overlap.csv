@@ -1,8 +1,8 @@
 dataset,model,k,n_shared,feature_agreement,shared
-unsw_nb15,random_forest,10,8,0.8,proto; service; sbytes; sttl; dbytes; smean; ct_srv_dst; dmean
-unsw_nb15,xgboost,10,8,0.8,proto; sbytes; sttl; service; smean; dbytes; dmean; ct_srv_dst
-unsw_nb15,neural_network,10,9,0.9,dttl; service; sttl; proto; state; dmean; ct_srv_dst; smean; ct_dst_src_ltm
-unsw_nb15,svm,10,9,0.9,dttl; proto; state; service; dmean; swin; sttl; dwin; smean
+unsw_nb15,random_forest,10,7,0.7,sbytes; proto; sttl; ct_srv_dst; smean; dbytes; dmean
+unsw_nb15,xgboost,10,8,0.8,sbytes; proto; sttl; smean; ct_srv_dst; dbytes; dmean; ct_dst_src_ltm
+unsw_nb15,neural_network,10,9,0.9,proto; dttl; smean; sttl; dmean; state; ct_srv_dst; swin; ct_dst_src_ltm
+unsw_nb15,svm,10,9,0.9,dttl; proto; state; dmean; dwin; swin; sttl; smean; ct_srv_dst
 cic_ids2017,random_forest,10,7,0.7,Fwd IAT Std; Total Backward Packets; Bwd Header Length; Fwd Packet Length Max; Init_Win_bytes_backward; PSH Flag Count; Init_Win_bytes_forward
 cic_ids2017,xgboost,10,5,0.5,Init_Win_bytes_forward; Init_Win_bytes_backward; Fwd IAT Min; Flow Duration; Bwd Packet Length Mean
 cic_ids2017,neural_network,10,7,0.7,PSH Flag Count; Init_Win_bytes_forward; Init_Win_bytes_backward; ACK Flag Count; min_seg_size_forward; Flow Duration; Flow IAT Max

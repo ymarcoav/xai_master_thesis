@@ -10,7 +10,7 @@ def _make_dataset() -> UNSWNB15Dataset:
         raw_path="unused",
         processed_path="unused",
         label_column="attack_cat",
-        drop_columns=("srcip", "sport", "dstip", "dsport", "ltime", "label", "ct_ftp_cmd", "stime"),
+        drop_columns=("srcip", "sport", "dstip", "dsport", "ltime", "stime", "service", "label"),
     )
     return UNSWNB15Dataset(config)
 
@@ -75,7 +75,7 @@ def _row(**overrides: object) -> dict[str, object]:
     return base
 
 
-def test_unsw_clean_drops_identifiers_native_label_ltime_ct_ftp_cmd_and_stime() -> None:
+def test_unsw_clean_drops_identifiers_timestamps_service_and_native_label() -> None:
     dataset = _make_dataset()
     data = pd.DataFrame([_row()])
 
@@ -87,9 +87,9 @@ def test_unsw_clean_drops_identifiers_native_label_ltime_ct_ftp_cmd_and_stime() 
     assert "dsport" not in cleaned.columns
     assert "ltime" not in cleaned.columns
     assert "label" not in cleaned.columns
-    assert "ct_ftp_cmd" not in cleaned.columns
     assert "stime" not in cleaned.columns  # absolute timestamp, not a model feature
-    assert "service" in cleaned.columns
+    assert "service" not in cleaned.columns  # proxy for the destination port
+    assert "ct_ftp_cmd" in cleaned.columns
 
 
 def test_unsw_clean_drops_truncated_rows_via_invalid_label() -> None:
@@ -127,13 +127,15 @@ def test_unsw_raw_labels_normalize_every_raw_row_without_removing_any() -> None:
     assert dataset.raw_labels(data).tolist() == ["Backdoor", "Backdoor", "Benign"]
 
 
-def test_unsw_clean_normalizes_service_sentinels() -> None:
+def test_unsw_clean_fills_non_applicable_blanks_with_zero() -> None:
     dataset = _make_dataset()
-    data = pd.DataFrame([_row(service="-"), _row(service="", dur="0.2")])
+    data = pd.DataFrame([_row(), _row(ct_flw_http_mthd="1", is_ftp_login="1", ct_ftp_cmd="2", dur="0.2")])
 
     cleaned = dataset.clean(data)
 
-    assert cleaned["service"].tolist() == ["unknown", "unknown"]
+    assert cleaned["ct_flw_http_mthd"].tolist() == [0, 1]
+    assert cleaned["is_ftp_login"].tolist() == [0, 1]
+    assert cleaned["ct_ftp_cmd"].tolist() == [0, 2]
 
 
 def test_unsw_clean_clips_ftp_login_bug_values() -> None:
