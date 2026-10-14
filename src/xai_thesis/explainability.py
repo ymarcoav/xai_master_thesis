@@ -430,6 +430,10 @@ def compute_permutation_importance(
         xerr=result.importances_std[order][::-1],
         color="#4C72B0",
     )
+    # A whisker reaching below zero widens the axis past the bars' origin; a zero line marks
+    # where the bars start, and the whisker stays visible in full.
+    if (result.importances_mean[order] - result.importances_std[order]).min() < 0:
+        ax.axvline(0, color="#444444", linewidth=0.8)
     ax.set_xlabel(f"Permutation importance ({scoring} drop)")
     fig.tight_layout()
     plot_path = _save_figure(fig, output_path)
