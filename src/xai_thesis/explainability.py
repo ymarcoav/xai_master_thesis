@@ -17,7 +17,6 @@ import pandas as pd  # noqa: E402
 import shap  # noqa: E402
 from lime.lime_tabular import LimeTabularExplainer  # noqa: E402
 from sklearn.inspection import permutation_importance  # noqa: E402
-from sklearn.metrics import f1_score  # noqa: E402
 from sklearn.pipeline import Pipeline  # noqa: E402
 
 # Models explained with the exact tree-specific SHAP explainer. The others (neural_network, svm)
@@ -170,8 +169,8 @@ def _collapse_to_original_features(
 def class_colors(class_names: Sequence[str]) -> list[tuple[float, float, float, float]]:
     """One fixed colour per class, indexed like class_names (model.classes_ order).
 
-    Shared by plot_shap_bar and compute_permutation_importance, so that a class has the same
-    colour in both global figures. Uses SHAP's default red_blue_circle palette.
+    Used by plot_shap_bar, so that a class has the same colour in every SHAP bar plot regardless
+    of its stack position. Uses SHAP's default red_blue_circle palette.
     """
     return [shap.plots.colors.red_blue_circle(i / len(class_names)) for i in range(len(class_names))]
 
@@ -188,8 +187,8 @@ def plot_shap_bar(
 
     Shows the top max_display features, like the other explanation plots. Each bar's segments
     are the per-class mean |SHAP value|. The x-axis label is shortened because SHAP's default
-    label is cut off at this figure width. Segments are coloured by class (class_colors), so the
-    colours match the permutation importance plot; the stack order is SHAP's default.
+    label is cut off at this figure width. Segments are coloured by class (class_colors); the stack
+    order is SHAP's default.
     """
     # SHAP's default stack order (classes by overall mean |SHAP|), coloured by class.
     class_inds = np.argsort(-np.abs(shap_values).mean(axis=(0, 1)))
@@ -401,94 +400,36 @@ def compute_permutation_importance(
     y_data: pd.Series,
     output_path: str | Path,
     *,
+    scoring: str = "f1_macro",
     n_repeats: int = 10,
     random_state: int = 42,
     top_n: int = 10,
 ) -> tuple[Path, list[str], Any]:
     """Permutation feature importance on the full pipeline (raw feature names), measured as each
-    feature's drop in macro-F1 over n_repeats shuffles, and plotted stacked by class.
+    feature's drop in the score over n_repeats shuffles, and plotted as one bar per feature with
+    the standard deviation over repeats.
 
-    Macro-F1 is the mean of the K per-class F1 scores, so a feature's macro-F1 drop splits
-    exactly into K per-class segments (each class's F1 drop divided by K). All scores come from
-    one multi-metric permutation_importance call. A class's segment can be negative (shuffling
-    slightly helped that class); negative segments are drawn left of zero. Classes are stacked
-    and coloured as in plot_shap_bar.
-
-    Returns the plot path, the top_n feature names, and sklearn's result for macro-F1
-    (importances_mean, importances_std, importances).
+    Returns the plot path, the top_n feature names, and sklearn's result (importances_mean,
+    importances_std, importances).
     """
-    class_names = [str(name) for name in pipeline.named_steps["model"].classes_]
-    labels = list(pipeline.named_steps["model"].classes_)
-
-    def _scorer(estimator: Any, x: pd.DataFrame, y: pd.Series) -> dict[str, float]:
-        per_class = f1_score(y, estimator.predict(x), labels=labels, average=None, zero_division=0)
-        scores = {f"f1::{name}": float(score) for name, score in zip(class_names, per_class)}
-        return {"f1_macro": float(per_class.mean()), **scores}
-
-    results = permutation_importance(
-        pipeline, x_data, y_data, scoring=_scorer, n_repeats=n_repeats, random_state=random_state, n_jobs=1
+    result = permutation_importance(
+        pipeline, x_data, y_data, scoring=scoring, n_repeats=n_repeats, random_state=random_state, n_jobs=1
     )
-    result = results["f1_macro"]
-    # (n_features, n_classes): each class's share of the macro-F1 drop.
-    per_class_drops = [results[f"f1::{name}"].importances_mean for name in class_names]
-    contributions = np.column_stack(per_class_drops) / len(class_names)
-
     order = np.argsort(result.importances_mean)[::-1][:top_n]
     top_features = [x_data.columns[i] for i in order]
-    plot_path = _plot_stacked_permutation_importance(
-        contributions[order],
-        result.importances_mean[order],
-        result.importances_std[order],
-        top_features,
-        class_names,
-        output_path,
+
+    fig, ax = plt.subplots(figsize=(8, max(4, len(order) * 0.35)))
+    ax.barh(
+        top_features[::-1],
+        result.importances_mean[order][::-1],
+        xerr=result.importances_std[order][::-1],
+        color="#4C72B0",
     )
+    ax.set_xlabel(f"Permutation importance ({scoring} drop)")
+    fig.tight_layout()
+    plot_path = _save_figure(fig, output_path)
 
     return plot_path, top_features, result
-
-
-def _plot_stacked_permutation_importance(
-    contributions: np.ndarray,
-    totals: np.ndarray,
-    totals_std: np.ndarray,
-    feature_names: list[str],
-    class_names: list[str],
-    output_path: str | Path,
-) -> Path:
-    """Draw compute_permutation_importance's per-class stacked bars, most important on top.
-
-    contributions is (n_features, n_classes) in display order. Positive segments stack to the
-    right of zero and negative ones to the left; a black diamond with an error bar (standard
-    deviation over repeats) marks each feature's net macro-F1 drop.
-    """
-    n_features = contributions.shape[0]
-    y_pos = np.arange(n_features)[::-1]
-    class_order = np.argsort(-contributions.sum(axis=0))
-    palette = class_colors(class_names)
-
-    fig, ax = plt.subplots(figsize=(8, n_features * 0.4 + 1.5))
-    right = np.zeros(n_features)
-    left = np.zeros(n_features)
-    for class_index in class_order:
-        values = contributions[:, class_index]
-        positive, negative = np.clip(values, 0, None), np.clip(values, None, 0)
-        color = palette[class_index]
-        ax.barh(y_pos, positive, 0.7, left=right, color=color, label=class_names[class_index])
-        ax.barh(y_pos, negative, 0.7, left=left, color=color)
-        right += positive
-        left += negative
-
-    ax.errorbar(
-        totals, y_pos, xerr=totals_std, fmt="D", color="#222222", markersize=4, elinewidth=1, capsize=3
-    )
-    if left.min() < 0:
-        ax.axvline(0, color="#999999", linewidth=0.8)
-    ax.set_yticks(y_pos, feature_names, fontsize=13)
-    ax.set_xlabel("Permutation importance (macro-F1 drop)", fontsize=13)
-    ax.spines[["top", "right"]].set_visible(False)
-    ax.legend(frameon=False, fontsize=12)
-    fig.tight_layout()
-    return _save_figure(fig, output_path)
 
 
 def select_curated_instances(

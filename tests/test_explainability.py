@@ -286,28 +286,6 @@ def test_compute_permutation_importance_writes_png_and_ranks_features(tmp_path) 
     assert result.importances.shape == (x.shape[1], 3)
 
 
-def test_permutation_importance_class_segments_sum_to_macro_drop(tmp_path, monkeypatch) -> None:
-    # The stacked plot's premise: macro-F1 is the mean of per-class F1, so the (1/K)-scaled
-    # per-class drops drawn as segments must add back up to the macro drop the bar stands for.
-    import xai_thesis.explainability as explainability
-
-    captured = {}
-
-    def _capture(contributions, totals, *args, **kwargs):
-        captured["contributions"], captured["totals"] = contributions, totals
-        return tmp_path / "unused.png"
-
-    monkeypatch.setattr(explainability, "_plot_stacked_permutation_importance", _capture)
-    x, y = _make_dataset()
-    pipeline = _fitted_pipeline("random_forest", x, y)
-
-    compute_permutation_importance(pipeline, x, y, tmp_path / "pfi.png", n_repeats=3)
-
-    n_classes = len(pipeline.named_steps["model"].classes_)
-    assert captured["contributions"].shape == (x.shape[1], n_classes)
-    np.testing.assert_allclose(captured["contributions"].sum(axis=1), captured["totals"], atol=1e-12)
-
-
 def test_select_curated_instances_finds_correct_and_misclassified() -> None:
     x, y = _make_dataset()
     pipeline = _fitted_pipeline("random_forest", x, y)
