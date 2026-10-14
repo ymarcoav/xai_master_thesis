@@ -387,6 +387,9 @@ def explain_instance_with_lime(
         class_index=class_index,
     )
     fig = explanation.as_pyplot_figure(label=label)
+    # 7.37 in saves at the same height as plot_shap_waterfall (945 px at 150 dpi), so the two local
+    # plots line up when shown side by side; the width stays LIME's default.
+    fig.set_size_inches(fig.get_figwidth(), 7.37)
     ax = fig.axes[0]
     ax.set_title("")
     ax.set_xlabel("Feature weight")
@@ -418,7 +421,9 @@ def compute_permutation_importance(
     order = np.argsort(result.importances_mean)[::-1][:top_n]
     top_features = [x_data.columns[i] for i in order]
 
-    fig, ax = plt.subplots(figsize=(8, max(4, len(order) * 0.35)))
+    # 5.5 in saves at the same height as plot_shap_bar (809 px at 150 dpi), so the two global plots
+    # line up when shown side by side.
+    fig, ax = plt.subplots(figsize=(8, 5.5))
     ax.barh(
         top_features[::-1],
         result.importances_mean[order][::-1],
