@@ -733,15 +733,17 @@ def _generate_instance_explanations(
     random_state: int,
     *,
     predictions: pd.Series | None = None,
+    correct_index: int | None = None,
 ) -> dict[str, Path]:
     """SHAP waterfall and LIME plots for one correctly classified instance of target_class and
     one misclassified as confused_with_class. Used by generate_interview_stimuli(). Pass
-    predictions to reuse an existing prediction of the whole test set.
+    predictions to reuse an existing prediction of the whole test set, and correct_index to pin
+    the correct instance (see select_curated_instances).
     """
     paths: dict[str, Path] = {}
     instances = select_curated_instances(
         pipeline, x_test, y_test, target_class, confused_with_class,
-        predictions=predictions, random_state=random_state,
+        predictions=predictions, random_state=random_state, correct_index=correct_index,
     )
     if not instances:
         return paths
@@ -813,6 +815,14 @@ _INTERVIEW_STIMULUS_CLASSES: dict[str, list[str]] = {
     "cic_ids2017": ["DoS/DDoS", "Brute Force", "Bot"],
 }
 
+# Test rows of the two alerts shown in the expert interviews, keyed by (dataset, model) and class.
+# The random draw in select_curated_instances depends on which rows the model classifies
+# correctly, so it moves when the model is retrained; pinning keeps the local plots on the flows
+# the experts saw (see outputs/thesis_deliverables/data/interview_alerts.csv).
+_INTERVIEW_ALERT_ROWS: dict[tuple[str, str], dict[str, int]] = {
+    ("cic_ids2017", "xgboost"): {"DoS/DDoS": 59216, "Brute Force": 55480},
+}
+
 
 def generate_interview_stimuli(
     experiment_config_path: str | Path,
@@ -847,6 +857,7 @@ def generate_interview_stimuli(
         x_train, y_train, _SHAP_BACKGROUND_SIZE, random_state=random_state
     )
     interview_dir = _experiment_plot_dir(plots_dir, dataset_config.name, experiment_name, "interview")
+    alert_rows = _INTERVIEW_ALERT_ROWS.get((dataset_config.name, model_name), {})
 
     results: dict[str, dict[str, Path]] = {}
     for target_class in stimulus_classes:
@@ -871,6 +882,7 @@ def generate_interview_stimuli(
             output_dir,
             random_state,
             predictions=predictions,
+            correct_index=alert_rows.get(target_class),
         )
     return results
 

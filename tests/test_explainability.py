@@ -297,6 +297,28 @@ def test_select_curated_instances_finds_correct_and_misclassified() -> None:
     assert pipeline.predict(x.loc[[instances["correct"]]])[0] == "class_0"
 
 
+def test_select_curated_instances_uses_pinned_correct_index() -> None:
+    x, y = _make_dataset()
+    pipeline = _fitted_pipeline("random_forest", x, y)
+    drawn = select_curated_instances(pipeline, x, y, "class_0", "class_1", random_state=42)
+    predictions = pipeline.predict(x)
+    pinned_row = next(
+        i for i in x.index[(y == "class_0") & (predictions == "class_0")] if i != drawn["correct"]
+    )
+
+    instances = select_curated_instances(
+        pipeline, x, y, "class_0", "class_1", random_state=42, correct_index=pinned_row
+    )
+
+    assert instances["correct"] == pinned_row
+    # Pinning the correct instance leaves the misclassified draw unchanged.
+    assert instances.get("misclassified") == drawn.get("misclassified")
+
+    wrong_row = x.index[y == "class_2"][0]
+    with pytest.raises(ValueError):
+        select_curated_instances(pipeline, x, y, "class_0", "class_1", random_state=42, correct_index=wrong_row)
+
+
 def test_select_curated_instances_returns_empty_when_no_misclassifications_exist() -> None:
     x, y = _make_dataset()
     pipeline = _fitted_pipeline("random_forest", x, y)

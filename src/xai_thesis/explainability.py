@@ -450,10 +450,13 @@ def select_curated_instances(
     *,
     predictions: pd.Series | None = None,
     random_state: int = 42,
+    correct_index: int | None = None,
 ) -> dict[str, int]:
     """Pick one correctly classified instance of target_class and one misclassified as
     confused_with_class, at random with a fixed seed. Pass predictions (aligned to x_test.index)
-    to reuse an existing prediction of the whole test set.
+    to reuse an existing prediction of the whole test set. Pass correct_index to use that test
+    row as the correct instance instead of the random draw; it must be a correctly classified
+    instance of target_class. The misclassified draw is the same either way.
     """
     if predictions is None:
         predictions = pd.Series(pipeline.predict(x_test), index=x_test.index)
@@ -465,6 +468,10 @@ def select_curated_instances(
     correct_candidates = x_test.index[is_target & (predictions == target_class)]
     if len(correct_candidates) > 0:
         instances["correct"] = rng.choice(correct_candidates)
+    if correct_index is not None:
+        if correct_index not in correct_candidates:
+            raise ValueError(f"Row {correct_index} is not a correctly classified {target_class!r} instance")
+        instances["correct"] = correct_index
 
     misclassified_candidates = x_test.index[is_target & (predictions == confused_with_class)]
     if len(misclassified_candidates) > 0:
