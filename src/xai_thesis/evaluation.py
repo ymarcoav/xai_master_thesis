@@ -21,7 +21,6 @@ from sklearn.metrics import (  # noqa: E402
     roc_curve,
 )
 from sklearn.preprocessing import label_binarize  # noqa: E402
-from mpl_toolkits.axes_grid1 import make_axes_locatable  # noqa: E402
 
 
 def evaluate_classifier(model, x_test, y_test) -> dict:
@@ -63,6 +62,24 @@ def confusion_matrix_frame(y_true, y_pred) -> pd.DataFrame:
     return frame
 
 
+# The confusion matrices are printed two side by side at 0.49\textwidth (about 2.85 in) in the
+# thesis, so they are drawn at that size and their fonts come out at these point sizes in print.
+CONFUSION_MATRIX_SIZE_INCHES = 2.9
+# Counts are set in Arial Narrow so that the six-digit Benign-as-Benign count fits a cell of the
+# ten-class UNSW-NB15 grid at 6 pt; plain Arial fits only at 5 pt and touches the cell edges.
+CONFUSION_MATRIX_ANNOTATION_SIZE = 6.0
+CONFUSION_MATRIX_ANNOTATION_FONT = "Arial Narrow"
+CONFUSION_MATRIX_STYLE = {
+    "font.family": "sans-serif",
+    "font.sans-serif": ["Arial", "DejaVu Sans"],
+    "xtick.labelsize": 6,
+    "ytick.labelsize": 6,
+    "axes.labelsize": 7,
+}
+# Tick labels too long to leave the cells room for six-digit counts.
+CONFUSION_MATRIX_LABEL_ABBREVIATIONS = {"Reconnaissance": "Recon."}
+
+
 def plot_confusion_matrix(
     y_true,
     y_pred,
@@ -70,13 +87,14 @@ def plot_confusion_matrix(
     *,
     normalize: bool = False,
 ) -> Path:
-    """Plot a confusion matrix and save it as a PNG.
+    """Plot a confusion matrix at its printed size and save it as a PNG.
 
     Cells are annotated with exact counts; the colour scale is symmetric-logarithmic because
     the counts span several orders of magnitude. The scale's maximum is the second-largest class
     total, so the Benign diagonal does not use up the whole colour range, and every confusion
-    matrix of a dataset shares the same scale. Pass normalize=True to colour by each true class's
-    row share (recall) instead.
+    matrix of a dataset shares the same scale. There is no colorbar, to leave the grid as much
+    width as possible, so the figure caption has to state the log scale. Pass normalize=True to
+    colour by each true class's row share (recall) instead.
     """
     frame = confusion_matrix_frame(y_true, y_pred)
     labels, matrix = list(frame.index), frame.to_numpy()
@@ -88,8 +106,6 @@ def plot_confusion_matrix(
         )
         norm = None
         vmin, vmax = 0, 1.0
-        colorbar_label = "Share of true class (recall)"
-        cbar_extend = "neither"
     else:
         display_matrix = matrix
         # Second-largest row sum (see the docstring); the largest cell for a single-class matrix.
@@ -98,46 +114,35 @@ def plot_confusion_matrix(
         robust_vmax = max(robust_vmax, 1)
         norm = SymLogNorm(linthresh=max(1, robust_vmax * 0.05), vmin=0, vmax=robust_vmax)
         vmin = vmax = None
-        colorbar_label = "Count (log scale)"
-        cbar_extend = "max" if matrix.max() > robust_vmax else "neither"
 
-    # The canvas grows with the number of classes, and the annotation font is capped so that the
-    # widest count still fits inside its cell.
-    figure_size = max(6.0, len(labels) * 0.85)
-    grid_width_points = figure_size * 72 * 0.7
-    cell_width_points = grid_width_points / len(labels)
-    max_digits = len(str(int(matrix.max())))
-    annotation_size = float(np.clip(0.85 * cell_width_points / (0.6 * max_digits), 5.0, 10.0))
+    tick_labels = [CONFUSION_MATRIX_LABEL_ABBREVIATIONS.get(str(label), label) for label in labels]
+    with plt.rc_context(CONFUSION_MATRIX_STYLE):
+        fig, ax = plt.subplots(figsize=(CONFUSION_MATRIX_SIZE_INCHES, CONFUSION_MATRIX_SIZE_INCHES))
+        sns.heatmap(
+            display_matrix,
+            annot=matrix,
+            fmt="d",
+            annot_kws={"size": CONFUSION_MATRIX_ANNOTATION_SIZE, "family": CONFUSION_MATRIX_ANNOTATION_FONT},
+            cmap="Blues",
+            vmin=vmin,
+            vmax=vmax,
+            norm=norm,
+            square=True,
+            cbar=False,
+            xticklabels=tick_labels,
+            yticklabels=tick_labels,
+            ax=ax,
+        )
+        ax.set_xlabel("Predicted label", labelpad=2)
+        ax.set_ylabel("True label", labelpad=2)
+        ax.tick_params(length=0, pad=1.5)
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+        plt.setp(ax.get_yticklabels(), rotation=0)
+        fig.tight_layout(pad=0.1)
 
-    fig, ax = plt.subplots(figsize=(figure_size, figure_size))
-    # Attach the colorbar to the heatmap axes so that it matches the grid's height.
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="5%", pad=0.3)
-    sns.heatmap(
-        display_matrix,
-        annot=matrix,
-        fmt="d",
-        annot_kws={"size": annotation_size},
-        cmap="Blues",
-        vmin=vmin,
-        vmax=vmax,
-        norm=norm,
-        square=True,
-        xticklabels=labels,
-        yticklabels=labels,
-        cbar_ax=cax,
-        cbar_kws={"label": colorbar_label, "extend": cbar_extend},
-        ax=ax,
-    )
-    ax.set_xlabel("Predicted label")
-    ax.set_ylabel("True label")
-    plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
-    plt.setp(ax.get_yticklabels(), rotation=0)
-    fig.tight_layout()
-
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=150)
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=300, bbox_inches="tight", pad_inches=0.02)
     plt.close(fig)
 
     return output_path
